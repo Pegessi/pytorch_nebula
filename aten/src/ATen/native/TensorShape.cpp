@@ -2542,17 +2542,17 @@ Tensor slice_backward(const Tensor& grad, IntArrayRef input_sizes, int64_t dim, 
   return grad_input;
 }
 
-std::vector<Tensor> split(const Tensor& self, int64_t split_size, int64_t dim) {
-  const auto num_splits = get_num_splits(self, split_size, dim);
-  std::vector<Tensor> splits(num_splits);
-  int64_t last_split_size = split_size - (split_size * num_splits - self.size(dim));
+// std::vector<Tensor> split(const Tensor& self, int64_t split_size, int64_t dim) {
+//   const auto num_splits = get_num_splits(self, split_size, dim);
+//   std::vector<Tensor> splits(num_splits);
+//   int64_t last_split_size = split_size - (split_size * num_splits - self.size(dim));
 
-  for (const auto i : c10::irange(num_splits)) {
-    auto length = i < num_splits - 1 ? split_size : last_split_size;
-    splits[i] = self.narrow(dim, i * split_size, length);
-  }
-  return splits;
-}
+//   for (const auto i : c10::irange(num_splits)) {
+//     auto length = i < num_splits - 1 ? split_size : last_split_size;
+//     splits[i] = self.narrow(dim, i * split_size, length);
+//   }
+//   return splits;
+// }
 
 std::vector<Tensor> split_symint(const Tensor& self, c10::SymIntArrayRef sizes, int64_t dim) {
   return at::split_with_sizes_symint(self, sizes, dim);
@@ -2591,27 +2591,27 @@ std::vector<Tensor> dsplit(const Tensor& self, int64_t split_size) {
   return at::tensor_split(self, split_size, 2);
 }
 
-std::vector<Tensor> split_with_sizes(const Tensor& self, IntArrayRef split_sizes, int64_t dim) {
-  TORCH_CHECK(self.dim() != 0, "split expects at least a 1-dimensional tensor");
-  const int64_t dim_size = self.size(dim);
-  const int64_t num_splits = split_sizes.size();
-  int64_t start_idx = 0;
+// std::vector<Tensor> split_with_sizes(const Tensor& self, IntArrayRef split_sizes, int64_t dim) {
+//   TORCH_CHECK(self.dim() != 0, "split expects at least a 1-dimensional tensor");
+//   const int64_t dim_size = self.size(dim);
+//   const int64_t num_splits = split_sizes.size();
+//   int64_t start_idx = 0;
 
-  std::vector<Tensor> splits;
-  splits.reserve(num_splits);
-  for (const auto i : c10::irange(num_splits)) {
-    auto length = split_sizes[i];
-    TORCH_CHECK(length >= 0,
-             "split_with_sizes expects split_sizes have only non-negative ",
-             "entries, but got split_sizes=", split_sizes);
-    splits.push_back(at::native::slice(self, dim, start_idx, start_idx + length, 1));
-    start_idx += length;
-  }
-  TORCH_CHECK(start_idx == dim_size,
-           "split_with_sizes expects split_sizes to sum exactly to ", dim_size,
-           " (input tensor's size at dimension ", dim, "), ", "but got split_sizes=", split_sizes);
-  return splits;
-}
+//   std::vector<Tensor> splits;
+//   splits.reserve(num_splits);
+//   for (const auto i : c10::irange(num_splits)) {
+//     auto length = split_sizes[i];
+//     TORCH_CHECK(length >= 0,
+//              "split_with_sizes expects split_sizes have only non-negative ",
+//              "entries, but got split_sizes=", split_sizes);
+//     splits.push_back(at::native::slice(self, dim, start_idx, start_idx + length, 1));
+//     start_idx += length;
+//   }
+//   TORCH_CHECK(start_idx == dim_size,
+//            "split_with_sizes expects split_sizes to sum exactly to ", dim_size,
+//            " (input tensor's size at dimension ", dim, "), ", "but got split_sizes=", split_sizes);
+//   return splits;
+// }
 
 std::vector<Tensor> unsafe_split_with_sizes(const Tensor& self, IntArrayRef split_sizes, int64_t dim) {
   auto result = at::native::split_with_sizes(self, split_sizes, dim);

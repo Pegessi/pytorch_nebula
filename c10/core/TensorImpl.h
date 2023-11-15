@@ -1231,6 +1231,10 @@ struct C10_API TensorImpl : public c10::intrusive_ptr_target {
     return device_default();
   }
 
+  c10::optional<c10::Device> optional_device() const {
+    return device_opt_;
+  }
+
  protected:
   c10::Device device_default() const {
     TORCH_CHECK(device_opt_.has_value(), "tensor does not have a device");
@@ -1999,6 +2003,12 @@ struct C10_API TensorImpl : public c10::intrusive_ptr_target {
    * compatible with SparseCUDA.
    */
   inline bool has_compatible_shallow_copy_type(DispatchKeySet from) {
+    if (key_set_ == from) {
+      return true;
+    }
+    if (key_set_.has(DispatchKey::Checkpoint) || from.has(DispatchKey::Checkpoint)) {
+      return false;
+    }
     auto is_dense = [](DispatchKeySet ts) {
       constexpr auto dense_backends = DispatchKeySet(
           {BackendComponent::CPUBit,

@@ -46,6 +46,7 @@ namespace c10 {
   _(PrivateUse1, extra)                         \
   _(PrivateUse2, extra)                         \
   _(PrivateUse3, extra)                         \
+  _(Checkpoint, extra)                          \
   _(Meta, extra)
 
 // WARNING!  If we add a new per-backend functionality key that has higher
@@ -485,6 +486,7 @@ enum class DispatchKey : uint16_t {
   // be used
   CPUTensorId = CPU,
   CUDATensorId = CUDA,
+  CheckpointTensorId = CUDA,
   DefaultBackend = CompositeExplicitAutograd,
   PrivateUse1_PreAutograd = AutogradPrivateUse1,
   PrivateUse2_PreAutograd = AutogradPrivateUse2,

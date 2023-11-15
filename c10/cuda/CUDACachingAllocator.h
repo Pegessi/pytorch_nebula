@@ -231,6 +231,7 @@ class CUDAAllocator : public Allocator {
         name(),
         " does not yet support checkPoolLiveAllocations. "
         "If you need it, please file an issue describing your use case.");
+        return false;
   }
   virtual std::shared_ptr<void> getIpcDevPtr(std::string handle) = 0;
   virtual bool isHistoryEnabled() {
@@ -239,6 +240,7 @@ class CUDAAllocator : public Allocator {
         name(),
         " does not yet support recordHistory. "
         "If you need it, please file an issue describing your use case.");
+        return false;
   }
   virtual void recordHistory(
       bool enabled,

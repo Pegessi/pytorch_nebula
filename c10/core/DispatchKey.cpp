@@ -37,6 +37,8 @@ const char* toString(BackendComponent t) {
       return "PrivateUse2Bit";
     case BackendComponent::PrivateUse3Bit:
       return "PrivateUse3Bit";
+    case BackendComponent::CheckpointBit:
+      return "CheckpointBit";
     case BackendComponent::InvalidBit:
       return "InvalidBit";
     default:
@@ -132,7 +134,8 @@ const char* toString(DispatchKey t) {
       return "AutogradFunctionality";
     case DispatchKey::AutogradNestedTensor:
       return "AutogradNestedTensor";
-
+    case DispatchKey::Checkpoint:
+      return "Checkpoint";
     case DispatchKey::Tracer:
       return "Tracer";
 
@@ -329,6 +332,7 @@ c10::DispatchKey parseDispatchKey(const std::string& k) {
       {"PrivateUse1", c10::DispatchKey::PrivateUse1},
       {"PrivateUse2", c10::DispatchKey::PrivateUse2},
       {"PrivateUse3", c10::DispatchKey::PrivateUse3},
+      {"Checkpoint", c10::DispatchKey::Checkpoint},
 
       {"QuantizedCPU", c10::DispatchKey::QuantizedCPU},
       {"QuantizedCUDA", c10::DispatchKey::QuantizedCUDA},
@@ -355,6 +359,7 @@ c10::DispatchKey parseDispatchKey(const std::string& k) {
       {"AutogradPrivateUse1", c10::DispatchKey::AutogradPrivateUse1},
       {"AutogradPrivateUse2", c10::DispatchKey::AutogradPrivateUse2},
       {"AutogradPrivateUse3", c10::DispatchKey::AutogradPrivateUse3},
+      // {"AutogradCheckpoint", c10::DispatchKey::AutogradCheckpoint},
 
       {"Autograd", c10::DispatchKey::Autograd},
       {"CompositeImplicitAutograd",

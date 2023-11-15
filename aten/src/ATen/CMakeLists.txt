@@ -140,6 +140,7 @@ file(GLOB native_quantized_cuda_cpp "native/quantized/cuda/*.cpp")
 file(GLOB native_quantized_cudnn_cpp "native/quantized/cudnn/*.cpp")
 file(GLOB native_nested_cuda_cu "native/nested/cuda/*.cu")
 file(GLOB native_nested_cuda_cpp "native/nested/cuda/*.cpp")
+file(GLOB native_checkpoint_cpp "native/checkpoint/*.cpp")
 
 file(GLOB native_hip_hip "native/hip/*.hip")
 file(GLOB native_hip_cpp "native/hip/*.cpp")
@@ -198,7 +199,7 @@ else()
     all_cpu_cpp ${base_cpp} ${ATen_CORE_SRCS} ${native_cpp}
     ${native_ao_sparse_cpp} ${native_sparse_cpp} ${native_nested_cpp}
     ${native_quantized_cpp} ${native_mkl_cpp} ${native_mkldnn_cpp}
-    ${native_transformers_cpp}
+    ${native_transformers_cpp} ${native_checkpoint_cpp}
     ${native_utils_cpp} ${native_xnnpack} ${generated_sources} ${core_generated_sources}
     ${ATen_CPU_SRCS} ${ATen_QUANTIZED_SRCS} ${ATen_NNAPI_SRCS} ${cpu_kernel_cpp}
   )
@@ -255,6 +256,7 @@ if(USE_CUDA)
     ${native_quantized_cudnn_cpp}
     ${native_sparse_cuda_cpp}
     ${native_transformers_cuda_cpp}
+    ${native_checkpoint_cpp}
   )
   set(ATen_CUDA_LINALG_SRCS ${native_cuda_linalg_cpp})
   if(NOT BUILD_LAZY_CUDA_LINALG)

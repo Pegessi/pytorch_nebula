@@ -123,20 +123,21 @@ static std::vector<int64_t> seq_to_aten_shape(PyObject* py_seq) {
   return result;
 }
 
-PyObject* tensor_to_numpy(const at::Tensor& tensor, bool force /*=false*/) {
+PyObject* tensor_to_numpy(const at::Tensor& tensor_, bool force /*=false*/) {
   TORCH_CHECK(is_numpy_available(), "Numpy is not available");
 
   TORCH_CHECK(
-      !tensor.unsafeGetTensorImpl()->is_python_dispatch(),
+      !tensor_.unsafeGetTensorImpl()->is_python_dispatch(),
       ".numpy() is not supported for tensor subclasses.");
 
   TORCH_CHECK_TYPE(
-      tensor.layout() == Layout::Strided,
+      tensor_.layout() == Layout::Strided,
       "can't convert ",
-      c10::str(tensor.layout()).c_str(),
+      c10::str(tensor_.layout()).c_str(),
       " layout tensor to numpy. ",
       "Use Tensor.dense() first.");
 
+  Tensor tensor = tensor_.decheckpoint();
   if (!force) {
     TORCH_CHECK_TYPE(
         tensor.device().type() == DeviceType::CPU,

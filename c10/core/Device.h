@@ -136,6 +136,11 @@ struct C10_API Device final {
     return type_ == DeviceType::Vulkan;
   }
 
+   /// Return true if the device is of Checkpoint type.
+  bool is_checkpoint() const noexcept {
+    return type_ == DeviceType::Checkpoint;
+  }
+
   /// Return true if the device is of Metal type.
   bool is_metal() const noexcept {
     return type_ == DeviceType::Metal;

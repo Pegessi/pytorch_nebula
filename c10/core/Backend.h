@@ -51,6 +51,7 @@ enum class Backend {
   QuantizedCUDA,
   QuantizedXPU,
   QuantizedPrivateUse1,
+  Checkpoint,
   Undefined,
   MkldnnCPU,
   MPS,
@@ -116,6 +117,8 @@ static inline Backend dispatchKeyToBackend(DispatchKey t) {
     return Backend::QuantizedXPU;
   } else if (t == DispatchKey::QuantizedPrivateUse1) {
     return Backend::QuantizedPrivateUse1;
+  } else if (t == DispatchKey::Checkpoint) {
+    return Backend::Checkpoint;
   } else if (t == DispatchKey::HPU || t == DispatchKey::AutogradHPU) {
     return Backend::HPU;
   } else if (t == DispatchKey::MTIA || t == DispatchKey::AutogradMTIA) {
@@ -182,6 +185,8 @@ static inline DispatchKey backendToDispatchKey(Backend b) {
       return DispatchKey::QuantizedCUDA;
     case Backend::QuantizedPrivateUse1:
       return DispatchKey::QuantizedPrivateUse1;
+    case Backend::Checkpoint:
+      return DispatchKey::Checkpoint;
     case Backend::Undefined:
       return DispatchKey::Undefined;
     case Backend::MPS:
@@ -234,6 +239,8 @@ static inline DeviceType backendToDeviceType(Backend b) {
       return DeviceType::XPU;
     case Backend::Vulkan:
       return DeviceType::Vulkan;
+    case Backend::Checkpoint:
+      return DeviceType::Checkpoint;
     case Backend::Metal:
       return DeviceType::Metal;
     case Backend::Meta:
@@ -312,6 +319,8 @@ static inline const char* toString(Backend b) {
       return "QuantizedXPU";
     case Backend::QuantizedPrivateUse1:
       return "QuantizedPrivateUse1";
+    case Backend::Checkpoint:
+      return "Checkpoint";
     case Backend::HPU:
       return "HPU";
     case Backend::MTIA:
