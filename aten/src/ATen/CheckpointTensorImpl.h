@@ -368,7 +368,14 @@ struct External : intrusive_ptr_target {
   void release_resources() override;
 };
 
+void printStackTrace();
+
 inline DispatchKeySet convert_key_set(const DispatchKeySet& t) {
+  if(t.has(DispatchKey::Checkpoint)) 
+  {
+    printStackTrace();
+    // return t;
+  }
   CHECK(!t.has(DispatchKey::Checkpoint));
   auto ret = t.add(DispatchKey::Checkpoint);
   return ret;
@@ -401,7 +408,9 @@ struct TORCH_API CheckpointTensorImpl : public TensorImpl {
   }
 
   explicit CheckpointTensorImpl(const intrusive_ptr<External>& e) :
-    CheckpointTensorImpl(Ref<intrusive_ptr<External>>::make(e)) { }
+    CheckpointTensorImpl(Ref<intrusive_ptr<External>>::make(e)) {
+      set_sizes_and_strides(ref->value->value->get().sizes(), ref->value->value->get().strides());
+    }
 
   explicit CheckpointTensorImpl(const Tensor& t);
 
@@ -448,7 +457,11 @@ struct TORCH_API CheckpointTensorImpl : public TensorImpl {
   }
 
   //////////////////////////////////// addition ////////////////////////////
-
+  /**
+   * 需要说明的是，这里的impl并没有包含storage，意味着不能通过cpti构造的tensor来正常进行操作
+   * 而所有需要进入Checkpoint后端的操作是需要实现对应的kernel的，也就是所有使用的op
+   * 必须在Checkpoint.cpp中实现对应的warpper，并在native_function.yaml中
+  */
   // void refresh_numel() {
   //   TensorImpl::safe_refresh_numel();
   // }

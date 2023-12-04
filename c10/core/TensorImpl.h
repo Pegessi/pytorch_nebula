@@ -2006,7 +2006,10 @@ struct C10_API TensorImpl : public c10::intrusive_ptr_target {
     if (key_set_ == from) {
       return true;
     }
-    if (key_set_.has(DispatchKey::Checkpoint) || from.has(DispatchKey::Checkpoint)) {
+    if (key_set_.has(DispatchKey::CUDA) && from.has(DispatchKey::Checkpoint)) { // this is parameter set_data, has potential bug
+      return true;
+    }
+    if (key_set_.has(DispatchKey::Checkpoint) || from.has(DispatchKey::Checkpoint)) { // this is for invalid shallow copy during execution
       return false;
     }
     auto is_dense = [](DispatchKeySet ts) {

@@ -1,7 +1,7 @@
 #include <ATen/CheckpointTensorImpl.h>
 #include <ATen/Logger.h>
-#include <c10/cuda/CUDACachingAllocator.h>
-
+// #include <c10/cuda/CUDACachingAllocator.h>
+#include <cuda_runtime_api.h>
 #include <chrono>
 #include <string>
 #include <random>
@@ -143,7 +143,7 @@ void CheckpointPool::add(const intrusive_ptr<AliasPool>& p) {
   }
 }
 
-long TORCH_API current_memory() {
+long current_memory() {
   STATS.track("current_memory");
   // using c10::cuda::CUDACachingAllocator::DeviceStats;
   // const DeviceStats stats =
@@ -157,7 +157,15 @@ long TORCH_API current_memory() {
 void CheckpointPool::auto_evict() {
   STATS.track("CheckpointPool::auto_evict");
   if (has_memory_budget) {
-    while (current_memory() > memory_budget) {
+    // BUG: /usr/bin/ld: lib/libtorch_cpu.so: undefined reference to `c10::cuda::CUDACachingAllocator::allocator'
+    // using c10::cuda::CUDACachingAllocator::CUDAAllocator::getDeviceStats;
+    // using c10::cuda::CUDACachingAllocator::StatType;
+    // auto current_memory = getDeviceStats(0).allocated_bytes[static_cast<size_t>(StatType::AGGREGATE)].current;
+    // int device = 0; // 设备索引号
+    size_t freeMem, totalMem;
+    cudaMemGetInfo(&freeMem, &totalMem);
+    auto current_memory = totalMem - freeMem;
+    while (current_memory > memory_budget) {
       evict();
     }
   }
@@ -263,6 +271,9 @@ Tensor decheckpoint(const Tensor& t) {
 
 bool is_checkpoint(const Tensor& t) {
   STATS.track("is_checkpoint");
+  // auto ks = t.key_set();
+  // if(ks.has(DispatchKey::Checkpoint)) 
+  //   return true;
   auto* cpti = dynamic_cast<CheckpointTensorImpl*>(t.unsafeGetTensorImpl());
   return cpti != nullptr;
 }
@@ -506,7 +517,8 @@ void CheckpointTensorCell::fill(const Tensor& t) {
         key_set_ = key_set_.add(DispatchKey::Autograd);
       }
       dtype_ = t.dtype();
-      optional_device_ = t.device();
+      if(t.defined())
+        optional_device_ = t.device();
     }
   }
 }
@@ -526,6 +538,23 @@ intrusive_ptr<TensorImpl> CheckpointTensorImpl::shallow_copy_and_detach(const Va
   }
   return impl;
 }
+
+// intrusive_ptr<TensorImpl> CheckpointTensorImpl::shallow_copy_and_detach(const VariableVersion&& version_counter,
+//                                                                         bool allow_tensor_metadata_change) const{
+//   // auto ret = intrusive_ptr<CheckpointTensorImpl>::make(ref);
+//   auto impl = c10::make_intrusive<CheckpointTensorImpl>(ref);
+//   TensorImpl::copy_tensor_metadata(
+//         /*src_impl=*/this,
+//         /*dest_impl=*/impl.get(),
+//         /*version_counter=*/std::move(version_counter),
+//         /*allow_tensor_metadata_change=*/allow_tensor_metadata_change);
+//   impl->refresh_numel();
+//   if (use_log_) {
+//     DTRLogCopy(impl->counter_name(), counter_name());
+//   }
+//   return impl;
+// }
+
 
 void CheckpointTensorImpl::shallow_copy_from(const c10::intrusive_ptr<TensorImpl>& impl) {
   STATS.track("CheckpointTensorCell::shallow_copy_from");
@@ -571,6 +600,60 @@ void add_neighbor(const strong& l, const strong& r) {
   r->pool->neighbors.push_back(weak(l));
 }
 
+#include <execinfo.h>
+void printStackTrace() {
+    const int maxFrames = 200; // Adjust the number of frames to print as needed
+    void* callStack[maxFrames];
+    int numFrames = backtrace(callStack, maxFrames);
+    char** symbols = backtrace_symbols(callStack, numFrames);
+
+    if (symbols != nullptr) {
+        for (int i = 0; i < numFrames; ++i) {
+            // Parse the symbol to extract file, function, and line information
+            // The format is usually: "binary_name(function_name+offset) [file_path:line_number]"
+            std::string symbol = symbols[i];
+
+            // Find the opening and closing parentheses
+            size_t openParenthesis = symbol.find("(");
+            size_t closeParenthesis = symbol.find(")");
+
+            if (openParenthesis != std::string::npos && closeParenthesis != std::string::npos) {
+                // Extract the substring between parentheses
+                std::string insideParentheses = symbol.substr(openParenthesis + 1, closeParenthesis - openParenthesis - 1);
+
+                // Find the last occurrence of '+' to separate function name and offset
+                size_t lastPlus = insideParentheses.rfind('+');
+                if (lastPlus != std::string::npos) {
+                    std::string function = insideParentheses.substr(0, lastPlus);
+                    std::string offset = insideParentheses.substr(lastPlus + 1);
+
+                    // Find the opening and closing brackets
+                    size_t openBracket = symbol.find("[");
+                    size_t closeBracket = symbol.find("]");
+
+                    if (openBracket != std::string::npos && closeBracket != std::string::npos) {
+                        std::string fileInfo = symbol.substr(openBracket + 1, closeBracket - openBracket - 1);
+
+                        // Find the colon to separate file path and line number
+                        size_t colon = fileInfo.find(":");
+                        if (colon != std::string::npos) {
+                            std::string filePath = fileInfo.substr(0, colon);
+                            std::string lineNumber = fileInfo.substr(colon + 1);
+
+                            std::cout << "Function: " << function << ", File: " << filePath << ", Line: " << lineNumber << std::endl;
+                            continue;
+                        }
+                    }
+                }
+            }
+
+            // Couldn't parse the symbol, just print it as is
+            std::cout << symbols[i] << std::endl;
+        }
+
+        free(symbols);
+    }
+}
 // remat take a single vector of tensors,
 // while there are two vector, one storing nonconstants and one storing constants.
 // the constants are small and they will not be considered for eviction.
@@ -731,6 +814,9 @@ void CheckpointTensorImpl::release_resources() {
 
 // intrusive_ptr<External>::make(t)
 CheckpointTensorImpl::CheckpointTensorImpl(const Tensor& t) : CheckpointTensorImpl(c10::make_intrusive<External>(t)) {
+  // set_custom_sizes_strides(SizesStridesPolicy::CustomStrides);
+  // set_custom_sizes_strides(SizesStridesPolicy::CustomSizes);
+  set_sizes_and_strides(ref->value->value->get().sizes(), ref->value->value->get().strides());
   pool.exts.push_back(weak_intrusive_ptr<External>(ref->value));
 }
 
