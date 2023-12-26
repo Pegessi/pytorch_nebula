@@ -7,6 +7,28 @@
 #include <random>
 #include <cmath>
 
+// #define TIME_REC
+
+#ifdef TIME_REC
+auto start_time = std::chrono::high_resolution_clock::now();
+auto end_time = std::chrono::high_resolution_clock::now();                                    
+auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
+#endif
+#ifdef TIME_REC
+  #define START_TIMER start_time = std::chrono::high_resolution_clock::now();
+#else
+  #define START_TIMER
+#endif
+#ifdef TIME_REC
+  #define END_TIMER(tag){                                                                       \
+  end_time = std::chrono::high_resolution_clock::now();                                    \
+  duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time); \
+  std::cout << (tag) << duration.count() << " ms" << std::endl;                                 \
+  }
+#else
+  #define END_TIMER(tag) {auto r = {tag};}
+#endif
+
 namespace at {
 
 using Clock = std::chrono::high_resolution_clock;
@@ -129,7 +151,7 @@ Timer::~Timer() {
   STATS.timers.push_back(stats);
 }
 
-bool use_log_ = false;
+bool use_log_ = true;
 bool use_profile_ = false;
 long base_compute_time_ = 0;
 long remat_compute_time_ = 0;
@@ -233,8 +255,12 @@ CheckpointPool::CheckpointPool() { }
 
 namespace native {
 
+
+/// TODO: 引入张量t有undefined的情况，此种情况cpti构造出来的tensor却不是undefined的了
 Tensor checkpoint(const Tensor& t) {
   STATS.track("checkpoint");
+  // if(!t.defined())
+  //   return Tensor(nullptr);
   // auto cpti = intrusive_ptr<CheckpointTensorImpl>::make(t);   // 调用了Ref<intrusive_ptr<External>> External CheckpointTensorCell的相关构造函数
   auto cpti = c10::make_intrusive<CheckpointTensorImpl>(t);      // cpti->ref->value->value->t 是包裹的unique_ptr<Tensor>
   // auto res = detail::make_tensor<CheckpointTensorImpl>(cpti);    // 这种做法会导致impl成了父类对象，没有cpti的信息了
@@ -271,15 +297,17 @@ Tensor decheckpoint(const Tensor& t) {
 
 bool is_checkpoint(const Tensor& t) {
   STATS.track("is_checkpoint");
-  // auto ks = t.key_set();
-  // if(ks.has(DispatchKey::Checkpoint)) 
-  //   return true;
   auto* cpti = dynamic_cast<CheckpointTensorImpl*>(t.unsafeGetTensorImpl());
   return cpti != nullptr;
 }
 
 Tensor try_checkpoint(const Tensor& t) {
   STATS.track("try_checkpiont");
+  // if(t.key_set().has(DispatchKey::Checkpoint)&&!is_checkpoint(t)){
+    // t.key_set() = t.key_set().remove(DispatchKey::Checkpoint);    // 返回值是keyset，但没有set函数 所以是没有用的
+  //   annotate_log("trigger");
+  //   return(checkpoint(t.decheckpoint()));
+  // }
   return is_checkpoint(t) ? t : checkpoint(t);
 }
 
@@ -539,6 +567,25 @@ intrusive_ptr<TensorImpl> CheckpointTensorImpl::shallow_copy_and_detach(const Va
   return impl;
 }
 
+// is used in the process of Variable's creation during Backward
+// template <typename VariableVersion>
+// c10::intrusive_ptr<TensorImpl> CheckpointTensorImpl::shallow_copy_and_detach_core(
+//     VariableVersion&& version_counter,
+//     bool allow_tensor_metadata_change) const {
+//   auto impl = c10::make_intrusive<CheckpointTensorImpl>(ref);
+
+//   copy_tensor_metadata(
+//       /*src_impl=*/this,
+//       /*dest_impl=*/impl.get(),
+//       /*version_counter=*/std::forward<VariableVersion>(version_counter),
+//       /*allow_tensor_metadata_change=*/allow_tensor_metadata_change);
+//   impl->refresh_numel();
+//   if (use_log_) {
+//     DTRLogCopy(impl->counter_name(), counter_name());
+//   }
+//   return impl;
+// }
+
 // intrusive_ptr<TensorImpl> CheckpointTensorImpl::shallow_copy_and_detach(const VariableVersion&& version_counter,
 //                                                                         bool allow_tensor_metadata_change) const{
 //   // auto ret = intrusive_ptr<CheckpointTensorImpl>::make(ref);
@@ -567,7 +614,7 @@ void CheckpointTensorImpl::shallow_copy_from(const c10::intrusive_ptr<TensorImpl
   }
 }
 
-int CheckpointTensorImpl::counter = 0;
+long CheckpointTensorImpl::counter = 0;
 
 bool is_alias(const Tensor& l, const Tensor& r) {
   return l.defined() && r.defined() && l.is_alias_of(r);
@@ -668,6 +715,7 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
   Tensors raw_inputs = uncheckpoint(inputs);        // cancel the monitor and get tensors
   time_t pre = std::chrono::system_clock::now();
   auto raw_outputs = remat_f(raw_inputs);
+  START_TIMER
   time_t post = std::chrono::system_clock::now();
   pool.auto_evict();
   base_compute_time_ += (post - pre).count();       // if sync?
@@ -675,7 +723,9 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
   std::vector<int> aliases;
   weaks weak_outputs;
   auto remat = intrusive_ptr<Rematerializer>::make(Unsafe(), remat_f, inputs, post - pre);
+  END_TIMER("init part:")
 
+  START_TIMER
   for (const Tensor& t : raw_outputs) {             // prepare checkpoint for raw_outputs
     intrusive_ptr<AliasPool> alias_pool;
     int alias = get_alias(raw_inputs, t);           // if t is an alias of tensor in inputs?
@@ -697,6 +747,8 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
     aliases.push_back(alias);
     weak_outputs.push_back(weak(outputs.back()->value));
   }
+  END_TIMER("pool add:")
+  START_TIMER
   remat->outputs = weak_outputs;
   // make each pair of tensor which are not alias relation to be neighbor
   for (size_t i = 0; i < inputs.size(); ++i) {
@@ -709,6 +761,7 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
   for (const strong& s : inputs) {
     s->pool->unlock();
   }
+  END_TIMER("neightbor add:")
   return {outputs, aliases, post - pre, remat};
 }
 
@@ -723,6 +776,7 @@ Tensors CheckpointTensorImpl::make(const std::string& name,
                                    const rematerialize_function_t& remat,
                                    const Tensors& inputs) {
   STATS.track("CheckPointTensorImpl::make");
+  START_TIMER
   Tensors checkpointed_inputs = try_checkpoint(inputs); // make intrusive_ptr for inputs
   auto input_size = checkpointed_inputs.size();
 
@@ -740,9 +794,9 @@ Tensors CheckpointTensorImpl::make(const std::string& name,
       args.push_back(cpti->counter_name());
     }
   }
-
+  END_TIMER("PREILOGUE: ")
   auto ret = make_raw(remat, input_values);
-
+  START_TIMER
   Tensors tensors;
   tensors.reserve(ret.outputs.size());
 
@@ -750,7 +804,7 @@ Tensors CheckpointTensorImpl::make(const std::string& name,
     auto cp = Tensor(intrusive_ptr<CheckpointTensorImpl>::make(t));
     tensors.push_back(cp);
   }
-
+  END_TIMER("EPILOGUE: ")
   if (use_log_) {
     std::vector<std::string> res;
     res.reserve(ret.outputs.size());
@@ -816,7 +870,8 @@ void CheckpointTensorImpl::release_resources() {
 CheckpointTensorImpl::CheckpointTensorImpl(const Tensor& t) : CheckpointTensorImpl(c10::make_intrusive<External>(t)) {
   // set_custom_sizes_strides(SizesStridesPolicy::CustomStrides);
   // set_custom_sizes_strides(SizesStridesPolicy::CustomSizes);
-  set_sizes_and_strides(ref->value->value->get().sizes(), ref->value->value->get().strides());
+  if(ref->value->value->get().defined())
+    set_sizes_and_strides(ref->value->value->get().sizes(), ref->value->value->get().strides());
   pool.exts.push_back(weak_intrusive_ptr<External>(ref->value));
 }
 

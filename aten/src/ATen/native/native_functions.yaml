@@ -3161,6 +3161,7 @@
     CPU: log_softmax_cpu_out
     CUDA: log_softmax_cuda_out
     MPS: log_softmax_mps_out
+    Checkpoint: checkpoint__log_softmax_out
 - func: _log_softmax_backward_data(Tensor grad_output, Tensor output, int dim, ScalarType
     input_dtype) -> Tensor
   structured_delegate: _log_softmax_backward_data.out
@@ -3171,6 +3172,7 @@
     CPU: log_softmax_backward_cpu_out
     CUDA: log_softmax_backward_cuda_out
     MPS: log_softmax_backward_mps_out
+    Checkpoint: checkpoint__log_softmax_backward_data_out
 - func: _logcumsumexp(Tensor self, int dim) -> Tensor
   dispatch:
     CPU: _logcumsumexp_cpu
@@ -4376,6 +4378,7 @@
     NestedTensorCPU, NestedTensorCUDA: NestedTensor_relu_
     SparseCPU, SparseCUDA: relu_sparse_
     SparseCsrCPU, SparseCsrCUDA: relu_sparse_csr_
+    Checkpoint: checkpoint_relu_
   autogen: relu.out
   tags: pointwise
 - func: relu6(Tensor self) -> Tensor
@@ -4558,12 +4561,14 @@
   dispatch:
     CPU, CUDA: silu_backward_out
     MPS: silu_backward_out_mps
+    Checkpoint: checkpoint_silu_backward_out
 - func: silu_backward(Tensor grad_output, Tensor self) -> Tensor
   structured_delegate: silu_backward.grad_input
   python_module: nn
   dispatch:
     CompositeImplicitAutograd: math_silu_backward
     NestedTensorCPU, NestedTensorCUDA: silu_backward_nested
+    Checkpoint: checkpoint_silu_backward
 - func: mish(Tensor self) -> Tensor
   structured_delegate: mish.out
   python_module: nn
@@ -4588,6 +4593,7 @@
   dispatch:
     QuantizedCPU: sigmoid_quantized_cpu
     MkldnnCPU: mkldnn_sigmoid
+    Checkpoint: checkpoint_sigmoid
   tags:
   - core
   - pointwise
@@ -4605,6 +4611,7 @@
   dispatch:
     CPU, CUDA: sigmoid_out
     MPS: sigmoid_out_mps
+    Checkpoint: checkpoint_sigmoid_out
   tags: pointwise
 - func: logit(Tensor self, float? eps=None) -> Tensor
   variants: function, method
@@ -4700,7 +4707,7 @@
   dispatch:
     CompositeExplicitAutograd: detach
     NestedTensorCPU, NestedTensorCUDA: detach
-    # Checkpoint: checkpoint_detach
+    Checkpoint: checkpoint_detach
 - func: detach_(Tensor(a!) self) -> Tensor(a!)
   variants: function, method
   tags: inplace_view
@@ -5300,6 +5307,7 @@
     MPS: threshold_backward_out_mps
     SparseCPU, SparseCUDA: threshold_backward_sparse_out
     SparseCsrCPU, SparseCsrCUDA: threshold_backward_sparse_compressed_out
+    Checkpoint: checkpoint_threshold_backward_out
 - func: threshold_backward(Tensor grad_output, Tensor self, Scalar threshold) -> Tensor
   variants: function
   structured_delegate: threshold_backward.grad_input
@@ -5308,6 +5316,7 @@
     SparseCPU, SparseCUDA: threshold_backward_sparse
     SparseCsrCPU, SparseCsrCUDA: threshold_backward_sparse_compressed
     NestedTensorCPU, NestedTensorCUDA: threshold_backwards_nested
+    Checkpoint: checkpoint_threshold_backward
   tags: pointwise
 - func: tile(Tensor self, SymInt[] dims) -> Tensor
   variants: function, method
@@ -10082,6 +10091,7 @@
     CPU: nll_loss_forward_out_cpu
     CUDA: nll_loss_forward_out_cuda
     MPS: nll_loss_forward_out_mps
+    Checkpoint: checkpoint_nll_loss_forward_out
 - func: nll_loss_forward(Tensor self, Tensor target, Tensor? weight, int reduction,
     SymInt ignore_index) -> (Tensor output, Tensor total_weight)
   python_module: nn
@@ -10095,6 +10105,7 @@
     CPU: nll_loss_backward_out_cpu
     CUDA: nll_loss_backward_out_cuda
     MPS: nll_loss_backward_out_mps
+    Checkpoint: checkpoint_nll_loss_backward_out
 - func: nll_loss_backward(Tensor grad_output, Tensor self, Tensor target, Tensor?
     weight, int reduction, SymInt ignore_index, Tensor total_weight) -> Tensor
   python_module: nn

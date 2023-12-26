@@ -578,6 +578,11 @@ struct C10_API TensorImpl : public c10::intrusive_ptr_target {
     return key_set_;
   }
 
+private:
+  void unsafe_set_key_set(DispatchKeySet new_ks) {
+    key_set_.unsafe_set_repr(new_ks.raw_repr());
+  }
+
   // NOTE: The general recipe for customizable methods is that the fastpath
   // function (e.g., sizes()) does an unlikely policy test, and if doesn't
   // trigger, it does the fast path implementation with no checks and going
@@ -2006,9 +2011,9 @@ struct C10_API TensorImpl : public c10::intrusive_ptr_target {
     if (key_set_ == from) {
       return true;
     }
-    if (key_set_.has(DispatchKey::CUDA) && from.has(DispatchKey::Checkpoint)) { // this is parameter set_data, has potential bug
-      return true;
-    }
+    // if (key_set_.has(DispatchKey::CUDA) && from.has(DispatchKey::Checkpoint)) { // this is parameter set_data, has potential bug
+    //   return true;
+    // }
     if (key_set_.has(DispatchKey::Checkpoint) || from.has(DispatchKey::Checkpoint)) { // this is for invalid shallow copy during execution
       return false;
     }

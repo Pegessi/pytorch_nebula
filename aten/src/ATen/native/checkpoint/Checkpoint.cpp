@@ -631,13 +631,13 @@ Tensor& checkpoint_addmm_(Tensor& a, const Tensor& b, const Tensor& c, c10::Scal
   return a;
 }
 
-Tensor checkpoint_sigmoid(const Tensor& a) {
-  rematerialize_function_t rt =
-    [=](const Tensors& vec) -> Tensors {
-      return {at::sigmoid(vec.at(0))};
-    };
-  return CheckpointTensorImpl::make("sigmoid", rt, {a})[0];
-}
+// Tensor checkpoint_sigmoid(const Tensor& a) {
+//   rematerialize_function_t rt =
+//     [=](const Tensors& vec) -> Tensors {
+//       return {at::sigmoid(vec.at(0))};
+//     };
+//   return CheckpointTensorImpl::make("sigmoid", rt, {a})[0];
+// }
 
 Tensor& checkpoint_sigmoid_(Tensor& a) {
   mutate_function_t mt =
@@ -1212,23 +1212,23 @@ Tensor& checkpoint_bitwise_and_out(Tensor& self, const Tensor& out, Scalar other
   return self;
 }
 
-// Tensor& checkpoint_fill_(Tensor& self, const Tensor& value) {
-//   mutate_function_t mt =
-//     [=](const Tensors& vec) {
-//     Tensor self = vec.at(0);
-//     at::fill_(self, vec.at(1));
-//   };
-//   CheckpointTensorImpl::mutate("fill_", mt, {self, value}, {0});
-//   return self;
-// }
+Tensor& checkpoint_fill_(Tensor& self, const Tensor& value) {
+  mutate_function_t mt =
+    [=](const Tensors& vec) {
+    Tensor self = vec.at(0);
+    at::fill_(self, vec.at(1));
+  };
+  CheckpointTensorImpl::mutate("fill_tensor", mt, {self, value}, {0});
+  return self;
+}
 
-Tensor& checkpoint_fill_(Tensor& self, Scalar value) {
+Tensor& checkpoint_fill_(Tensor& self, const at::Scalar & value) {
   mutate_function_t mt =
     [=](const Tensors& vec) {
     Tensor self = vec.at(0);
     at::fill_(self, value);
   };
-  CheckpointTensorImpl::mutate("fill_", mt, {self}, {0});
+  CheckpointTensorImpl::mutate("fill_scalar", mt, {self}, {0});
   return self;
 }
 
@@ -1812,23 +1812,34 @@ checkpoint_native_batch_norm(const Tensor& self, const c10::optional<Tensor>& we
 }
 
 /// ['std::tuple<Tensor, Tensor, Tensor, Tensor>', '_scaled_dot_product_efficient_attention_cuda', '(const Tensor& query, const Tensor& key, const Tensor& value, const c10::optional<at::Tensor>& attn_bias, bool compute_log_sumexp, double dropout_p, bool is_causal, c10::optional<double> scale)']
-std::tuple<Tensor, Tensor, Tensor, Tensor> checkpoint__scaled_dot_product_efficient_attention(
-  const Tensor& query, const Tensor& key, const Tensor& value, const c10::optional<at::Tensor>& attn_bias, 
-  bool compute_log_sumexp, double dropout_p, bool is_causal, c10::optional<double> scale) {
+// std::tuple<Tensor, Tensor, Tensor, Tensor> checkpoint__scaled_dot_product_efficient_attention(
+//   const Tensor& query, const Tensor& key, const Tensor& value, const c10::optional<at::Tensor>& attn_bias, 
+//   bool compute_log_sumexp, double dropout_p, bool is_causal, c10::optional<double> scale) {
+//   rematerialize_function_t rt =
+//     [=](const Tensors& vec) -> Tensors {
+//       auto ret = at::_scaled_dot_product_efficient_attention(vec.at(0), vec.at(1), vec.at(2), vec.at(3), compute_log_sumexp, dropout_p, is_causal, scale);
+//       return {std::get<0>(ret), std::get<1>(ret), std::get<2>(ret), std::get<3>(ret)};
+//     };
+//   auto attn_bias_ = attn_bias.has_value()
+//   ? c10::MaybeOwned<Tensor>::borrowed(*attn_bias)
+//   : c10::MaybeOwned<Tensor>::owned(c10::in_place);
+//   if(!attn_bias.has_value()){
+//     int x;
+//   }
+//   // c10::MaybeOwned<Tensor> attn_bias_maybe_owned = at::borrow_from_optional_tensor(attn_bias);
+//   // const Tensor& attn_bias_ = *attn_bias_maybe_owned;
+//   auto ret = CheckpointTensorImpl::make("aten::_scaled_dot_product_efficient_attention", rt, {query, key, value, *attn_bias_});
+//   return {ret[0], ret[1], ret[2], ret[3]};
+// }
+std::tuple<at::Tensor,at::Tensor,at::Tensor,at::Tensor> checkpoint__scaled_dot_product_efficient_attention(const at::Tensor & query, const at::Tensor & key, const at::Tensor & value, const c10::optional<at::Tensor> & attn_bias, bool compute_log_sumexp, double dropout_p, bool is_causal, c10::optional<double> scale) {
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
       auto ret = at::_scaled_dot_product_efficient_attention(vec.at(0), vec.at(1), vec.at(2), vec.at(3), compute_log_sumexp, dropout_p, is_causal, scale);
       return {std::get<0>(ret), std::get<1>(ret), std::get<2>(ret), std::get<3>(ret)};
     };
-  auto attn_bias_ = attn_bias.has_value()
-  ? c10::MaybeOwned<Tensor>::borrowed(*attn_bias)
-  : c10::MaybeOwned<Tensor>::owned(c10::in_place);
-  if(!attn_bias.has_value()){
-    int x;
-  }
-  // c10::MaybeOwned<Tensor> attn_bias_maybe_owned = at::borrow_from_optional_tensor(attn_bias);
-  // const Tensor& attn_bias_ = *attn_bias_maybe_owned;
-  auto ret = CheckpointTensorImpl::make("aten::_scaled_dot_product_efficient_attention", rt, {query, key, value, *attn_bias_});
+  c10::MaybeOwned<Tensor> attn_bias_maybe_owned = at::borrow_from_optional_tensor(attn_bias);
+  const Tensor& attn_bias_ = *attn_bias_maybe_owned;
+  auto ret = CheckpointTensorImpl::make("aten::_scaled_dot_product_efficient_attention", rt, {query, key, value, attn_bias_});
   return {ret[0], ret[1], ret[2], ret[3]};
 }
 
@@ -1849,8 +1860,123 @@ at::Tensor checkpoint_repeat(const at::Tensor & self, at::IntArrayRef repeats) {
   return CheckpointTensorImpl::make("aten::repeat", rt, {self})[0];
 }
 
+/// ['aten::_log_softmax_outf', 'at::Tensor &', '_log_softmax_outf', '(const at::Tensor & self, int64_t dim, bool half_to_float, at::Tensor & out)']
+at::Tensor & checkpoint__log_softmax_out(const at::Tensor & self, int64_t dim, bool half_to_float, at::Tensor & out) {
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      Tensor out = vec.at(1);
+      return {at::_log_softmax_outf(vec.at(0), dim, half_to_float, out)};
+    };
+  return CheckpointTensorImpl::make("aten::_log_softmax_outf", rt, {self, out})[0];
+}
+
+/// ['aten::_log_softmax_backward_data_outf', 'at::Tensor &', '_log_softmax_backward_data_outf', '(const at::Tensor & grad_output, const at::Tensor & output, int64_t dim, at::ScalarType input_dtype, at::Tensor & out)']
+at::Tensor & checkpoint__log_softmax_backward_data_out(const at::Tensor & grad_output, const at::Tensor & output, int64_t dim, at::ScalarType input_dtype, at::Tensor & out) {
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      Tensor out = vec.at(2);
+      return {at::_log_softmax_backward_data_outf(vec.at(0), vec.at(1), dim, input_dtype, out)};
+    };
+  return CheckpointTensorImpl::make("aten::_log_softmax_backward_data_outf", rt, {grad_output, output, out})[0];
+}
+
+/// ['aten::cross_entropy_loss_symint', 'at::Tensor', 'cross_entropy_loss_symint', '(const at::Tensor & self, const at::Tensor & target, const c10::optional<at::Tensor> & weight={}, int64_t reduction=at::Reduction::Mean, c10::SymInt ignore_index=-100, double label_smoothing=0.0)']
+at::Tensor checkpoint_cross_entropy_loss_symint(const at::Tensor & self, const at::Tensor & target, const c10::optional<at::Tensor> & weight, int64_t reduction, c10::SymInt ignore_index, double label_smoothing) {
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      return {at::cross_entropy_loss_symint(vec.at(0), vec.at(1), vec.at(2), reduction, ignore_index, label_smoothing)};
+    };
+    c10::MaybeOwned<Tensor> weight_maybe_owned = at::borrow_from_optional_tensor(weight);
+    const Tensor& weight_ = *weight_maybe_owned;
+  return CheckpointTensorImpl::make("aten::cross_entropy_loss_symint", rt, {self, target, weight_})[0];
+}
+
+/// ['aten::nll_loss_forward_outf', 'std::tuple<at::Tensor &,at::Tensor &>', 'nll_loss_forward_outf', '(const at::Tensor & self, const at::Tensor & target, const c10::optional<at::Tensor> & weight, int64_t reduction, int64_t ignore_index, at::Tensor & output, at::Tensor & total_weight)']
+std::tuple<at::Tensor &,at::Tensor &> checkpoint_nll_loss_forward_out(const at::Tensor & self, const at::Tensor & target, const c10::optional<at::Tensor> & weight, int64_t reduction, int64_t ignore_index, at::Tensor & output, at::Tensor & total_weight) {
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      Tensor output = vec.at(3);
+      Tensor total_weight = vec.at(4);
+      auto ret = at::nll_loss_forward_out(output, total_weight, vec.at(0), vec.at(1), vec.at(2), reduction, ignore_index);
+      return {std::get<0>(ret), std::get<1>(ret)};
+    };
+  c10::MaybeOwned<Tensor> weight_maybe_owned = at::borrow_from_optional_tensor(weight);
+  const Tensor& weight_ = *weight_maybe_owned;
+  auto ret = CheckpointTensorImpl::make("aten::nll_loss_forward_out", rt, {self, target, weight_, output, total_weight});
+  return {ret[0], ret[1]};
+}
+
+/// ['aten::nll_loss_backward_outf', 'at::Tensor &', 'nll_loss_backward_outf', '(const at::Tensor & grad_output, const at::Tensor & self, const at::Tensor & target, const c10::optional<at::Tensor> & weight, int64_t reduction, int64_t ignore_index, const at::Tensor & total_weight, at::Tensor & grad_input)']
+at::Tensor & checkpoint_nll_loss_backward_out(const at::Tensor & grad_output, const at::Tensor & self, const at::Tensor & target, const c10::optional<at::Tensor> & weight, int64_t reduction, int64_t ignore_index, const at::Tensor & total_weight, at::Tensor & grad_input) {
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      Tensor grad_input = vec.at(5);
+      return {at::nll_loss_backward_outf(vec.at(0), vec.at(1), vec.at(2), vec.at(3), reduction, ignore_index, vec.at(4), grad_input)};
+    };
+  c10::MaybeOwned<Tensor> weight_maybe_owned = at::borrow_from_optional_tensor(weight);
+  const Tensor& weight_ = *weight_maybe_owned;
+  return CheckpointTensorImpl::make("aten::nll_loss_backward_outf", rt, {grad_output, self, target, weight_, total_weight, grad_input})[0];
+}
+
+/// ['aten::threshold_backward_outf', 'at::Tensor &', 'threshold_backward_outf', '(const at::Tensor & grad_output, const at::Tensor & self, const at::Scalar & threshold, at::Tensor & grad_input)']
+at::Tensor & checkpoint_threshold_backward_out(const at::Tensor & grad_output, const at::Tensor & self, const at::Scalar & threshold, at::Tensor & grad_input) {
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      Tensor grad_input = vec.at(2);
+      return {at::threshold_backward_outf(vec.at(0), vec.at(1), threshold, grad_input)};
+    };
+  return CheckpointTensorImpl::make("aten::threshold_backward_outf", rt, {grad_output, self, grad_input})[0];
+}
+
+/// ['aten::threshold_backward', 'at::Tensor', 'threshold_backward', '(const at::Tensor & grad_output, const at::Tensor & self, const at::Scalar & threshold)']
+at::Tensor checkpoint_threshold_backward(const at::Tensor & grad_output, const at::Tensor & self, const at::Scalar & threshold) {
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      return {at::threshold_backward(vec.at(0), vec.at(1), threshold)};
+    };
+  return CheckpointTensorImpl::make("aten::threshold_backward", rt, {grad_output, self})[0];
+}
+
+/// ['aten::silu_backward', 'at::Tensor', 'silu_backward', '(const at::Tensor & grad_output, const at::Tensor & self)']
+at::Tensor checkpoint_silu_backward(const at::Tensor & grad_output, const at::Tensor & self) {
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      return {at::silu_backward(vec.at(0), vec.at(1))};
+    };
+  return CheckpointTensorImpl::make("aten::silu_backward", rt, {grad_output, self})[0];
+}
+
+/// ['aten::silu_backward_outf', 'at::Tensor &', 'silu_backward_outf', '(const at::Tensor & grad_output, const at::Tensor & self, at::Tensor & grad_input)']
+at::Tensor & checkpoint_silu_backward_out(const at::Tensor & grad_output, const at::Tensor & self, at::Tensor & grad_input) {
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      Tensor grad_input = vec.at(2);
+      return {at::silu_backward_outf(vec.at(0), vec.at(1), grad_input)};
+    };
+  return CheckpointTensorImpl::make("aten::silu_backward_outf", rt, {grad_output, self, grad_input})[0];
+}
+
+/// ['aten::sigmoid_outf', 'at::Tensor &', 'sigmoid_outf', '(const at::Tensor & self, at::Tensor & out)']
+at::Tensor & checkpoint_sigmoid_out(const at::Tensor & self, at::Tensor & out) {
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      Tensor out = vec.at(1);
+      return {at::sigmoid_outf(vec.at(0), out)};
+    };
+  return CheckpointTensorImpl::make("aten::sigmoid_outf", rt, {self, out})[0];
+}
+
+/// ['aten::sigmoid', 'at::Tensor', 'sigmoid', '(const at::Tensor & self)']
+at::Tensor checkpoint_sigmoid(const at::Tensor & self) {
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      return {at::sigmoid(vec.at(0))};
+    };
+  return CheckpointTensorImpl::make("aten::sigmoid", rt, {self})[0];
+}
 
 ////////////////////////////////// auto generate part //////////////////////////////////////
+
 /// ['aten::uniform.out', 'at::Tensor &', 'uniform_out', '(at::Tensor & out, const at::Tensor & self, double from=0, double to=1, c10::optional<at::Generator> generator=c10::nullopt)']
 at::Tensor & checkpoint_uniform_out(at::Tensor & out, const at::Tensor & self, double from, double to, c10::optional<at::Generator> generator) {
   rematerialize_function_t rt =
@@ -2353,9 +2479,9 @@ at::Tensor checkpoint_reshape(const at::Tensor & self, at::IntArrayRef shape) {
 at::Tensor checkpoint_reshape_symint(const at::Tensor & self, c10::SymIntArrayRef shape) {
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
-      return {at::reshape_symint(vec.at(0), shape)};
+      return {vec.at(0).reshape_symint(shape)};
     };
-  return CheckpointTensorImpl::make("aten::reshape", rt, {self})[0];
+  return CheckpointTensorImpl::make("aten::reshape_symint", rt, {self})[0];
 }
 
 /// ['aten::mul.Tensor', 'at::Tensor', 'mul', '(const at::Tensor & self, const at::Tensor & other)']
@@ -3179,7 +3305,7 @@ at::Tensor checkpoint__unsafe_view_symint(const at::Tensor & self, c10::SymIntAr
     [=](const Tensors& vec) -> Tensors {
       return {at::_unsafe_view_symint(vec.at(0), size)};
     };
-  return CheckpointTensorImpl::make("aten::_unsafe_view", rt, {self})[0];
+  return CheckpointTensorImpl::make("aten::_unsafe_view_symint", rt, {self})[0];
 }
 
 /// ['aten::_unsafe_view.out', 'at::Tensor &', '_unsafe_view_out', '(at::Tensor & out, const at::Tensor & self, at::IntArrayRef size)']
@@ -4665,24 +4791,24 @@ at::Tensor checkpoint_fill(const at::Tensor & self, const at::Tensor & value) {
 }
 
 /// ['aten::fill_.Scalar', 'at::Tensor &', 'fill_', '(at::Tensor & self, const at::Scalar & value)']
-at::Tensor & checkpoint_fill_(at::Tensor & self, const at::Scalar & value) {
-  rematerialize_function_t rt =
-    [=](const Tensors& vec) -> Tensors {
-      Tensor self = vec.at(0);
-      return {at::fill_(self, value)};
-    };
-  return CheckpointTensorImpl::make("aten::fill_.Scalar", rt, {self})[0];
-}
+// at::Tensor & checkpoint_fill_(at::Tensor & self, const at::Scalar & value) {
+//   rematerialize_function_t rt =
+//     [=](const Tensors& vec) -> Tensors {
+//       Tensor self = vec.at(0);
+//       return {at::fill_(self, value)};
+//     };
+//   return CheckpointTensorImpl::make("aten::fill_.Scalar", rt, {self})[0];
+// }
 
-/// ['aten::fill_.Tensor', 'at::Tensor &', 'fill_', '(at::Tensor & self, const at::Tensor & value)']
-at::Tensor & checkpoint_fill_(at::Tensor & self, const at::Tensor & value) {
-  rematerialize_function_t rt =
-    [=](const Tensors& vec) -> Tensors {
-      Tensor self = vec.at(0);
-      return {at::fill_(self, vec.at(1))};
-    };
-  return CheckpointTensorImpl::make("aten::fill_.Tensor", rt, {self, value})[0];
-}
+// /// ['aten::fill_.Tensor', 'at::Tensor &', 'fill_', '(at::Tensor & self, const at::Tensor & value)']
+// at::Tensor & checkpoint_fill_(at::Tensor & self, const at::Tensor & value) {
+//   rematerialize_function_t rt =
+//     [=](const Tensors& vec) -> Tensors {
+//       Tensor self = vec.at(0);
+//       return {at::fill_(self, vec.at(1))};
+//     };
+//   return CheckpointTensorImpl::make("aten::fill_.Tensor", rt, {self, value})[0];
+// }
 
 /// ['aten::fill.Scalar_out', 'at::Tensor &', 'fill_out', '(at::Tensor & out, const at::Tensor & self, const at::Scalar & value)']
 at::Tensor & checkpoint_fill_out(at::Tensor & out, const at::Tensor & self, const at::Scalar & value) {

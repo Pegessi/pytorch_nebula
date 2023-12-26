@@ -382,9 +382,9 @@ inline DispatchKeySet convert_key_set(const DispatchKeySet& t) {
 }
 
 struct TORCH_API CheckpointTensorImpl : public TensorImpl {
-  int id = gen_counter();
-  static int counter;
-  static int gen_counter() {
+  long id = gen_counter();
+  static long counter;
+  static long gen_counter() {
     return counter++;
   }
   std::string counter_name() const {
@@ -407,9 +407,13 @@ struct TORCH_API CheckpointTensorImpl : public TensorImpl {
     }
   }
 
+  /**
+   * 在make过程中可能会有undefined tensor出现，需要检查
+  */
   explicit CheckpointTensorImpl(const intrusive_ptr<External>& e) :
     CheckpointTensorImpl(Ref<intrusive_ptr<External>>::make(e)) {
-      set_sizes_and_strides(ref->value->value->get().sizes(), ref->value->value->get().strides());
+      if(ref->value->value->get().defined())
+        set_sizes_and_strides(ref->value->value->get().sizes(), ref->value->value->get().strides());
     }
 
   explicit CheckpointTensorImpl(const Tensor& t);
@@ -427,13 +431,14 @@ struct TORCH_API CheckpointTensorImpl : public TensorImpl {
                                                     bool allow_tensor_metadata_change) const override;
   // intrusive_ptr<TensorImpl> shallow_copy_and_detach(const VariableVersion&& version_counter,
   //                                                   bool allow_tensor_metadata_change) const override;
+  //////////// this function is private, cannot be changed
+  // template <typename VariableVersion>
+  // c10::intrusive_ptr<TensorImpl> shallow_copy_and_detach_core(
+  //     VariableVersion&& version_counter,
+  //     bool allow_tensor_metadata_change) const override;
+
   void shallow_copy_from(const c10::intrusive_ptr<TensorImpl>& impl) override;
 
-  /**
-   * 原有实现在这里是没有保留数据指针storage的
-   * 如果在正常执行流程中是在哪里获取的storage呢？
-   * 目前构造cpti后是没有保留这些信息的
-  */
   int64_t dim() const {
     return ref->value->value->get().dim();
   }

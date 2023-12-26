@@ -384,6 +384,10 @@ class DispatchKeySet final {
     return repr_;
   }
 
+  void unsafe_set_repr(uint64_t new_repr){
+    repr_ = new_repr;
+  }
+
   DispatchKey highestFunctionalityKey() const {
     auto functionality_idx = indexOfHighestBit();
     // This means that none of the functionality bits were set.
