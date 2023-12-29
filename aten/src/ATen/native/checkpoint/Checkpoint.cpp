@@ -801,14 +801,14 @@ Tensor checkpoint_slice(const Tensor& a, long b, long c, long d, long e) {
   return CheckpointTensorImpl::make("slice", rt, {a})[0];
 }
 
-Tensor checkpoint_slice_backward(const Tensor& a, c10::ArrayRef<long> b, long c, long d, long e, long f) {
-  std::vector<long> b_ = b.vec();
-  rematerialize_function_t rt =
-    [=](const Tensors& vec) -> Tensors {
-      return {at::slice_backward(vec.at(0), b_, c, d, e, f)};
-    };
-  return CheckpointTensorImpl::make("slice_backward", rt, {a})[0];
-}
+// Tensor checkpoint_slice_backward(const Tensor& a, c10::ArrayRef<long> b, long c, long d, long e, long f) {
+//   std::vector<long> b_ = b.vec();
+//   rematerialize_function_t rt =
+//     [=](const Tensors& vec) -> Tensors {
+//       return {at::slice_backward(vec.at(0), b_, c, d, e, f)};
+//     };
+//   return CheckpointTensorImpl::make("slice_backward", rt, {a})[0];
+// }
 
 Tensor& checkpoint_zero_(Tensor& a) {
   mutate_function_t mt =
@@ -1226,7 +1226,8 @@ Tensor& checkpoint_fill_(Tensor& self, const at::Scalar & value) {
   mutate_function_t mt =
     [=](const Tensors& vec) {
     Tensor self = vec.at(0);
-    at::fill_(self, value);
+    // at::fill_(self, value);
+    self.fill_(value);
   };
   CheckpointTensorImpl::mutate("fill_scalar", mt, {self}, {0});
   return self;
@@ -1973,6 +1974,86 @@ at::Tensor checkpoint_sigmoid(const at::Tensor & self) {
       return {at::sigmoid(vec.at(0))};
     };
   return CheckpointTensorImpl::make("aten::sigmoid", rt, {self})[0];
+}
+
+/// ['aten::sub_', 'at::Tensor &', 'sub_', '(Tensor& self, const Tensor& other, const Scalar& alpha)']
+at::Tensor & checkpoint_sub_(Tensor& self, const Tensor& other, const Scalar& alpha) {
+  mutate_function_t mt =
+    [=](const Tensors& vec) {
+      Tensor self = vec.at(0);
+      self.sub_(vec.at(1), alpha);
+      // return {at::sub_(self, vec.at(1), alpha)};
+    };
+  CheckpointTensorImpl::mutate("aten::sub_tensor", mt, {self, other}, {0});
+  return self;
+}
+
+/// ['aten::sub_', 'at::Tensor &', 'sub_', '(Tensor& self, const Tensor& other, const Scalar& alpha)']
+at::Tensor & checkpoint_sub_(Tensor& self, const Scalar& other, const Scalar& alpha) {
+  mutate_function_t mt =
+    [=](const Tensors& vec) {
+      Tensor self = vec.at(0);
+      self.sub_(other, alpha);
+      // return {at::sub_(self, vec.at(1), alpha)};
+    };
+  CheckpointTensorImpl::mutate("aten::sub_scalar", mt, {self}, {0});
+  return self;
+}
+
+/// ['aten::slice_backward', 'at::Tensor', 'slice_backward', '(const at::Tensor & grad_output, at::IntArrayRef input_sizes, int64_t dim, int64_t start, int64_t end, int64_t step)']
+at::Tensor checkpoint_slice_backward(const at::Tensor & grad_output, at::IntArrayRef input_sizes, int64_t dim, int64_t start, int64_t end, int64_t step) {
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      return {at::slice_backward(vec.at(0), input_sizes, dim, start, end, step)};
+    };
+  return CheckpointTensorImpl::make("aten::slice_backward", rt, {grad_output})[0];
+}
+
+/// ['aten::native_dropout_backward', 'at::Tensor', 'native_dropout_backward', '(const at::Tensor & grad_output, const at::Tensor & mask, double scale)']
+at::Tensor checkpoint_native_dropout_backward(const at::Tensor & grad_output, const at::Tensor & mask, double scale) {
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      return {at::native_dropout_backward(vec.at(0), vec.at(1), scale)};
+    };
+  return CheckpointTensorImpl::make("aten::native_dropout_backward", rt, {grad_output, mask})[0];
+}
+
+/// ['aten::_foreach_norm', 'std::vector<at::Tensor>', '_foreach_norm', '(at::TensorList self, const at::Scalar & ord=2)']
+std::vector<at::Tensor> checkpoint__foreach_norm(at::TensorList self, const at::Scalar & ord) {
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      return {at::_foreach_norm(at::TensorList(vec), ord)};
+    };
+  Tensors inputs;
+  for (const auto i : c10::irange(self.size())){
+    inputs.push_back(self[i]);
+  }
+  return CheckpointTensorImpl::make("aten::_foreach_norm", rt, {inputs});
+}
+
+/// ['aten::linalg_vector_norm_outf', 'at::Tensor &', 'linalg_vector_norm_outf', '(const at::Tensor & self, const at::Scalar & ord, at::OptionalIntArrayRef dim, bool keepdim, c10::optional<at::ScalarType> dtype, at::Tensor & out)']
+at::Tensor & checkpoint_linalg_vector_norm_out(const at::Tensor & self, const at::Scalar & ord, at::OptionalIntArrayRef dim, bool keepdim, c10::optional<at::ScalarType> dtype, at::Tensor & out) {
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      Tensor out = vec.at(1);
+      return {at::linalg_vector_norm_outf(vec.at(0), ord, dim, keepdim, dtype, out)};
+    };
+  return CheckpointTensorImpl::make("aten::linalg_vector_norm_outf", rt, {self, out})[0];
+}
+
+/// ['aten::_foreach_mul_', 'void', '_foreach_mul_', '(at::TensorList self, const at::Tensor & other)']
+void checkpoint__foreach_mul_(at::TensorList self, const at::Tensor & other) {
+  // mutate_function_t mt =
+  //   [=](const Tensors& vec) -> Tensors {
+  //     Tensor self = vec.at(0);
+  //     at::_foreach_mul_(self, vec.at(1));
+  //   };
+  Tensors inputs;
+  for (const auto i : c10::irange(self.size())){
+    inputs.push_back(self[i].decheckpoint());
+  }
+  at::_foreach_mul_(at::TensorList(inputs), other.decheckpoint());
+  // CheckpointTensorImpl::mutate("_foreach_mul_.Tensor", mt, {self, other}, {0});
 }
 
 ////////////////////////////////// auto generate part //////////////////////////////////////

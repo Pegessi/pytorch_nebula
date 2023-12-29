@@ -810,7 +810,7 @@ c10::intrusive_ptr<TensorImpl> TensorImpl::shallow_copy_and_detach_core(
       /*version_counter=*/std::forward<VariableVersion>(version_counter),
       /*allow_tensor_metadata_change=*/allow_tensor_metadata_change);
   // if(impl.get()->key_set().has(c10::DispatchKey::Checkpoint)){     // this method is private and not virtual function, since need special process
-  //   impl.get()->unsafe_set_key_set(key_set_.remove(c10::DispatchKey::Checkpoint).remove(c10::DispatchKey::AutogradCheckpoint));
+  //   impl.get()->unsafe_set_key_set(key_set_.remove(c10::DispatchKey::Checkpoint).remove(c10::DispatchKey::AutogradCheckpoint));  // directly remove key is useless
   // }
   impl->refresh_numel();
   impl->refresh_contiguous();

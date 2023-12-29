@@ -247,6 +247,7 @@ struct AliasPool : intrusive_ptr_target {
   bool is_evicted = false;
   size_t memory;
   time_t last_used_time;
+  /// TODO: record mem addr here
   // An aliaspool cant register itself to the checkpointpool - you have to do it yourself.
   AliasPool(const Unsafe&, intrusive_ptr<Rematerializer> head_remat, size_t memory) :
     head_remat(head_remat),
@@ -306,6 +307,8 @@ struct CheckpointTensorCell : intrusive_ptr_target {
   intrusive_ptr<Rematerializer> remat;
   void evict() {
     TORCH_CHECK(remat);
+    // auto raw_tensor_ptr = t.release();
+    // delete raw_tensor_ptr;
     t.reset();
   }
   void fill(const Tensor& t);
@@ -429,8 +432,9 @@ struct TORCH_API CheckpointTensorImpl : public TensorImpl {
                      const std::vector<size_t>& mutate_idx);
   intrusive_ptr<TensorImpl> shallow_copy_and_detach(const VariableVersion& version_counter,
                                                     bool allow_tensor_metadata_change) const override;
-  // intrusive_ptr<TensorImpl> shallow_copy_and_detach(const VariableVersion&& version_counter,
-  //                                                   bool allow_tensor_metadata_change) const override;
+  c10::intrusive_ptr<TensorImpl> shallow_copy_and_detach(
+      c10::VariableVersion&& version_counter,
+      bool allow_tensor_metadata_change) const override;
   //////////// this function is private, cannot be changed
   // template <typename VariableVersion>
   // c10::intrusive_ptr<TensorImpl> shallow_copy_and_detach_core(

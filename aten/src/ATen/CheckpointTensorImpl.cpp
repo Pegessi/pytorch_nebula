@@ -1,6 +1,6 @@
 #include <ATen/CheckpointTensorImpl.h>
 #include <ATen/Logger.h>
-// #include <c10/cuda/CUDACachingAllocator.h>
+#include <c10/cuda/CUDACachingAllocator.h>
 #include <cuda_runtime_api.h>
 #include <chrono>
 #include <string>
@@ -151,7 +151,7 @@ Timer::~Timer() {
   STATS.timers.push_back(stats);
 }
 
-bool use_log_ = true;
+bool use_log_ = false;
 bool use_profile_ = false;
 long base_compute_time_ = 0;
 long remat_compute_time_ = 0;
@@ -167,27 +167,20 @@ void CheckpointPool::add(const intrusive_ptr<AliasPool>& p) {
 
 long current_memory() {
   STATS.track("current_memory");
-  // using c10::cuda::CUDACachingAllocator::DeviceStats;
-  // const DeviceStats stats =
-  //     c10::cuda::CUDACachingAllocator::getDeviceStats(0);
-  // auto alloc_ptr = c10::GetAllocator(c10::DeviceType::CUDA);
-  // auto device_stat = c10::cuda::CUDACachingAllocator::getDeviceStats(0);
-  // return device_stat.allocated_bytes[0].current;
-  return 0;
+  /// TODO: 写死的0
+  auto device_stat = c10::cuda::CUDACachingAllocator::getDeviceStats(0);
+  return device_stat.allocated_bytes[0].current;
 }
 
 void CheckpointPool::auto_evict() {
   STATS.track("CheckpointPool::auto_evict");
   if (has_memory_budget) {
-    // BUG: /usr/bin/ld: lib/libtorch_cpu.so: undefined reference to `c10::cuda::CUDACachingAllocator::allocator'
-    // using c10::cuda::CUDACachingAllocator::CUDAAllocator::getDeviceStats;
-    // using c10::cuda::CUDACachingAllocator::StatType;
-    // auto current_memory = getDeviceStats(0).allocated_bytes[static_cast<size_t>(StatType::AGGREGATE)].current;
-    // int device = 0; // 设备索引号
-    size_t freeMem, totalMem;
-    cudaMemGetInfo(&freeMem, &totalMem);
-    auto current_memory = totalMem - freeMem;
-    while (current_memory > memory_budget) {
+    // 使用cuda获取只能获取到reserved的情况，而pytorch存在自己的显存池，释放只是allocated部分发生了变化
+    // 因此必须使用torch的CUDACachingAllocator获取显存情况
+    // size_t freeMem, totalMem;
+    // cudaMemGetInfo(&freeMem, &totalMem);
+    // auto current_memory = totalMem - freeMem;
+    while (current_memory() > memory_budget) {
       evict();
     }
   }
@@ -303,11 +296,11 @@ bool is_checkpoint(const Tensor& t) {
 
 Tensor try_checkpoint(const Tensor& t) {
   STATS.track("try_checkpiont");
-  // if(t.key_set().has(DispatchKey::Checkpoint)&&!is_checkpoint(t)){
+  if(t.key_set().has(DispatchKey::Checkpoint)&&!is_checkpoint(t)){
     // t.key_set() = t.key_set().remove(DispatchKey::Checkpoint);    // 返回值是keyset，但没有set函数 所以是没有用的
-  //   annotate_log("trigger");
-  //   return(checkpoint(t.decheckpoint()));
-  // }
+    annotate_log("trigger");
+    return(checkpoint(t.decheckpoint()));
+  }
   return is_checkpoint(t) ? t : checkpoint(t);
 }
 
@@ -567,7 +560,7 @@ intrusive_ptr<TensorImpl> CheckpointTensorImpl::shallow_copy_and_detach(const Va
   return impl;
 }
 
-// is used in the process of Variable's creation during Backward
+// is used in the process of Variable's creation during Backward, but this method is private
 // template <typename VariableVersion>
 // c10::intrusive_ptr<TensorImpl> CheckpointTensorImpl::shallow_copy_and_detach_core(
 //     VariableVersion&& version_counter,
@@ -586,21 +579,22 @@ intrusive_ptr<TensorImpl> CheckpointTensorImpl::shallow_copy_and_detach(const Va
 //   return impl;
 // }
 
-// intrusive_ptr<TensorImpl> CheckpointTensorImpl::shallow_copy_and_detach(const VariableVersion&& version_counter,
-//                                                                         bool allow_tensor_metadata_change) const{
-//   // auto ret = intrusive_ptr<CheckpointTensorImpl>::make(ref);
-//   auto impl = c10::make_intrusive<CheckpointTensorImpl>(ref);
-//   TensorImpl::copy_tensor_metadata(
-//         /*src_impl=*/this,
-//         /*dest_impl=*/impl.get(),
-//         /*version_counter=*/std::move(version_counter),
-//         /*allow_tensor_metadata_change=*/allow_tensor_metadata_change);
-//   impl->refresh_numel();
-//   if (use_log_) {
-//     DTRLogCopy(impl->counter_name(), counter_name());
-//   }
-//   return impl;
-// }
+// necessary in the process of autograd, use this func to copy and detach new tensor with cpti
+c10::intrusive_ptr<TensorImpl> CheckpointTensorImpl::shallow_copy_and_detach(
+      c10::VariableVersion&& version_counter,
+      bool allow_tensor_metadata_change) const{
+  auto impl = c10::make_intrusive<CheckpointTensorImpl>(ref);
+  TensorImpl::copy_tensor_metadata(
+        /*src_impl=*/this,
+        /*dest_impl=*/impl.get(),
+        /*version_counter=*/std::move(version_counter),
+        /*allow_tensor_metadata_change=*/allow_tensor_metadata_change);
+  impl->refresh_numel();
+  if (use_log_) {
+    DTRLogCopy(impl->counter_name(), counter_name());
+  }
+  return impl;
+}
 
 
 void CheckpointTensorImpl::shallow_copy_from(const c10::intrusive_ptr<TensorImpl>& impl) {
@@ -833,7 +827,7 @@ void CheckpointTensorImpl::mutate(const std::string& name,
   auto remat = [=](const Tensors& t) -> Tensors {
                  Tensors new_input_values = t;
                  for (size_t idx: mutate_idx) {
-                   new_input_values[idx] = t[idx].clone();
+                   new_input_values[idx] = t[idx].clone();    /// TODO: 绕开clone
                  }
                  mutate(new_input_values);
                  return new_input_values;

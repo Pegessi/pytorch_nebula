@@ -87,6 +87,9 @@ size_t computeStorageNbytes(
   }
   overflowed |= c10::mul_overflows(size, itemsize_bytes, &size);
   overflowed |= size > storage_max();
+  if(overflowed){
+    printf("\n");
+  }
   TORCH_CHECK(!overflowed,
               "Storage size calculation overflowed with sizes=",
               sizes, " and strides=", strides);

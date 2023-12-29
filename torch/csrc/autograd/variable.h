@@ -804,7 +804,8 @@ inline Variable make_variable(
         /*allow_tensor_metadata_change=*/allow_tensor_metadata_change);
     data_impl_copy->set_autograd_meta(std::make_unique<AutogradMeta>(
         data_impl_copy.get(), false, std::move(gradient_edge)));
-    return Variable(data_impl_copy);
+    auto new_var = Variable(data_impl_copy);
+    return new_var;
   }
   return Variable();
 }
