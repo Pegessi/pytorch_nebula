@@ -2325,76 +2325,84 @@ at::Tensor checkpoint_normal(const at::Tensor & mean, const at::Tensor & std, c1
 
 /// ['aten::normal.float_float', 'at::Tensor', 'normal', '(double mean, double std, at::IntArrayRef size, c10::optional<at::Generator> generator=c10::nullopt, at::TensorOptions options={})']
 at::Tensor checkpoint_normal(double mean, double std, at::IntArrayRef size, c10::optional<at::Generator> generator, at::TensorOptions options) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
-      return {at::normal(mean, std, size, generator, options)};
+      return {at::normal(mean, std, size_, generator, options)};
     };
   return CheckpointTensorImpl::make("aten::normal.float_float", rt, {})[0];
 }
 
 /// ['aten::normal.float_float', 'at::Tensor', 'normal', '(double mean, double std, at::IntArrayRef size, c10::optional<at::Generator> generator, c10::optional<at::ScalarType> dtype, c10::optional<at::Layout> layout, c10::optional<at::Device> device, c10::optional<bool> pin_memory)']
 at::Tensor checkpoint_normal(double mean, double std, at::IntArrayRef size, c10::optional<at::Generator> generator, c10::optional<at::ScalarType> dtype, c10::optional<at::Layout> layout, c10::optional<at::Device> device, c10::optional<bool> pin_memory) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
-      return {at::normal(mean, std, size, generator, dtype, layout, device, pin_memory)};
+      return {at::normal(mean, std, size_, generator, dtype, layout, device, pin_memory)};
     };
   return CheckpointTensorImpl::make("aten::normal.float_float", rt, {})[0];
 }
 
 /// ['aten::normal.float_float', 'at::Tensor', 'normal_symint', '(double mean, double std, c10::SymIntArrayRef size, c10::optional<at::Generator> generator=c10::nullopt, at::TensorOptions options={})']
 at::Tensor checkpoint_normal_symint(double mean, double std, c10::SymIntArrayRef size, c10::optional<at::Generator> generator, at::TensorOptions options) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
-      return {at::normal_symint(mean, std, size, generator, options)};
+      return {at::normal_symint(mean, std, size_, generator, options)};
     };
   return CheckpointTensorImpl::make("aten::normal.float_float", rt, {})[0];
 }
 
 /// ['aten::normal.float_float', 'at::Tensor', 'normal_symint', '(double mean, double std, c10::SymIntArrayRef size, c10::optional<at::Generator> generator, c10::optional<at::ScalarType> dtype, c10::optional<at::Layout> layout, c10::optional<at::Device> device, c10::optional<bool> pin_memory)']
 at::Tensor checkpoint_normal_symint(double mean, double std, c10::SymIntArrayRef size, c10::optional<at::Generator> generator, c10::optional<at::ScalarType> dtype, c10::optional<at::Layout> layout, c10::optional<at::Device> device, c10::optional<bool> pin_memory) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
-      return {at::normal_symint(mean, std, size, generator, dtype, layout, device, pin_memory)};
+      return {at::normal_symint(mean, std, size_, generator, dtype, layout, device, pin_memory)};
     };
   return CheckpointTensorImpl::make("aten::normal.float_float", rt, {})[0];
 }
 
 /// ['aten::normal.float_float_out', 'at::Tensor &', 'normal_out', '(at::Tensor & out, double mean, double std, at::IntArrayRef size, c10::optional<at::Generator> generator=c10::nullopt)']
 at::Tensor & checkpoint_normal_out(at::Tensor & out, double mean, double std, at::IntArrayRef size, c10::optional<at::Generator> generator) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
       Tensor out = vec.at(0);
-      return {at::normal_out(out, mean, std, size, generator)};
+      return {at::normal_out(out, mean, std, size_, generator)};
     };
   return CheckpointTensorImpl::make("aten::normal.float_float_out", rt, {out})[0];
 }
 
 /// ['aten::normal.float_float_out', 'at::Tensor &', 'normal_outf', '(double mean, double std, at::IntArrayRef size, c10::optional<at::Generator> generator, at::Tensor & out)']
 at::Tensor & checkpoint_normal_outf(double mean, double std, at::IntArrayRef size, c10::optional<at::Generator> generator, at::Tensor & out) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
       Tensor out = vec.at(0);
-      return {at::normal_outf(mean, std, size, generator, out)};
+      return {at::normal_outf(mean, std, size_, generator, out)};
     };
   return CheckpointTensorImpl::make("aten::normal.float_float_out", rt, {out})[0];
 }
 
 /// ['aten::normal.float_float_out', 'at::Tensor &', 'normal_symint_out', '(at::Tensor & out, double mean, double std, c10::SymIntArrayRef size, c10::optional<at::Generator> generator=c10::nullopt)']
 at::Tensor & checkpoint_normal_symint_out(at::Tensor & out, double mean, double std, c10::SymIntArrayRef size, c10::optional<at::Generator> generator) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
       Tensor out = vec.at(0);
-      return {at::normal_symint_out(out, mean, std, size, generator)};
+      return {at::normal_symint_out(out, mean, std, size_, generator)};
     };
   return CheckpointTensorImpl::make("aten::normal.float_float_out", rt, {out})[0];
 }
 
 /// ['aten::normal.float_float_out', 'at::Tensor &', 'normal_symint_outf', '(double mean, double std, c10::SymIntArrayRef size, c10::optional<at::Generator> generator, at::Tensor & out)']
 at::Tensor & checkpoint_normal_symint_outf(double mean, double std, c10::SymIntArrayRef size, c10::optional<at::Generator> generator, at::Tensor & out) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
       Tensor out = vec.at(0);
-      return {at::normal_symint_outf(mean, std, size, generator, out)};
+      return {at::normal_symint_outf(mean, std, size_, generator, out)};
     };
   return CheckpointTensorImpl::make("aten::normal.float_float_out", rt, {out})[0];
 }
@@ -2549,20 +2557,22 @@ at::Tensor checkpoint_slice_symint(const at::Tensor & self, int64_t dim, c10::op
 
 /// ['aten::reshape', 'at::Tensor', 'reshape', '(const at::Tensor & self, at::IntArrayRef shape)']
 at::Tensor checkpoint_reshape(const at::Tensor & self, at::IntArrayRef shape) {
+  auto shape_ = shape.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
-      return {at::reshape(vec.at(0), shape)};
+      return {at::reshape(vec.at(0), shape_)};
     };
   return CheckpointTensorImpl::make("aten::reshape", rt, {self})[0];
 }
 
 /// ['aten::reshape', 'at::Tensor', 'reshape_symint', '(const at::Tensor & self, c10::SymIntArrayRef shape)']
 at::Tensor checkpoint_reshape_symint(const at::Tensor & self, c10::SymIntArrayRef shape) {
+  auto shape_ = shape.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
-      return {vec.at(0).reshape_symint(shape)};
+      return {at::reshape_symint(vec.at(0), shape_)};
     };
-  return CheckpointTensorImpl::make("aten::reshape_symint", rt, {self})[0];
+  return CheckpointTensorImpl::make("aten::reshape", rt, {self})[0];
 }
 
 /// ['aten::mul.Tensor', 'at::Tensor', 'mul', '(const at::Tensor & self, const at::Tensor & other)']
@@ -2828,9 +2838,10 @@ at::Tensor checkpoint_squeeze(const at::Tensor & self, at::Dimname dim) {
 
 /// ['aten::squeeze.dims', 'at::Tensor', 'squeeze', '(const at::Tensor & self, at::IntArrayRef dim)']
 at::Tensor checkpoint_squeeze(const at::Tensor & self, at::IntArrayRef dim) {
+  auto dim_ = dim.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
-      return {at::squeeze(vec.at(0), dim)};
+      return {at::squeeze(vec.at(0), dim_)};
     };
   return CheckpointTensorImpl::make("aten::squeeze.dims", rt, {self})[0];
 }
@@ -2907,76 +2918,92 @@ at::Tensor & checkpoint_cat_outf(const at::ITensorListRef & tensors, int64_t dim
 
 /// ['aten::empty_strided', 'at::Tensor', 'empty_strided', '(at::IntArrayRef size, at::IntArrayRef stride, at::TensorOptions options={})']
 at::Tensor checkpoint_empty_strided(at::IntArrayRef size, at::IntArrayRef stride, at::TensorOptions options) {
+  auto size_ = size.vec();
+  auto stride_ = stride.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
-      return {at::empty_strided(size, stride, options)};
+      return {at::empty_strided(size_, stride_, options)};
     };
   return CheckpointTensorImpl::make("aten::empty_strided", rt, {})[0];
 }
 
 /// ['aten::empty_strided', 'at::Tensor', 'empty_strided', '(at::IntArrayRef size, at::IntArrayRef stride, c10::optional<at::ScalarType> dtype, c10::optional<at::Layout> layout, c10::optional<at::Device> device, c10::optional<bool> pin_memory)']
 at::Tensor checkpoint_empty_strided(at::IntArrayRef size, at::IntArrayRef stride, c10::optional<at::ScalarType> dtype, c10::optional<at::Layout> layout, c10::optional<at::Device> device, c10::optional<bool> pin_memory) {
+  auto size_ = size.vec();
+  auto stride_ = stride.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
-      return {at::empty_strided(size, stride, dtype, layout, device, pin_memory)};
+      return {at::empty_strided(size_, stride_, dtype, layout, device, pin_memory)};
     };
   return CheckpointTensorImpl::make("aten::empty_strided", rt, {})[0];
 }
 
 /// ['aten::empty_strided', 'at::Tensor', 'empty_strided_symint', '(c10::SymIntArrayRef size, c10::SymIntArrayRef stride, at::TensorOptions options={})']
 at::Tensor checkpoint_empty_strided_symint(c10::SymIntArrayRef size, c10::SymIntArrayRef stride, at::TensorOptions options) {
+  auto size_ = size.vec();
+  auto stride_ = stride.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
-      return {at::empty_strided_symint(size, stride, options)};
+      return {at::empty_strided_symint(size_, stride_, options)};
     };
   return CheckpointTensorImpl::make("aten::empty_strided", rt, {})[0];
 }
 
 /// ['aten::empty_strided', 'at::Tensor', 'empty_strided_symint', '(c10::SymIntArrayRef size, c10::SymIntArrayRef stride, c10::optional<at::ScalarType> dtype, c10::optional<at::Layout> layout, c10::optional<at::Device> device, c10::optional<bool> pin_memory)']
 at::Tensor checkpoint_empty_strided_symint(c10::SymIntArrayRef size, c10::SymIntArrayRef stride, c10::optional<at::ScalarType> dtype, c10::optional<at::Layout> layout, c10::optional<at::Device> device, c10::optional<bool> pin_memory) {
+  auto size_ = size.vec();
+  auto stride_ = stride.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
-      return {at::empty_strided_symint(size, stride, dtype, layout, device, pin_memory)};
+      return {at::empty_strided_symint(size_, stride_, dtype, layout, device, pin_memory)};
     };
   return CheckpointTensorImpl::make("aten::empty_strided", rt, {})[0];
 }
 
 /// ['aten::empty_strided.out', 'at::Tensor &', 'empty_strided_out', '(at::Tensor & out, at::IntArrayRef size, at::IntArrayRef stride)']
 at::Tensor & checkpoint_empty_strided_out(at::Tensor & out, at::IntArrayRef size, at::IntArrayRef stride) {
+  auto size_ = size.vec();
+  auto stride_ = stride.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
       Tensor out = vec.at(0);
-      return {at::empty_strided_out(out, size, stride)};
+      return {at::empty_strided_out(out, size_, stride_)};
     };
   return CheckpointTensorImpl::make("aten::empty_strided.out", rt, {out})[0];
 }
 
 /// ['aten::empty_strided.out', 'at::Tensor &', 'empty_strided_outf', '(at::IntArrayRef size, at::IntArrayRef stride, at::Tensor & out)']
 at::Tensor & checkpoint_empty_strided_outf(at::IntArrayRef size, at::IntArrayRef stride, at::Tensor & out) {
+  auto size_ = size.vec();
+  auto stride_ = stride.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
       Tensor out = vec.at(0);
-      return {at::empty_strided_outf(size, stride, out)};
+      return {at::empty_strided_outf(size_, stride_, out)};
     };
   return CheckpointTensorImpl::make("aten::empty_strided.out", rt, {out})[0];
 }
 
 /// ['aten::empty_strided.out', 'at::Tensor &', 'empty_strided_symint_out', '(at::Tensor & out, c10::SymIntArrayRef size, c10::SymIntArrayRef stride)']
 at::Tensor & checkpoint_empty_strided_symint_out(at::Tensor & out, c10::SymIntArrayRef size, c10::SymIntArrayRef stride) {
+  auto size_ = size.vec();
+  auto stride_ = stride.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
       Tensor out = vec.at(0);
-      return {at::empty_strided_symint_out(out, size, stride)};
+      return {at::empty_strided_symint_out(out, size_, stride_)};
     };
   return CheckpointTensorImpl::make("aten::empty_strided.out", rt, {out})[0];
 }
 
 /// ['aten::empty_strided.out', 'at::Tensor &', 'empty_strided_symint_outf', '(c10::SymIntArrayRef size, c10::SymIntArrayRef stride, at::Tensor & out)']
 at::Tensor & checkpoint_empty_strided_symint_outf(c10::SymIntArrayRef size, c10::SymIntArrayRef stride, at::Tensor & out) {
+  auto size_ = size.vec();
+  auto stride_ = stride.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
       Tensor out = vec.at(0);
-      return {at::empty_strided_symint_outf(size, stride, out)};
+      return {at::empty_strided_symint_outf(size_, stride_, out)};
     };
   return CheckpointTensorImpl::make("aten::empty_strided.out", rt, {out})[0];
 }
@@ -3001,29 +3028,50 @@ at::Tensor checkpoint_mean(const at::Tensor & self, c10::optional<at::ScalarType
 
 /// ['aten::mean.dim', 'at::Tensor', 'mean', '(const at::Tensor & self, at::OptionalIntArrayRef dim, bool keepdim=false, c10::optional<at::ScalarType> dtype=c10::nullopt)']
 at::Tensor checkpoint_mean(const at::Tensor & self, at::OptionalIntArrayRef dim, bool keepdim, c10::optional<at::ScalarType> dtype) {
+  std::vector<int64_t> dim_; 
+  if(dim.has_value()){
+    dim_ = dim.value().vec();
+  }
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
-      return {at::mean(vec.at(0), dim, keepdim, dtype)};
+      if(dim.has_value())
+        return {at::mean(vec.at(0), at::OptionalIntArrayRef(ArrayRef<int64_t>(dim_)), keepdim, dtype)};
+      else
+        return {at::mean(vec.at(0), dim, keepdim, dtype)};
     };
   return CheckpointTensorImpl::make("aten::mean.dim", rt, {self})[0];
 }
 
 /// ['aten::mean.out', 'at::Tensor &', 'mean_out', '(at::Tensor & out, const at::Tensor & self, at::OptionalIntArrayRef dim, bool keepdim=false, c10::optional<at::ScalarType> dtype=c10::nullopt)']
 at::Tensor & checkpoint_mean_out(at::Tensor & out, const at::Tensor & self, at::OptionalIntArrayRef dim, bool keepdim, c10::optional<at::ScalarType> dtype) {
+  std::vector<int64_t> dim_; 
+  if(dim.has_value()){
+    dim_ = dim.value().vec();
+  }
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
       Tensor out = vec.at(0);
-      return {at::mean_out(out, vec.at(1), dim, keepdim, dtype)};
+      if(dim.has_value())
+        return {at::mean_out(out, vec.at(1), at::OptionalIntArrayRef(ArrayRef<int64_t>(dim_)), keepdim, dtype)};
+      else
+        return {at::mean_out(out, vec.at(1), dim, keepdim, dtype)};
     };
   return CheckpointTensorImpl::make("aten::mean.out", rt, {out, self})[0];
 }
 
 /// ['aten::mean.out', 'at::Tensor &', 'mean_outf', '(const at::Tensor & self, at::OptionalIntArrayRef dim, bool keepdim, c10::optional<at::ScalarType> dtype, at::Tensor & out)']
 at::Tensor & checkpoint_mean_outf(const at::Tensor & self, at::OptionalIntArrayRef dim, bool keepdim, c10::optional<at::ScalarType> dtype, at::Tensor & out) {
+  std::vector<int64_t> dim_; 
+  if(dim.has_value()){
+    dim_ = dim.value().vec();
+  }
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
       Tensor out = vec.at(1);
-      return {at::mean_outf(vec.at(0), dim, keepdim, dtype, out)};
+      if(dim.has_value())
+        return {at::mean_outf(vec.at(0), at::OptionalIntArrayRef(ArrayRef<int64_t>(dim_)), keepdim, dtype, out)};
+      else
+        return {at::mean_outf(vec.at(0), dim_, keepdim, dtype, out)};
     };
   return CheckpointTensorImpl::make("aten::mean.out", rt, {self, out})[0];
 }
@@ -3137,18 +3185,22 @@ at::Tensor & checkpoint_rsqrt_outf(const at::Tensor & self, at::Tensor & out) {
 
 /// ['aten::as_strided', 'at::Tensor', 'as_strided', '(const at::Tensor & self, at::IntArrayRef size, at::IntArrayRef stride, c10::optional<int64_t> storage_offset=c10::nullopt)']
 at::Tensor checkpoint_as_strided(const at::Tensor & self, at::IntArrayRef size, at::IntArrayRef stride, c10::optional<int64_t> storage_offset) {
+  auto size_ = size.vec();
+  auto stride_ = stride.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
-      return {at::as_strided(vec.at(0), size, stride, storage_offset)};
+      return {at::as_strided(vec.at(0), size_, stride_, storage_offset)};
     };
   return CheckpointTensorImpl::make("aten::as_strided", rt, {self})[0];
 }
 
 /// ['aten::as_strided', 'at::Tensor', 'as_strided_symint', '(const at::Tensor & self, c10::SymIntArrayRef size, c10::SymIntArrayRef stride, c10::optional<c10::SymInt> storage_offset=c10::nullopt)']
 at::Tensor checkpoint_as_strided_symint(const at::Tensor & self, c10::SymIntArrayRef size, c10::SymIntArrayRef stride, c10::optional<c10::SymInt> storage_offset) {
+  auto size_ = size.vec();
+  auto stride_ = stride.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
-      return {at::as_strided_symint(vec.at(0), size, stride, storage_offset)};
+      return {at::as_strided_symint(vec.at(0), size_, stride_, storage_offset)};
     };
   return CheckpointTensorImpl::make("aten::as_strided", rt, {self})[0];
 }
@@ -3193,114 +3245,126 @@ at::Tensor & checkpoint_empty_like_outf(const at::Tensor & self, c10::optional<a
 
 /// ['aten::empty.names', 'at::Tensor', 'empty', '(at::IntArrayRef size, c10::optional<at::DimnameList> names, at::TensorOptions options={}, c10::optional<at::MemoryFormat> memory_format=c10::nullopt)']
 at::Tensor checkpoint_empty(at::IntArrayRef size, c10::optional<at::DimnameList> names, at::TensorOptions options, c10::optional<at::MemoryFormat> memory_format) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
-      return {at::empty(size, names, options, memory_format)};
+      return {at::empty(size_, names, options, memory_format)};
     };
   return CheckpointTensorImpl::make("aten::empty.names", rt, {})[0];
 }
 
 /// ['aten::empty.names', 'at::Tensor', 'empty', '(at::IntArrayRef size, c10::optional<at::DimnameList> names, c10::optional<at::ScalarType> dtype, c10::optional<at::Layout> layout, c10::optional<at::Device> device, c10::optional<bool> pin_memory, c10::optional<at::MemoryFormat> memory_format)']
 at::Tensor checkpoint_empty(at::IntArrayRef size, c10::optional<at::DimnameList> names, c10::optional<at::ScalarType> dtype, c10::optional<at::Layout> layout, c10::optional<at::Device> device, c10::optional<bool> pin_memory, c10::optional<at::MemoryFormat> memory_format) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
-      return {at::empty(size, names, dtype, layout, device, pin_memory, memory_format)};
+      return {at::empty(size_, names, dtype, layout, device, pin_memory, memory_format)};
     };
   return CheckpointTensorImpl::make("aten::empty.names", rt, {})[0];
 }
 
 /// ['aten::empty.memory_format', 'at::Tensor', 'empty', '(at::IntArrayRef size, at::TensorOptions options={}, c10::optional<at::MemoryFormat> memory_format=c10::nullopt)']
 at::Tensor checkpoint_empty(at::IntArrayRef size, at::TensorOptions options, c10::optional<at::MemoryFormat> memory_format) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
-      return {at::empty(size, options, memory_format)};
+      return {at::empty(size_, options, memory_format)};
     };
   return CheckpointTensorImpl::make("aten::empty.memory_format", rt, {})[0];
 }
 
 /// ['aten::empty.memory_format', 'at::Tensor', 'empty', '(at::IntArrayRef size, c10::optional<at::ScalarType> dtype, c10::optional<at::Layout> layout, c10::optional<at::Device> device, c10::optional<bool> pin_memory, c10::optional<at::MemoryFormat> memory_format)']
 at::Tensor checkpoint_empty(at::IntArrayRef size, c10::optional<at::ScalarType> dtype, c10::optional<at::Layout> layout, c10::optional<at::Device> device, c10::optional<bool> pin_memory, c10::optional<at::MemoryFormat> memory_format) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
-      return {at::empty(size, dtype, layout, device, pin_memory, memory_format)};
+      return {at::empty(size_, dtype, layout, device, pin_memory, memory_format)};
     };
   return CheckpointTensorImpl::make("aten::empty.memory_format", rt, {})[0];
 }
 
 /// ['aten::empty.memory_format', 'at::Tensor', 'empty_symint', '(c10::SymIntArrayRef size, at::TensorOptions options={}, c10::optional<at::MemoryFormat> memory_format=c10::nullopt)']
 at::Tensor checkpoint_empty_symint(c10::SymIntArrayRef size, at::TensorOptions options, c10::optional<at::MemoryFormat> memory_format) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
-      return {at::empty_symint(size, options, memory_format)};
+      return {at::empty_symint(size_, options, memory_format)};
     };
   return CheckpointTensorImpl::make("aten::empty.memory_format", rt, {})[0];
 }
 
 /// ['aten::empty.memory_format', 'at::Tensor', 'empty_symint', '(c10::SymIntArrayRef size, c10::optional<at::ScalarType> dtype, c10::optional<at::Layout> layout, c10::optional<at::Device> device, c10::optional<bool> pin_memory, c10::optional<at::MemoryFormat> memory_format)']
 at::Tensor checkpoint_empty_symint(c10::SymIntArrayRef size, c10::optional<at::ScalarType> dtype, c10::optional<at::Layout> layout, c10::optional<at::Device> device, c10::optional<bool> pin_memory, c10::optional<at::MemoryFormat> memory_format) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
-      return {at::empty_symint(size, dtype, layout, device, pin_memory, memory_format)};
+      return {at::empty_symint(size_, dtype, layout, device, pin_memory, memory_format)};
     };
   return CheckpointTensorImpl::make("aten::empty.memory_format", rt, {})[0];
 }
 
 /// ['aten::empty.out', 'at::Tensor &', 'empty_out', '(at::Tensor & out, at::IntArrayRef size, c10::optional<at::MemoryFormat> memory_format=c10::nullopt)']
 at::Tensor & checkpoint_empty_out(at::Tensor & out, at::IntArrayRef size, c10::optional<at::MemoryFormat> memory_format) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
       Tensor out = vec.at(0);
-      return {at::empty_out(out, size, memory_format)};
+      return {at::empty_out(out, size_, memory_format)};
     };
   return CheckpointTensorImpl::make("aten::empty.out", rt, {out})[0];
 }
 
 /// ['aten::empty.out', 'at::Tensor &', 'empty_outf', '(at::IntArrayRef size, c10::optional<at::MemoryFormat> memory_format, at::Tensor & out)']
 at::Tensor & checkpoint_empty_outf(at::IntArrayRef size, c10::optional<at::MemoryFormat> memory_format, at::Tensor & out) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
       Tensor out = vec.at(0);
-      return {at::empty_outf(size, memory_format, out)};
+      return {at::empty_outf(size_, memory_format, out)};
     };
   return CheckpointTensorImpl::make("aten::empty.out", rt, {out})[0];
 }
 
 /// ['aten::empty.out', 'at::Tensor &', 'empty_symint_out', '(at::Tensor & out, c10::SymIntArrayRef size, c10::optional<at::MemoryFormat> memory_format=c10::nullopt)']
 at::Tensor & checkpoint_empty_symint_out(at::Tensor & out, c10::SymIntArrayRef size, c10::optional<at::MemoryFormat> memory_format) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
       Tensor out = vec.at(0);
-      return {at::empty_symint_out(out, size, memory_format)};
+      return {at::empty_symint_out(out, size_, memory_format)};
     };
   return CheckpointTensorImpl::make("aten::empty.out", rt, {out})[0];
 }
 
 /// ['aten::empty.out', 'at::Tensor &', 'empty_symint_outf', '(c10::SymIntArrayRef size, c10::optional<at::MemoryFormat> memory_format, at::Tensor & out)']
 at::Tensor & checkpoint_empty_symint_outf(c10::SymIntArrayRef size, c10::optional<at::MemoryFormat> memory_format, at::Tensor & out) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
       Tensor out = vec.at(0);
-      return {at::empty_symint_outf(size, memory_format, out)};
+      return {at::empty_symint_outf(size_, memory_format, out)};
     };
   return CheckpointTensorImpl::make("aten::empty.out", rt, {out})[0];
 }
 
 /// ['aten::empty.names_out', 'at::Tensor &', 'empty_out', '(at::Tensor & out, at::IntArrayRef size, c10::optional<at::DimnameList> names, c10::optional<at::MemoryFormat> memory_format=c10::nullopt)']
 at::Tensor & checkpoint_empty_out(at::Tensor & out, at::IntArrayRef size, c10::optional<at::DimnameList> names, c10::optional<at::MemoryFormat> memory_format) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
       Tensor out = vec.at(0);
-      return {at::empty_out(out, size, names, memory_format)};
+      return {at::empty_out(out, size_, names, memory_format)};
     };
   return CheckpointTensorImpl::make("aten::empty.names_out", rt, {out})[0];
 }
 
 /// ['aten::empty.names_out', 'at::Tensor &', 'empty_outf', '(at::IntArrayRef size, c10::optional<at::DimnameList> names, c10::optional<at::MemoryFormat> memory_format, at::Tensor & out)']
 at::Tensor & checkpoint_empty_outf(at::IntArrayRef size, c10::optional<at::DimnameList> names, c10::optional<at::MemoryFormat> memory_format, at::Tensor & out) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
       Tensor out = vec.at(0);
-      return {at::empty_outf(size, names, memory_format, out)};
+      return {at::empty_outf(size_, names, memory_format, out)};
     };
   return CheckpointTensorImpl::make("aten::empty.names_out", rt, {out})[0];
 }
@@ -3373,58 +3437,64 @@ at::Tensor checkpoint_select_symint(const at::Tensor & self, int64_t dim, c10::S
 
 /// ['aten::_unsafe_view', 'at::Tensor', '_unsafe_view', '(const at::Tensor & self, at::IntArrayRef size)']
 at::Tensor checkpoint__unsafe_view(const at::Tensor & self, at::IntArrayRef size) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
-      return {at::_unsafe_view(vec.at(0), size)};
+      return {at::_unsafe_view(vec.at(0), size_)};
     };
   return CheckpointTensorImpl::make("aten::_unsafe_view", rt, {self})[0];
 }
 
 /// ['aten::_unsafe_view', 'at::Tensor', '_unsafe_view_symint', '(const at::Tensor & self, c10::SymIntArrayRef size)']
 at::Tensor checkpoint__unsafe_view_symint(const at::Tensor & self, c10::SymIntArrayRef size) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
-      return {at::_unsafe_view_symint(vec.at(0), size)};
+      return {at::_unsafe_view_symint(vec.at(0), size_)};
     };
-  return CheckpointTensorImpl::make("aten::_unsafe_view_symint", rt, {self})[0];
+  return CheckpointTensorImpl::make("aten::_unsafe_view", rt, {self})[0];
 }
 
 /// ['aten::_unsafe_view.out', 'at::Tensor &', '_unsafe_view_out', '(at::Tensor & out, const at::Tensor & self, at::IntArrayRef size)']
 at::Tensor & checkpoint__unsafe_view_out(at::Tensor & out, const at::Tensor & self, at::IntArrayRef size) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
       Tensor out = vec.at(0);
-      return {at::_unsafe_view_out(out, vec.at(1), size)};
+      return {at::_unsafe_view_out(out, vec.at(1), size_)};
     };
   return CheckpointTensorImpl::make("aten::_unsafe_view.out", rt, {out, self})[0];
 }
 
 /// ['aten::_unsafe_view.out', 'at::Tensor &', '_unsafe_view_outf', '(const at::Tensor & self, at::IntArrayRef size, at::Tensor & out)']
 at::Tensor & checkpoint__unsafe_view_outf(const at::Tensor & self, at::IntArrayRef size, at::Tensor & out) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
       Tensor out = vec.at(1);
-      return {at::_unsafe_view_outf(vec.at(0), size, out)};
+      return {at::_unsafe_view_outf(vec.at(0), size_, out)};
     };
   return CheckpointTensorImpl::make("aten::_unsafe_view.out", rt, {self, out})[0];
 }
 
 /// ['aten::_unsafe_view.out', 'at::Tensor &', '_unsafe_view_symint_out', '(at::Tensor & out, const at::Tensor & self, c10::SymIntArrayRef size)']
 at::Tensor & checkpoint__unsafe_view_symint_out(at::Tensor & out, const at::Tensor & self, c10::SymIntArrayRef size) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
       Tensor out = vec.at(0);
-      return {at::_unsafe_view_symint_out(out, vec.at(1), size)};
+      return {at::_unsafe_view_symint_out(out, vec.at(1), size_)};
     };
   return CheckpointTensorImpl::make("aten::_unsafe_view.out", rt, {out, self})[0];
 }
 
 /// ['aten::_unsafe_view.out', 'at::Tensor &', '_unsafe_view_symint_outf', '(const at::Tensor & self, c10::SymIntArrayRef size, at::Tensor & out)']
 at::Tensor & checkpoint__unsafe_view_symint_outf(const at::Tensor & self, c10::SymIntArrayRef size, at::Tensor & out) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
       Tensor out = vec.at(1);
-      return {at::_unsafe_view_symint_outf(vec.at(0), size, out)};
+      return {at::_unsafe_view_symint_outf(vec.at(0), size_, out)};
     };
   return CheckpointTensorImpl::make("aten::_unsafe_view.out", rt, {self, out})[0];
 }
@@ -3705,40 +3775,44 @@ at::Tensor & checkpoint_sin_outf(const at::Tensor & self, at::Tensor & out) {
 
 /// ['aten::repeat.out', 'at::Tensor &', 'repeat_out', '(at::Tensor & out, const at::Tensor & self, at::IntArrayRef repeats)']
 at::Tensor & checkpoint_repeat_out(at::Tensor & out, const at::Tensor & self, at::IntArrayRef repeats) {
+  auto repeats_ = repeats.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
       Tensor out = vec.at(0);
-      return {at::repeat_out(out, vec.at(1), repeats)};
+      return {at::repeat_out(out, vec.at(1), repeats_)};
     };
   return CheckpointTensorImpl::make("aten::repeat.out", rt, {out, self})[0];
 }
 
 /// ['aten::repeat.out', 'at::Tensor &', 'repeat_outf', '(const at::Tensor & self, at::IntArrayRef repeats, at::Tensor & out)']
 at::Tensor & checkpoint_repeat_outf(const at::Tensor & self, at::IntArrayRef repeats, at::Tensor & out) {
+  auto repeats_ = repeats.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
       Tensor out = vec.at(1);
-      return {at::repeat_outf(vec.at(0), repeats, out)};
+      return {at::repeat_outf(vec.at(0), repeats_, out)};
     };
   return CheckpointTensorImpl::make("aten::repeat.out", rt, {self, out})[0];
 }
 
 /// ['aten::repeat.out', 'at::Tensor &', 'repeat_symint_out', '(at::Tensor & out, const at::Tensor & self, c10::SymIntArrayRef repeats)']
 at::Tensor & checkpoint_repeat_symint_out(at::Tensor & out, const at::Tensor & self, c10::SymIntArrayRef repeats) {
+  auto repeats_ = repeats.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
       Tensor out = vec.at(0);
-      return {at::repeat_symint_out(out, vec.at(1), repeats)};
+      return {at::repeat_symint_out(out, vec.at(1), repeats_)};
     };
   return CheckpointTensorImpl::make("aten::repeat.out", rt, {out, self})[0];
 }
 
 /// ['aten::repeat.out', 'at::Tensor &', 'repeat_symint_outf', '(const at::Tensor & self, c10::SymIntArrayRef repeats, at::Tensor & out)']
 at::Tensor & checkpoint_repeat_symint_outf(const at::Tensor & self, c10::SymIntArrayRef repeats, at::Tensor & out) {
+  auto repeats_ = repeats.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
       Tensor out = vec.at(1);
-      return {at::repeat_symint_outf(vec.at(0), repeats, out)};
+      return {at::repeat_symint_outf(vec.at(0), repeats_, out)};
     };
   return CheckpointTensorImpl::make("aten::repeat.out", rt, {self, out})[0];
 }
@@ -3774,58 +3848,70 @@ at::Tensor checkpoint_set(const at::Tensor & self, at::Storage source) {
 
 /// ['aten::set.source_Storage_storage_offset_out', 'at::Tensor &', 'set_out', '(at::Tensor & out, const at::Tensor & self, at::Storage source, int64_t storage_offset, at::IntArrayRef size, at::IntArrayRef stride={})']
 at::Tensor & checkpoint_set_out(at::Tensor & out, const at::Tensor & self, at::Storage source, int64_t storage_offset, at::IntArrayRef size, at::IntArrayRef stride) {
+  auto size_ = size.vec();
+  auto stride_ = stride.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
       Tensor out = vec.at(0);
-      return {at::set_out(out, vec.at(1), source, storage_offset, size, stride)};
+      return {at::set_out(out, vec.at(1), source, storage_offset, size_, stride_)};
     };
   return CheckpointTensorImpl::make("aten::set.source_Storage_storage_offset_out", rt, {out, self})[0];
 }
 
 /// ['aten::set.source_Storage_storage_offset_out', 'at::Tensor &', 'set_outf', '(const at::Tensor & self, at::Storage source, int64_t storage_offset, at::IntArrayRef size, at::IntArrayRef stride, at::Tensor & out)']
 at::Tensor & checkpoint_set_outf(const at::Tensor & self, at::Storage source, int64_t storage_offset, at::IntArrayRef size, at::IntArrayRef stride, at::Tensor & out) {
+  auto size_ = size.vec();
+  auto stride_ = stride.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
       Tensor out = vec.at(1);
-      return {at::set_outf(vec.at(0), source, storage_offset, size, stride, out)};
+      return {at::set_outf(vec.at(0), source, storage_offset, size_, stride_, out)};
     };
   return CheckpointTensorImpl::make("aten::set.source_Storage_storage_offset_out", rt, {self, out})[0];
 }
 
 /// ['aten::set.source_Storage_storage_offset_out', 'at::Tensor &', 'set_symint_out', '(at::Tensor & out, const at::Tensor & self, at::Storage source, c10::SymInt storage_offset, c10::SymIntArrayRef size, c10::SymIntArrayRef stride={})']
 at::Tensor & checkpoint_set_symint_out(at::Tensor & out, const at::Tensor & self, at::Storage source, c10::SymInt storage_offset, c10::SymIntArrayRef size, c10::SymIntArrayRef stride) {
+  auto size_ = size.vec();
+  auto stride_ = stride.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
       Tensor out = vec.at(0);
-      return {at::set_symint_out(out, vec.at(1), source, storage_offset, size, stride)};
+      return {at::set_symint_out(out, vec.at(1), source, storage_offset, size_, stride_)};
     };
   return CheckpointTensorImpl::make("aten::set.source_Storage_storage_offset_out", rt, {out, self})[0];
 }
 
 /// ['aten::set.source_Storage_storage_offset_out', 'at::Tensor &', 'set_symint_outf', '(const at::Tensor & self, at::Storage source, c10::SymInt storage_offset, c10::SymIntArrayRef size, c10::SymIntArrayRef stride, at::Tensor & out)']
 at::Tensor & checkpoint_set_symint_outf(const at::Tensor & self, at::Storage source, c10::SymInt storage_offset, c10::SymIntArrayRef size, c10::SymIntArrayRef stride, at::Tensor & out) {
+  auto size_ = size.vec();
+  auto stride_ = stride.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
       Tensor out = vec.at(1);
-      return {at::set_symint_outf(vec.at(0), source, storage_offset, size, stride, out)};
+      return {at::set_symint_outf(vec.at(0), source, storage_offset, size_, stride_, out)};
     };
   return CheckpointTensorImpl::make("aten::set.source_Storage_storage_offset_out", rt, {self, out})[0];
 }
 
 /// ['aten::set.source_Storage_storage_offset', 'at::Tensor', 'set', '(const at::Tensor & self, at::Storage source, int64_t storage_offset, at::IntArrayRef size, at::IntArrayRef stride={})']
 at::Tensor checkpoint_set(const at::Tensor & self, at::Storage source, int64_t storage_offset, at::IntArrayRef size, at::IntArrayRef stride) {
+  auto size_ = size.vec();
+  auto stride_ = stride.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
-      return {at::set(vec.at(0), source, storage_offset, size, stride)};
+      return {at::set(vec.at(0), source, storage_offset, size_, stride_)};
     };
   return CheckpointTensorImpl::make("aten::set.source_Storage_storage_offset", rt, {self})[0];
 }
 
 /// ['aten::set.source_Storage_storage_offset', 'at::Tensor', 'set_symint', '(const at::Tensor & self, at::Storage source, c10::SymInt storage_offset, c10::SymIntArrayRef size, c10::SymIntArrayRef stride={})']
 at::Tensor checkpoint_set_symint(const at::Tensor & self, at::Storage source, c10::SymInt storage_offset, c10::SymIntArrayRef size, c10::SymIntArrayRef stride) {
+  auto size_ = size.vec();
+  auto stride_ = stride.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
-      return {at::set_symint(vec.at(0), source, storage_offset, size, stride)};
+      return {at::set_symint(vec.at(0), source, storage_offset, size_, stride_)};
     };
   return CheckpointTensorImpl::make("aten::set.source_Storage_storage_offset", rt, {self})[0];
 }
@@ -4002,9 +4088,16 @@ at::Tensor checkpoint_sum(const at::Tensor & self, c10::optional<at::ScalarType>
 
 /// ['aten::sum.dim_IntList', 'at::Tensor', 'sum', '(const at::Tensor & self, at::OptionalIntArrayRef dim, bool keepdim=false, c10::optional<at::ScalarType> dtype=c10::nullopt)']
 at::Tensor checkpoint_sum(const at::Tensor & self, at::OptionalIntArrayRef dim, bool keepdim, c10::optional<at::ScalarType> dtype) {
+  std::vector<int64_t> dim_; 
+  if(dim.has_value()){
+    dim_ = dim.value().vec();
+  }
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
-      return {at::sum(vec.at(0), dim, keepdim, dtype)};
+      if(dim.has_value())
+        return {at::sum(vec.at(0), at::OptionalIntArrayRef(ArrayRef<int64_t>(dim_)), keepdim, dtype)};
+      else
+        return {at::sum(vec.at(0), dim_, keepdim, dtype)};
     };
   return CheckpointTensorImpl::make("aten::sum.dim_IntList", rt, {self})[0];
 }
@@ -4020,20 +4113,34 @@ at::Tensor checkpoint_sum(const at::Tensor & self, at::DimnameList dim, bool kee
 
 /// ['aten::sum.IntList_out', 'at::Tensor &', 'sum_out', '(at::Tensor & out, const at::Tensor & self, at::OptionalIntArrayRef dim, bool keepdim=false, c10::optional<at::ScalarType> dtype=c10::nullopt)']
 at::Tensor & checkpoint_sum_out(at::Tensor & out, const at::Tensor & self, at::OptionalIntArrayRef dim, bool keepdim, c10::optional<at::ScalarType> dtype) {
+  std::vector<int64_t> dim_; 
+  if(dim.has_value()){
+    dim_ = dim.value().vec();
+  }
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
       Tensor out = vec.at(0);
-      return {at::sum_out(out, vec.at(1), dim, keepdim, dtype)};
+      if(dim.has_value())
+        return {at::sum_out(out, vec.at(1), at::OptionalIntArrayRef(ArrayRef<int64_t>(dim_)), keepdim, dtype)};
+      else
+        return {at::sum_out(out, vec.at(1), dim_, keepdim, dtype)};
     };
   return CheckpointTensorImpl::make("aten::sum.IntList_out", rt, {out, self})[0];
 }
 
 /// ['aten::sum.IntList_out', 'at::Tensor &', 'sum_outf', '(const at::Tensor & self, at::OptionalIntArrayRef dim, bool keepdim, c10::optional<at::ScalarType> dtype, at::Tensor & out)']
 at::Tensor & checkpoint_sum_outf(const at::Tensor & self, at::OptionalIntArrayRef dim, bool keepdim, c10::optional<at::ScalarType> dtype, at::Tensor & out) {
+  std::vector<int64_t> dim_; 
+  if(dim.has_value()){
+    dim_ = dim.value().vec();
+  }
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
       Tensor out = vec.at(1);
-      return {at::sum_outf(vec.at(0), dim, keepdim, dtype, out)};
+      if(dim.has_value())
+        return {at::sum_outf(vec.at(0), at::OptionalIntArrayRef(ArrayRef<int64_t>(dim_)), keepdim, dtype, out)};
+      else
+        return {at::sum_outf(vec.at(0), dim_, keepdim, dtype, out)};
     };
   return CheckpointTensorImpl::make("aten::sum.IntList_out", rt, {self, out})[0];
 }
@@ -5385,40 +5492,44 @@ at::Tensor checkpoint_softmax(const at::Tensor & self, at::Dimname dim, c10::opt
 
 /// ['aten::new_ones.out', 'at::Tensor &', 'new_ones_out', '(at::Tensor & out, const at::Tensor & self, at::IntArrayRef size)']
 at::Tensor & checkpoint_new_ones_out(at::Tensor & out, const at::Tensor & self, at::IntArrayRef size) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
       Tensor out = vec.at(0);
-      return {at::new_ones_out(out, vec.at(1), size)};
+      return {at::new_ones_out(out, vec.at(1), size_)};
     };
   return CheckpointTensorImpl::make("aten::new_ones.out", rt, {out, self})[0];
 }
 
 /// ['aten::new_ones.out', 'at::Tensor &', 'new_ones_outf', '(const at::Tensor & self, at::IntArrayRef size, at::Tensor & out)']
 at::Tensor & checkpoint_new_ones_outf(const at::Tensor & self, at::IntArrayRef size, at::Tensor & out) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
       Tensor out = vec.at(1);
-      return {at::new_ones_outf(vec.at(0), size, out)};
+      return {at::new_ones_outf(vec.at(0), size_, out)};
     };
   return CheckpointTensorImpl::make("aten::new_ones.out", rt, {self, out})[0];
 }
 
 /// ['aten::new_ones.out', 'at::Tensor &', 'new_ones_symint_out', '(at::Tensor & out, const at::Tensor & self, c10::SymIntArrayRef size)']
 at::Tensor & checkpoint_new_ones_symint_out(at::Tensor & out, const at::Tensor & self, c10::SymIntArrayRef size) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
       Tensor out = vec.at(0);
-      return {at::new_ones_symint_out(out, vec.at(1), size)};
+      return {at::new_ones_symint_out(out, vec.at(1), size_)};
     };
   return CheckpointTensorImpl::make("aten::new_ones.out", rt, {out, self})[0];
 }
 
 /// ['aten::new_ones.out', 'at::Tensor &', 'new_ones_symint_outf', '(const at::Tensor & self, c10::SymIntArrayRef size, at::Tensor & out)']
 at::Tensor & checkpoint_new_ones_symint_outf(const at::Tensor & self, c10::SymIntArrayRef size, at::Tensor & out) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
       Tensor out = vec.at(1);
-      return {at::new_ones_symint_outf(vec.at(0), size, out)};
+      return {at::new_ones_symint_outf(vec.at(0), size_, out)};
     };
   return CheckpointTensorImpl::make("aten::new_ones.out", rt, {self, out})[0];
 }
@@ -5512,114 +5623,126 @@ at::Tensor & checkpoint__softmax_outf(const at::Tensor & self, int64_t dim, bool
 
 /// ['aten::ones.names', 'at::Tensor', 'ones', '(at::IntArrayRef size, c10::optional<at::DimnameList> names, at::TensorOptions options={})']
 at::Tensor checkpoint_ones(at::IntArrayRef size, c10::optional<at::DimnameList> names, at::TensorOptions options) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
-      return {at::ones(size, names, options)};
+      return {at::ones(size_, names, options)};
     };
   return CheckpointTensorImpl::make("aten::ones.names", rt, {})[0];
 }
 
 /// ['aten::ones.names', 'at::Tensor', 'ones', '(at::IntArrayRef size, c10::optional<at::DimnameList> names, c10::optional<at::ScalarType> dtype, c10::optional<at::Layout> layout, c10::optional<at::Device> device, c10::optional<bool> pin_memory)']
 at::Tensor checkpoint_ones(at::IntArrayRef size, c10::optional<at::DimnameList> names, c10::optional<at::ScalarType> dtype, c10::optional<at::Layout> layout, c10::optional<at::Device> device, c10::optional<bool> pin_memory) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
-      return {at::ones(size, names, dtype, layout, device, pin_memory)};
+      return {at::ones(size_, names, dtype, layout, device, pin_memory)};
     };
   return CheckpointTensorImpl::make("aten::ones.names", rt, {})[0];
 }
 
 /// ['aten::ones', 'at::Tensor', 'ones', '(at::IntArrayRef size, at::TensorOptions options={})']
 at::Tensor checkpoint_ones(at::IntArrayRef size, at::TensorOptions options) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
-      return {at::ones(size, options)};
+      return {at::ones(size_, options)};
     };
   return CheckpointTensorImpl::make("aten::ones", rt, {})[0];
 }
 
 /// ['aten::ones', 'at::Tensor', 'ones', '(at::IntArrayRef size, c10::optional<at::ScalarType> dtype, c10::optional<at::Layout> layout, c10::optional<at::Device> device, c10::optional<bool> pin_memory)']
 at::Tensor checkpoint_ones(at::IntArrayRef size, c10::optional<at::ScalarType> dtype, c10::optional<at::Layout> layout, c10::optional<at::Device> device, c10::optional<bool> pin_memory) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
-      return {at::ones(size, dtype, layout, device, pin_memory)};
+      return {at::ones(size_, dtype, layout, device, pin_memory)};
     };
   return CheckpointTensorImpl::make("aten::ones", rt, {})[0];
 }
 
 /// ['aten::ones', 'at::Tensor', 'ones_symint', '(c10::SymIntArrayRef size, at::TensorOptions options={})']
 at::Tensor checkpoint_ones_symint(c10::SymIntArrayRef size, at::TensorOptions options) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
-      return {at::ones_symint(size, options)};
+      return {at::ones_symint(size_, options)};
     };
   return CheckpointTensorImpl::make("aten::ones", rt, {})[0];
 }
 
 /// ['aten::ones', 'at::Tensor', 'ones_symint', '(c10::SymIntArrayRef size, c10::optional<at::ScalarType> dtype, c10::optional<at::Layout> layout, c10::optional<at::Device> device, c10::optional<bool> pin_memory)']
 at::Tensor checkpoint_ones_symint(c10::SymIntArrayRef size, c10::optional<at::ScalarType> dtype, c10::optional<at::Layout> layout, c10::optional<at::Device> device, c10::optional<bool> pin_memory) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
-      return {at::ones_symint(size, dtype, layout, device, pin_memory)};
+      return {at::ones_symint(size_, dtype, layout, device, pin_memory)};
     };
   return CheckpointTensorImpl::make("aten::ones", rt, {})[0];
 }
 
 /// ['aten::ones.out', 'at::Tensor &', 'ones_out', '(at::Tensor & out, at::IntArrayRef size)']
 at::Tensor & checkpoint_ones_out(at::Tensor & out, at::IntArrayRef size) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
       Tensor out = vec.at(0);
-      return {at::ones_out(out, size)};
+      return {at::ones_out(out, size_)};
     };
   return CheckpointTensorImpl::make("aten::ones.out", rt, {out})[0];
 }
 
 /// ['aten::ones.out', 'at::Tensor &', 'ones_outf', '(at::IntArrayRef size, at::Tensor & out)']
 at::Tensor & checkpoint_ones_outf(at::IntArrayRef size, at::Tensor & out) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
       Tensor out = vec.at(0);
-      return {at::ones_outf(size, out)};
+      return {at::ones_outf(size_, out)};
     };
   return CheckpointTensorImpl::make("aten::ones.out", rt, {out})[0];
 }
 
 /// ['aten::ones.out', 'at::Tensor &', 'ones_symint_out', '(at::Tensor & out, c10::SymIntArrayRef size)']
 at::Tensor & checkpoint_ones_symint_out(at::Tensor & out, c10::SymIntArrayRef size) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
       Tensor out = vec.at(0);
-      return {at::ones_symint_out(out, size)};
+      return {at::ones_symint_out(out, size_)};
     };
   return CheckpointTensorImpl::make("aten::ones.out", rt, {out})[0];
 }
 
 /// ['aten::ones.out', 'at::Tensor &', 'ones_symint_outf', '(c10::SymIntArrayRef size, at::Tensor & out)']
 at::Tensor & checkpoint_ones_symint_outf(c10::SymIntArrayRef size, at::Tensor & out) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
       Tensor out = vec.at(0);
-      return {at::ones_symint_outf(size, out)};
+      return {at::ones_symint_outf(size_, out)};
     };
   return CheckpointTensorImpl::make("aten::ones.out", rt, {out})[0];
 }
 
 /// ['aten::ones.names_out', 'at::Tensor &', 'ones_out', '(at::Tensor & out, at::IntArrayRef size, c10::optional<at::DimnameList> names)']
 at::Tensor & checkpoint_ones_out(at::Tensor & out, at::IntArrayRef size, c10::optional<at::DimnameList> names) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
       Tensor out = vec.at(0);
-      return {at::ones_out(out, size, names)};
+      return {at::ones_out(out, size_, names)};
     };
   return CheckpointTensorImpl::make("aten::ones.names_out", rt, {out})[0];
 }
 
 /// ['aten::ones.names_out', 'at::Tensor &', 'ones_outf', '(at::IntArrayRef size, c10::optional<at::DimnameList> names, at::Tensor & out)']
 at::Tensor & checkpoint_ones_outf(at::IntArrayRef size, c10::optional<at::DimnameList> names, at::Tensor & out) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
       Tensor out = vec.at(0);
-      return {at::ones_outf(size, names, out)};
+      return {at::ones_outf(size_, names, out)};
     };
   return CheckpointTensorImpl::make("aten::ones.names_out", rt, {out})[0];
 }
@@ -5800,40 +5923,44 @@ at::Tensor checkpoint_ge(const at::Tensor & self, const at::Tensor & other) {
 
 /// ['aten::new_empty.out', 'at::Tensor &', 'new_empty_out', '(at::Tensor & out, const at::Tensor & self, at::IntArrayRef size)']
 at::Tensor & checkpoint_new_empty_out(at::Tensor & out, const at::Tensor & self, at::IntArrayRef size) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
       Tensor out = vec.at(0);
-      return {at::new_empty_out(out, vec.at(1), size)};
+      return {at::new_empty_out(out, vec.at(1), size_)};
     };
   return CheckpointTensorImpl::make("aten::new_empty.out", rt, {out, self})[0];
 }
 
 /// ['aten::new_empty.out', 'at::Tensor &', 'new_empty_outf', '(const at::Tensor & self, at::IntArrayRef size, at::Tensor & out)']
 at::Tensor & checkpoint_new_empty_outf(const at::Tensor & self, at::IntArrayRef size, at::Tensor & out) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
       Tensor out = vec.at(1);
-      return {at::new_empty_outf(vec.at(0), size, out)};
+      return {at::new_empty_outf(vec.at(0), size_, out)};
     };
   return CheckpointTensorImpl::make("aten::new_empty.out", rt, {self, out})[0];
 }
 
 /// ['aten::new_empty.out', 'at::Tensor &', 'new_empty_symint_out', '(at::Tensor & out, const at::Tensor & self, c10::SymIntArrayRef size)']
 at::Tensor & checkpoint_new_empty_symint_out(at::Tensor & out, const at::Tensor & self, c10::SymIntArrayRef size) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
       Tensor out = vec.at(0);
-      return {at::new_empty_symint_out(out, vec.at(1), size)};
+      return {at::new_empty_symint_out(out, vec.at(1), size_)};
     };
   return CheckpointTensorImpl::make("aten::new_empty.out", rt, {out, self})[0];
 }
 
 /// ['aten::new_empty.out', 'at::Tensor &', 'new_empty_symint_outf', '(const at::Tensor & self, c10::SymIntArrayRef size, at::Tensor & out)']
 at::Tensor & checkpoint_new_empty_symint_outf(const at::Tensor & self, c10::SymIntArrayRef size, at::Tensor & out) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
       Tensor out = vec.at(1);
-      return {at::new_empty_symint_outf(vec.at(0), size, out)};
+      return {at::new_empty_symint_outf(vec.at(0), size_, out)};
     };
   return CheckpointTensorImpl::make("aten::new_empty.out", rt, {self, out})[0];
 }
@@ -5869,36 +5996,40 @@ at::Tensor checkpoint_exponential(const at::Tensor & self, double lambd, c10::op
 
 /// ['aten::tile', 'at::Tensor', 'tile', '(const at::Tensor & self, at::IntArrayRef dims)']
 at::Tensor checkpoint_tile(const at::Tensor & self, at::IntArrayRef dims) {
+  auto dims_ = dims.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
-      return {at::tile(vec.at(0), dims)};
+      return {at::tile(vec.at(0), dims_)};
     };
   return CheckpointTensorImpl::make("aten::tile", rt, {self})[0];
 }
 
 /// ['aten::tile', 'at::Tensor', 'tile_symint', '(const at::Tensor & self, c10::SymIntArrayRef dims)']
 at::Tensor checkpoint_tile_symint(const at::Tensor & self, c10::SymIntArrayRef dims) {
+  auto dims_ = dims.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
-      return {at::tile_symint(vec.at(0), dims)};
+      return {at::tile_symint(vec.at(0), dims_)};
     };
   return CheckpointTensorImpl::make("aten::tile", rt, {self})[0];
 }
 
 /// ['aten::resize', 'at::Tensor', 'resize', '(const at::Tensor & self, at::IntArrayRef size, c10::optional<at::MemoryFormat> memory_format=c10::nullopt)']
 at::Tensor checkpoint_resize(const at::Tensor & self, at::IntArrayRef size, c10::optional<at::MemoryFormat> memory_format) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
-      return {at::resize(vec.at(0), size, memory_format)};
+      return {at::resize(vec.at(0), size_, memory_format)};
     };
   return CheckpointTensorImpl::make("aten::resize", rt, {self})[0];
 }
 
 /// ['aten::resize', 'at::Tensor', 'resize_symint', '(const at::Tensor & self, c10::SymIntArrayRef size, c10::optional<at::MemoryFormat> memory_format=c10::nullopt)']
 at::Tensor checkpoint_resize_symint(const at::Tensor & self, c10::SymIntArrayRef size, c10::optional<at::MemoryFormat> memory_format) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
-      return {at::resize_symint(vec.at(0), size, memory_format)};
+      return {at::resize_symint(vec.at(0), size_, memory_format)};
     };
   return CheckpointTensorImpl::make("aten::resize", rt, {self})[0];
 }
@@ -6021,27 +6152,32 @@ at::Tensor & checkpoint_bitwise_and_outf(const at::Scalar & self, const at::Tens
 
 /// ['aten::_reshape_alias', 'at::Tensor', '_reshape_alias', '(const at::Tensor & self, at::IntArrayRef size, at::IntArrayRef stride)']
 at::Tensor checkpoint__reshape_alias(const at::Tensor & self, at::IntArrayRef size, at::IntArrayRef stride) {
+  auto size_ = size.vec();
+  auto stride_ = stride.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
-      return {at::_reshape_alias(vec.at(0), size, stride)};
+      return {at::_reshape_alias(vec.at(0), size_, stride_)};
     };
   return CheckpointTensorImpl::make("aten::_reshape_alias", rt, {self})[0];
 }
 
 /// ['aten::_reshape_alias', 'at::Tensor', '_reshape_alias_symint', '(const at::Tensor & self, c10::SymIntArrayRef size, c10::SymIntArrayRef stride)']
 at::Tensor checkpoint__reshape_alias_symint(const at::Tensor & self, c10::SymIntArrayRef size, c10::SymIntArrayRef stride) {
+  auto size_ = size.vec();
+  auto stride_ = stride.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
-      return {at::_reshape_alias_symint(vec.at(0), size, stride)};
+      return {at::_reshape_alias_symint(vec.at(0), size_, stride_)};
     };
   return CheckpointTensorImpl::make("aten::_reshape_alias", rt, {self})[0];
 }
 
 /// ['aten::permute', 'at::Tensor', 'permute', '(const at::Tensor & self, at::IntArrayRef dims)']
 at::Tensor checkpoint_permute(const at::Tensor & self, at::IntArrayRef dims) {
+  auto dims_ = dims.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
-      return {at::permute(vec.at(0), dims)};
+      return {at::permute(vec.at(0), dims_)};
     };
   return CheckpointTensorImpl::make("aten::permute", rt, {self})[0];
 }
@@ -6237,117 +6373,130 @@ at::Tensor checkpoint_gt(const at::Tensor & self, const at::Tensor & other) {
 
 /// ['aten::full.names', 'at::Tensor', 'full', '(at::IntArrayRef size, const at::Scalar & fill_value, c10::optional<at::DimnameList> names, at::TensorOptions options={})']
 at::Tensor checkpoint_full(at::IntArrayRef size, const at::Scalar & fill_value, c10::optional<at::DimnameList> names, at::TensorOptions options) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
-      return {at::full(size, fill_value, names, options)};
+      return {at::full(size_, fill_value, names, options)};
     };
   return CheckpointTensorImpl::make("aten::full.names", rt, {})[0];
 }
 
 /// ['aten::full.names', 'at::Tensor', 'full', '(at::IntArrayRef size, const at::Scalar & fill_value, c10::optional<at::DimnameList> names, c10::optional<at::ScalarType> dtype, c10::optional<at::Layout> layout, c10::optional<at::Device> device, c10::optional<bool> pin_memory)']
 at::Tensor checkpoint_full(at::IntArrayRef size, const at::Scalar & fill_value, c10::optional<at::DimnameList> names, c10::optional<at::ScalarType> dtype, c10::optional<at::Layout> layout, c10::optional<at::Device> device, c10::optional<bool> pin_memory) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
-      return {at::full(size, fill_value, names, dtype, layout, device, pin_memory)};
+      return {at::full(size_, fill_value, names, dtype, layout, device, pin_memory)};
     };
   return CheckpointTensorImpl::make("aten::full.names", rt, {})[0];
 }
 
 /// ['aten::full', 'at::Tensor', 'full', '(at::IntArrayRef size, const at::Scalar & fill_value, at::TensorOptions options={})']
 at::Tensor checkpoint_full(at::IntArrayRef size, const at::Scalar & fill_value, at::TensorOptions options) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
-      return {at::full(size, fill_value, options)};
+      return {at::full(size_, fill_value, options)};
     };
   return CheckpointTensorImpl::make("aten::full", rt, {})[0];
 }
 
 /// ['aten::full', 'at::Tensor', 'full', '(at::IntArrayRef size, const at::Scalar & fill_value, c10::optional<at::ScalarType> dtype, c10::optional<at::Layout> layout, c10::optional<at::Device> device, c10::optional<bool> pin_memory)']
 at::Tensor checkpoint_full(at::IntArrayRef size, const at::Scalar & fill_value, c10::optional<at::ScalarType> dtype, c10::optional<at::Layout> layout, c10::optional<at::Device> device, c10::optional<bool> pin_memory) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
-      return {at::full(size, fill_value, dtype, layout, device, pin_memory)};
+      return {at::full(size_, fill_value, dtype, layout, device, pin_memory)};
     };
   return CheckpointTensorImpl::make("aten::full", rt, {})[0];
 }
 
 /// ['aten::full', 'at::Tensor', 'full_symint', '(c10::SymIntArrayRef size, const at::Scalar & fill_value, at::TensorOptions options={})']
 at::Tensor checkpoint_full_symint(c10::SymIntArrayRef size, const at::Scalar & fill_value, at::TensorOptions options) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
-      return {at::full_symint(size, fill_value, options)};
+      return {at::full_symint(size_, fill_value, options)};
     };
   return CheckpointTensorImpl::make("aten::full", rt, {})[0];
 }
 
 /// ['aten::full', 'at::Tensor', 'full_symint', '(c10::SymIntArrayRef size, const at::Scalar & fill_value, c10::optional<at::ScalarType> dtype, c10::optional<at::Layout> layout, c10::optional<at::Device> device, c10::optional<bool> pin_memory)']
 at::Tensor checkpoint_full_symint(c10::SymIntArrayRef size, const at::Scalar & fill_value, c10::optional<at::ScalarType> dtype, c10::optional<at::Layout> layout, c10::optional<at::Device> device, c10::optional<bool> pin_memory) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
-      return {at::full_symint(size, fill_value, dtype, layout, device, pin_memory)};
+      return {at::full_symint(size_, fill_value, dtype, layout, device, pin_memory)};
     };
   return CheckpointTensorImpl::make("aten::full", rt, {})[0];
 }
 
 /// ['aten::full.out', 'at::Tensor &', 'full_out', '(at::Tensor & out, at::IntArrayRef size, const at::Scalar & fill_value)']
 at::Tensor & checkpoint_full_out(at::Tensor & out, at::IntArrayRef size, const at::Scalar & fill_value) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
       Tensor out = vec.at(0);
-      return {at::full_out(out, size, fill_value)};
+      return {at::full_out(out, size_, fill_value)};
     };
   return CheckpointTensorImpl::make("aten::full.out", rt, {out})[0];
 }
 
 /// ['aten::full.out', 'at::Tensor &', 'full_outf', '(at::IntArrayRef size, const at::Scalar & fill_value, at::Tensor & out)']
 at::Tensor & checkpoint_full_outf(at::IntArrayRef size, const at::Scalar & fill_value, at::Tensor & out) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
       Tensor out = vec.at(0);
-      return {at::full_outf(size, fill_value, out)};
+      return {at::full_outf(size_, fill_value, out)};
     };
   return CheckpointTensorImpl::make("aten::full.out", rt, {out})[0];
 }
 
 /// ['aten::full.out', 'at::Tensor &', 'full_symint_out', '(at::Tensor & out, c10::SymIntArrayRef size, const at::Scalar & fill_value)']
 at::Tensor & checkpoint_full_symint_out(at::Tensor & out, c10::SymIntArrayRef size, const at::Scalar & fill_value) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
       Tensor out = vec.at(0);
-      return {at::full_symint_out(out, size, fill_value)};
+      return {at::full_symint_out(out, size_, fill_value)};
     };
   return CheckpointTensorImpl::make("aten::full.out", rt, {out})[0];
 }
 
 /// ['aten::full.out', 'at::Tensor &', 'full_symint_outf', '(c10::SymIntArrayRef size, const at::Scalar & fill_value, at::Tensor & out)']
 at::Tensor & checkpoint_full_symint_outf(c10::SymIntArrayRef size, const at::Scalar & fill_value, at::Tensor & out) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
       Tensor out = vec.at(0);
-      return {at::full_symint_outf(size, fill_value, out)};
+      return {at::full_symint_outf(size_, fill_value, out)};
     };
   return CheckpointTensorImpl::make("aten::full.out", rt, {out})[0];
 }
 
 /// ['aten::full.names_out', 'at::Tensor &', 'full_out', '(at::Tensor & out, at::IntArrayRef size, const at::Scalar & fill_value, c10::optional<at::DimnameList> names)']
 at::Tensor & checkpoint_full_out(at::Tensor & out, at::IntArrayRef size, const at::Scalar & fill_value, c10::optional<at::DimnameList> names) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
       Tensor out = vec.at(0);
-      return {at::full_out(out, size, fill_value, names)};
+      return {at::full_out(out, size_, fill_value, names)};
     };
   return CheckpointTensorImpl::make("aten::full.names_out", rt, {out})[0];
 }
 
 /// ['aten::full.names_out', 'at::Tensor &', 'full_outf', '(at::IntArrayRef size, const at::Scalar & fill_value, c10::optional<at::DimnameList> names, at::Tensor & out)']
 at::Tensor & checkpoint_full_outf(at::IntArrayRef size, const at::Scalar & fill_value, c10::optional<at::DimnameList> names, at::Tensor & out) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
       Tensor out = vec.at(0);
-      return {at::full_outf(size, fill_value, names, out)};
+      return {at::full_outf(size_, fill_value, names, out)};
     };
   return CheckpointTensorImpl::make("aten::full.names_out", rt, {out})[0];
 }
+
 
 
 

@@ -284,8 +284,8 @@ struct AliasPool : intrusive_ptr_target {
 
 struct CheckpointTensorCell : intrusive_ptr_target {
   std::unique_ptr<Tensor> t;
-  bool defined = false;
-  bool is_undefined_tensor;
+  bool defined = false;         // 标记cell是否存在
+  bool is_undefined_tensor;     // 标记是否是空张量
   DispatchKeySet key_set_;
   DispatchKeySet key_set() const {
     TORCH_CHECK(defined);
@@ -307,8 +307,7 @@ struct CheckpointTensorCell : intrusive_ptr_target {
   intrusive_ptr<Rematerializer> remat;
   void evict() {
     TORCH_CHECK(remat);
-    // auto raw_tensor_ptr = t.release();
-    // delete raw_tensor_ptr;
+    defined = false;
     t.reset();
   }
   void fill(const Tensor& t);
@@ -326,10 +325,11 @@ struct CheckpointTensorCell : intrusive_ptr_target {
     return pool->memory;
   }
   Tensor get() {
-    if (! t) {
+    if (!t) {
       TORCH_CHECK(remat);
       remat->remat();
     }
+    defined = true;
     TORCH_CHECK(t);
     TORCH_CHECK(! t->key_set().has(DispatchKey::CheckpointTensorId));
     pool->last_used_time = std::chrono::system_clock::now();
@@ -403,8 +403,12 @@ struct TORCH_API CheckpointTensorImpl : public TensorImpl {
                ref->value->value->dtype(),
                ref->value->value->optional_device()),
     ref(ref) {
+      // ref->value->value == CheckpointTensorCell*
       set_storage_access_should_throw();
-      if (key_set().has(DispatchKey::Autograd)) {
+      if(!ref->value->value->defined){
+        ref->value->value->get();
+      }
+      if (key_set().has(DispatchKey::Autograd)) {   /// TODO:反向传播可能会遇到张量已经被驱逐的情况，怎么鉴别与恢复
         if(ref->value->value->t.get()->requires_grad())
           set_requires_grad(true);
     }
