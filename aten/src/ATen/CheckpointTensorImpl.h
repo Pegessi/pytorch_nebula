@@ -167,6 +167,11 @@ struct CheckpointInfo {
     TORCH_CHECK(staleness > 0);
     return compute_cost.count() / static_cast<double>(memory * staleness);
   }
+  double cost(size_t memory, size_t staleness, uintptr_t addr) const {  /// TODO: 设计一个新的计算指标
+    TORCH_CHECK(memory > 0);
+    TORCH_CHECK(staleness > 0);
+    return compute_cost.count() / static_cast<double>(memory * staleness);
+  }
   CheckpointInfo(duration_t compute_cost) :
     compute_cost(compute_cost) {
   }
@@ -247,11 +252,17 @@ struct AliasPool : intrusive_ptr_target {
   bool is_evicted = false;
   size_t memory;
   time_t last_used_time;
-  /// TODO: record mem addr here
+  uintptr_t addr;               // address of tensor data ptr
   // An aliaspool cant register itself to the checkpointpool - you have to do it yourself.
   AliasPool(const Unsafe&, intrusive_ptr<Rematerializer> head_remat, size_t memory) :
     head_remat(head_remat),
     memory(memory),
+    last_used_time(std::chrono::system_clock::now()) {
+  }
+  AliasPool(const Unsafe&, intrusive_ptr<Rematerializer> head_remat, size_t memory, uintptr_t addr) :
+    head_remat(head_remat),
+    memory(memory),
+    addr(addr),
     last_used_time(std::chrono::system_clock::now()) {
   }
   // if it is evicted, then hold the evicted tensor group.
@@ -525,6 +536,10 @@ struct CheckpointPool {
   void clear_checkpointpool();
   void add(const intrusive_ptr<AliasPool>&);
   CheckpointPool();
+  /// for early check and evict
+  void auto_evict(size_t size_bytes);
+  /// for initiative evict
+  
 };
 
 inline CheckpointTensorImpl* get_cpti(const Tensor& t) {

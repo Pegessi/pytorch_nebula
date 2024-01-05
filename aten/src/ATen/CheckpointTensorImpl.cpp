@@ -158,7 +158,7 @@ long remat_compute_time_ = 0;
 long search_time_ = 0;
 long cost_time_ = 0;
 
-CheckpointPool pool;
+extern CheckpointPool pool;
 void CheckpointPool::add(const intrusive_ptr<AliasPool>& p) {
   if (p->memory > 0 && (memory_count == 0 || !ignore_small_tensors || p->memory >= 0.01 * double(memory_sum/memory_count))) {
     aps.push_back(weak_intrusive_ptr<AliasPool>(p));
@@ -177,10 +177,18 @@ void CheckpointPool::auto_evict() {
   if (has_memory_budget) {
     // 使用cuda获取只能获取到reserved的情况，而pytorch存在自己的显存池，释放只是allocated部分发生了变化
     // 因此必须使用torch的CUDACachingAllocator获取显存情况
-    // size_t freeMem, totalMem;
-    // cudaMemGetInfo(&freeMem, &totalMem);
-    // auto current_memory = totalMem - freeMem;
     while (current_memory() > memory_budget) {
+      evict();
+    }
+  }
+}
+
+void CheckpointPool::auto_evict(size_t size_bytes){
+  STATS.track("CheckpointPool::auto_evict");
+    if (has_memory_budget) {
+    // 使用cuda获取只能获取到reserved的情况，而pytorch存在自己的显存池，释放只是allocated部分发生了变化
+    // 因此必须使用torch的CUDACachingAllocator获取显存情况
+    while ((current_memory() + size_bytes) > memory_budget) {
       evict();
     }
   }
@@ -201,6 +209,7 @@ void CheckpointPool::evict() {
                          };
   std::uniform_int_distribution<> distrib(1, 1 * std::max(1, static_cast<int>(std::sqrt(aps.size()))));
   // sampling a random independent subset of all evictable tensors to find the cheapest tensor to evict.
+  // 搜索策略，穷举搜索aps
   for (size_t i = 0; i < aps.size();) {
     auto cannot_evict = [&]() {
                           shrunk = true;
@@ -229,6 +238,7 @@ void CheckpointPool::evict() {
       }
     }
   }
+  // 执行驱逐
   if (evict_idx == -1) {
     TORCH_CHECK(shrunk);
   } else {
@@ -725,7 +735,8 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
     int alias = get_alias(raw_inputs, t);           // if t is an alias of tensor in inputs?
     if (alias == -1) {
       auto m = memory(t);
-      alias_pool = intrusive_ptr<AliasPool>::make(Unsafe(), remat, m);
+      // alias_pool = intrusive_ptr<AliasPool>::make(Unsafe(), remat, m);
+      alias_pool = intrusive_ptr<AliasPool>::make(Unsafe(), remat, m, reinterpret_cast<uintptr_t>(t.data_ptr()));
       pool.add(alias_pool);
     }
     else {
