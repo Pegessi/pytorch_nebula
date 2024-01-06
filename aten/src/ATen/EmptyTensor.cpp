@@ -158,7 +158,7 @@ TensorBase _empty_generic(
   at::detail::raise_warning_for_complex_half(scalar_type);
   caffe2::TypeMeta dtype = scalarTypeToTypeMeta(scalar_type);
   auto size_bytes = computeStorageNbytesContiguous(size, dtype.itemsize());
-  at::pool.auto_evict(size_bytes);
+  // at::pool.auto_evict(size_bytes);
   auto storage_impl = c10::make_intrusive<StorageImpl>(
       c10::StorageImpl::use_byte_size_t(),
       size_bytes,

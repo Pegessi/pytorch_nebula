@@ -126,6 +126,18 @@ size_t memory_sum = 0;
 size_t memory_max = 0;
 size_t memory_count = 0;
 
+bool use_log_ = false;
+bool use_profile_ = false;
+bool record_er_counts = false;
+bool record_mem_addr = true;
+long base_compute_time_ = 0;
+long remat_compute_time_ = 0;
+long search_time_ = 0;
+long cost_time_ = 0;
+size_t evict_counts = 0;
+size_t remat_counts = 0;
+
+
 void reset_memory_stat() {
   memory_sum = 0;
   memory_max = 0;
@@ -151,21 +163,15 @@ Timer::~Timer() {
   STATS.timers.push_back(stats);
 }
 
-bool use_log_ = false;
-bool use_profile_ = false;
-long base_compute_time_ = 0;
-long remat_compute_time_ = 0;
-long search_time_ = 0;
-long cost_time_ = 0;
 
-extern CheckpointPool pool;
+CheckpointPool pool;  // cannot be extern
 void CheckpointPool::add(const intrusive_ptr<AliasPool>& p) {
   if (p->memory > 0 && (memory_count == 0 || !ignore_small_tensors || p->memory >= 0.01 * double(memory_sum/memory_count))) {
     aps.push_back(weak_intrusive_ptr<AliasPool>(p));
   }
 }
 
-long current_memory() {
+size_t current_memory() {
   STATS.track("current_memory");
   /// TODO: 写死的0
   auto device_stat = c10::cuda::CUDACachingAllocator::getDeviceStats(0);
@@ -242,6 +248,9 @@ void CheckpointPool::evict() {
   if (evict_idx == -1) {
     TORCH_CHECK(shrunk);
   } else {
+    if(record_er_counts){
+      evict_counts += 1;
+    }
     auto evict_from_idx = [&](size_t idx) {
                             auto ap_strong = aps[idx].lock();
                             TORCH_CHECK(ap_strong.defined());
@@ -351,6 +360,15 @@ void unset_memory_budget() {
 void set_memory_budget(long budget) {
   pool.memory_budget = budget;
   pool.has_memory_budget = true;
+}
+
+void log_dtr_statics(){
+  if(record_er_counts){
+    DTRLogCounts("evict counts", evict_counts);
+    DTRLogCounts("remat counts", remat_counts);
+  }else{
+    std::cout<<"record counts control varaiable should be true for export data.\n";
+  }
 }
 
 void toggle_sampling(bool sample) {
@@ -467,6 +485,9 @@ void External::release_resources() {
 }
 
 void Rematerializer::remat() {
+  if(record_er_counts){
+    remat_counts += 1;
+  }
   // TODO: refactor using RAII for exception safety.
   for (const strong& s : inputs) {
     s->pool->lock();
@@ -807,6 +828,9 @@ Tensors CheckpointTensorImpl::make(const std::string& name,
 
   for (const auto& t: ret.outputs) {
     auto cp = Tensor(intrusive_ptr<CheckpointTensorImpl>::make(t));
+    if(record_mem_addr){
+        DTRLogAddress(get_cpti(cp)->counter_name(), reinterpret_cast<uintptr_t>(get_cpti(cp)->ref->value->value.get()->pool->addr), get_cpti(cp)->ref->value->value.get()->pool->memory);
+    }
     tensors.push_back(cp);
   }
   END_TIMER("EPILOGUE: ")

@@ -47,6 +47,32 @@ const std::string MEMORY = "MEMORY";
 const std::string ALIAS = "ALIAS";
 const std::string NAME = "NAME";
 const std::string CONSTANT = "CONSTANT";
+const std::string VALUE = "VALUE";
+
+void DTRLogCounts(const std::string& name, size_t counts){
+  if (log_json){
+    json j;
+    j[INSTRUCTION] = CONSTANT;
+    j[NAME] = name;
+    j[VALUE] = counts;
+    DTRLogger::logger().log(j.dump());
+  } else {
+    DTRLogger::logger().log(CONSTANT + " " + name);
+  }
+}
+
+void DTRLogAddress(const std::string& name, uintptr_t addr, size_t memory){
+  if (log_json){
+    json j;
+    j[INSTRUCTION] = CONSTANT;
+    j[NAME] = name;
+    j[VALUE] = addr;
+    j[MEMORY] = memory;
+    DTRLogger::logger().log(j.dump());
+  } else {
+    DTRLogger::logger().log(CONSTANT + " " + name);
+  }
+}
 
 void DTRLogConstant(const std::string& name) {
   if (log_json) {
