@@ -26,6 +26,8 @@
 #define unlikely(x)    __builtin_expect(!!(x), 0)
 #define TORCH_CHECK(a, ...) // profile mode
 
+#define DEBUG_MODE
+
 // System Description:
 // Every Tensor is managed by a CheckpointTensor,
 // that describe how it is computed, (the function and the inputs)
@@ -294,6 +296,16 @@ struct AliasPool : intrusive_ptr_target {
 };
 
 struct CheckpointTensorCell : intrusive_ptr_target {
+#ifdef DEBUG_MODE
+  long id = gen_counter();
+  static long counter;
+  static long gen_counter() {
+    return counter++;
+  }
+  std::string counter_name(){
+    return std::string("x") + std::to_string(id);
+  }
+#endif
   std::unique_ptr<Tensor> t;
   bool defined = false;         // 标记cell是否存在
   bool is_undefined_tensor;     // 标记是否是空张量
@@ -322,6 +334,7 @@ struct CheckpointTensorCell : intrusive_ptr_target {
     t.reset();
   }
   void fill(const Tensor& t);
+
   explicit CheckpointTensorCell(const Tensor& t, const intrusive_ptr<AliasPool>& pool) : pool(pool) {
     fill(t);
   }
@@ -331,6 +344,7 @@ struct CheckpointTensorCell : intrusive_ptr_target {
     pool(pool), remat(remat) {
     fill(t);
   }
+
   size_t memory() {
     TORCH_CHECK(defined);
     return pool->memory;
@@ -396,13 +410,20 @@ inline DispatchKeySet convert_key_set(const DispatchKeySet& t) {
 }
 
 struct TORCH_API CheckpointTensorImpl : public TensorImpl {
-  long id = gen_counter();
-  static long counter;
-  static long gen_counter() {
-    return counter++;
-  }
   std::string counter_name() const {
-    return std::string("x") + std::to_string(id);
+#ifdef DEBUG_MODE
+    return std::string("x") + std::to_string(ref->value->value->id);
+#else
+    return std::string("Tensor id records visible only in DEBUG_MODE.");
+#endif
+  }
+
+  size_t counter_id() const {
+#ifdef DEBUG_MODE
+    return ref->value->value->id;
+#else
+    return 0;
+#endif
   }
 
   Ref<intrusive_ptr<External>> ref;
@@ -419,7 +440,7 @@ struct TORCH_API CheckpointTensorImpl : public TensorImpl {
       if(!ref->value->value->defined){
         ref->value->value->get();
       }
-      if (key_set().has(DispatchKey::Autograd)) {   /// TODO:反向传播可能会遇到张量已经被驱逐的情况，怎么鉴别与恢复
+      if (key_set().has(DispatchKey::Autograd)) {
         if(ref->value->value->t.get()->requires_grad())
           set_requires_grad(true);
     }
@@ -539,7 +560,7 @@ struct CheckpointPool {
   /// for early check and evict
   void auto_evict(size_t size_bytes);
   /// for initiative evict
-  
+  void force_evict(int mode);
 };
 
 inline CheckpointTensorImpl* get_cpti(const Tensor& t) {

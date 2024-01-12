@@ -48,11 +48,24 @@ const std::string ALIAS = "ALIAS";
 const std::string NAME = "NAME";
 const std::string CONSTANT = "CONSTANT";
 const std::string VALUE = "VALUE";
+const std::string EVICT = "EVICT";
 
 void DTRLogCounts(const std::string& name, size_t counts){
   if (log_json){
     json j;
     j[INSTRUCTION] = CONSTANT;
+    j[NAME] = name;
+    j[VALUE] = counts;
+    DTRLogger::logger().log(j.dump());
+  } else {
+    DTRLogger::logger().log(CONSTANT + " " + name);
+  }
+}
+
+void DTRLogEvictEvents(const std::string& name, size_t counts){
+  if (log_json){
+    json j;
+    j[INSTRUCTION] = EVICT;
     j[NAME] = name;
     j[VALUE] = counts;
     DTRLogger::logger().log(j.dump());

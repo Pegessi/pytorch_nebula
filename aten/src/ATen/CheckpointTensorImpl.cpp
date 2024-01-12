@@ -126,16 +126,18 @@ size_t memory_sum = 0;
 size_t memory_max = 0;
 size_t memory_count = 0;
 
-bool use_log_ = false;
+bool use_log_ = true;
 bool use_profile_ = false;
-bool record_er_counts = false;
-bool record_mem_addr = true;
+bool record_er_counts = true;
+bool record_mem_addr = false;
 long base_compute_time_ = 0;
 long remat_compute_time_ = 0;
 long search_time_ = 0;
 long cost_time_ = 0;
 size_t evict_counts = 0;
+size_t tensor_evict_counts = 0;
 size_t remat_counts = 0;
+size_t cannot_evict_counts = 0;
 
 
 void reset_memory_stat() {
@@ -200,6 +202,40 @@ void CheckpointPool::auto_evict(size_t size_bytes){
   }
 }
 
+void CheckpointPool::force_evict(int mode){
+  auto remove_from_aps = [&](size_t i) {
+                           aps[i] = aps[aps.size() - 1];
+                           aps.pop_back();
+                         };
+  auto evict_from_idx = [&](size_t idx) {
+                            auto ap_strong = aps[idx].lock();
+                            TORCH_CHECK(ap_strong.defined());
+                            ap_strong->evict();
+                            remove_from_aps(idx);
+                          };
+  for (size_t i = 0; i < aps.size();) {
+    auto cannot_evict = [&]() {
+                          // shrunk = true;
+                          remove_from_aps(i);
+                        };
+    auto ap_strong = aps[i].lock();
+    if (!ap_strong.defined()) {
+      cannot_evict();
+    }
+    else if (ap_strong->ecn) {    // 当aliaspool被驱逐后，会初始化其ecn，用于remat
+      if(record_er_counts){
+        cannot_evict_counts += 1;
+      }
+      cannot_evict();
+    }else{
+      if(record_er_counts){
+        evict_counts += 1;
+      }
+      evict_from_idx(i);
+    }
+  }
+}
+
 void CheckpointPool::evict() {
   time_t pre = std::chrono::system_clock::now();
   STATS.track("CheckpointPool::evict");
@@ -219,6 +255,9 @@ void CheckpointPool::evict() {
   for (size_t i = 0; i < aps.size();) {
     auto cannot_evict = [&]() {
                           shrunk = true;
+                          if(record_er_counts){
+                            cannot_evict_counts += 1;
+                          }
                           remove_from_aps(i);
                         };
     auto ap_strong = aps[i].lock();
@@ -362,9 +401,15 @@ void set_memory_budget(long budget) {
   pool.has_memory_budget = true;
 }
 
+void force_evict(long mode){
+  pool.force_evict(mode);
+}
+
 void log_dtr_statics(){
   if(record_er_counts){
     DTRLogCounts("evict counts", evict_counts);
+    DTRLogCounts("evict tensor counts", tensor_evict_counts);
+    DTRLogCounts("cannot evict counts", cannot_evict_counts);
     DTRLogCounts("remat counts", remat_counts);
   }else{
     std::cout<<"record counts control varaiable should be true for export data.\n";
@@ -461,6 +506,10 @@ void AliasPool::evict() {
   is_evicted = true;
   for (const weak& w : tensors) {
     if (auto cell = w.lock()) {
+      if(record_er_counts){
+        tensor_evict_counts += 1;
+        DTRLogEvictEvents(cell->counter_name(), tensor_evict_counts);
+      }
       cell->evict();
     }
   }
@@ -559,7 +608,7 @@ void AliasPool::set_not_evicted(const intrusive_ptr<AliasPool>& self) {
 void CheckpointTensorCell::fill(const Tensor& t) {
   STATS.track("CheckpointTensorCell::fill");
   if (!(this->t)) {
-    this->t = std::make_unique<Tensor>(std::move(t));     // t.detach()，detach()得到的tensor在此版本中如果发生数据变动，将不会影响原始数据的变动，但截止这里还是有数据的
+    this->t = std::make_unique<Tensor>(std::move(t));
     pool->set_not_evicted(pool);
     if (!defined) {
       defined = true;
@@ -639,7 +688,9 @@ void CheckpointTensorImpl::shallow_copy_from(const c10::intrusive_ptr<TensorImpl
   }
 }
 
-long CheckpointTensorImpl::counter = 0;
+#ifdef DEBUG_MODE
+long CheckpointTensorCell::counter = 0;
+#endif
 
 bool is_alias(const Tensor& l, const Tensor& r) {
   return l.defined() && r.defined() && l.is_alias_of(r);
@@ -862,7 +913,7 @@ void CheckpointTensorImpl::mutate(const std::string& name,
   auto remat = [=](const Tensors& t) -> Tensors {
                  Tensors new_input_values = t;
                  for (size_t idx: mutate_idx) {
-                   new_input_values[idx] = t[idx].clone();    /// TODO: 绕开clone
+                   new_input_values[idx] = t[idx];    /// TODO: 绕开clone
                  }
                  mutate(new_input_values);
                  return new_input_values;
@@ -870,6 +921,7 @@ void CheckpointTensorImpl::mutate(const std::string& name,
   Tensors checkpointed_inputs = try_checkpoint(inputs);
   strongs input_values;
   std::vector<std::string> args;
+  // 拿到tensor本体
   for (const Tensor& t: checkpointed_inputs) {
     auto* cpti = dynamic_cast<CheckpointTensorImpl*>(t.unsafeGetTensorImpl());
     TORCH_CHECK(cpti);
@@ -895,7 +947,6 @@ void CheckpointTensorImpl::release_resources() {
   ref.reset();
 }
 
-// intrusive_ptr<External>::make(t)
 CheckpointTensorImpl::CheckpointTensorImpl(const Tensor& t) : CheckpointTensorImpl(c10::make_intrusive<External>(t)) {
   // set_custom_sizes_strides(SizesStridesPolicy::CustomStrides);
   // set_custom_sizes_strides(SizesStridesPolicy::CustomSizes);
