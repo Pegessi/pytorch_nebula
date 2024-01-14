@@ -49,6 +49,7 @@ const std::string NAME = "NAME";
 const std::string CONSTANT = "CONSTANT";
 const std::string VALUE = "VALUE";
 const std::string EVICT = "EVICT";
+const std::string REMAT = "REMAT";
 
 void DTRLogCounts(const std::string& name, size_t counts){
   if (log_json){
@@ -66,6 +67,51 @@ void DTRLogEvictEvents(const std::string& name, size_t counts){
   if (log_json){
     json j;
     j[INSTRUCTION] = EVICT;
+    j[NAME] = name;
+    j[VALUE] = counts;
+    DTRLogger::logger().log(j.dump());
+  } else {
+    DTRLogger::logger().log(CONSTANT + " " + name);
+  }
+}
+
+void DTRLogMemAlloc(size_t alloc, size_t reserved){
+  if (log_json){
+    json j;
+    j[INSTRUCTION] = "COMPARE";
+    j["ALLOC"] = alloc;
+    j["RESERVE"] = reserved;
+    DTRLogger::logger().log(j.dump());
+  } else {
+    DTRLogger::logger().log(CONSTANT + " ");
+  }
+}
+
+void DTRLogEvictAPSEvents(size_t counts){
+  if (log_json){
+    json j;
+    j[INSTRUCTION] = EVICT;
+    j[VALUE] = counts;
+    DTRLogger::logger().log(j.dump());
+  } else {
+    // DTRLogger::logger().log(CONSTANT + " " + EVICT);
+  }
+}
+
+void DTRLogDestructEvents(){
+  if (log_json){
+    json j;
+    j[INSTRUCTION] = "Desturct function called";
+    DTRLogger::logger().log(j.dump());
+  } else {
+    // DTRLogger::logger().log(CONSTANT + " " + EVICT);
+  }
+}
+
+void DTRLogRematEvents(const std::string& name, size_t counts){
+  if (log_json){
+    json j;
+    j[INSTRUCTION] = REMAT;
     j[NAME] = name;
     j[VALUE] = counts;
     DTRLogger::logger().log(j.dump());

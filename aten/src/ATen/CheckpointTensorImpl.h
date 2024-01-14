@@ -26,7 +26,7 @@
 #define unlikely(x)    __builtin_expect(!!(x), 0)
 #define TORCH_CHECK(a, ...) // profile mode
 
-#define DEBUG_MODE
+// #define DEBUG_MODE
 
 // System Description:
 // Every Tensor is managed by a CheckpointTensor,
@@ -270,20 +270,11 @@ struct AliasPool : intrusive_ptr_target {
   // if it is evicted, then hold the evicted tensor group.
   ecn_ptr ecn;
   double cost(time_t current_time);
-  void evict();
+  void evict(int mode=0);
   void register_external() {
     ++external_count;
   }
-  void release_external() {
-    --external_count;
-    if (external_count == 0) {
-      if (lock_count > 0) {return;}
-      TORCH_CHECK(lock_count == 0);
-      if (memory > 0 && (!ecn) && head_remat) {
-        evict();
-      }
-    }
-  }
+  void release_external();
   // if it was evicted, refresh it. otherwise do nothing.
   // have to check so, because when we rematerialize a single tensor in an aliaspool,
   // we will set it to non-evicted, and when we rematerialize it's tensor they will also reset this.
@@ -349,17 +340,7 @@ struct CheckpointTensorCell : intrusive_ptr_target {
     TORCH_CHECK(defined);
     return pool->memory;
   }
-  Tensor get() {
-    if (!t) {
-      TORCH_CHECK(remat);
-      remat->remat();
-    }
-    defined = true;
-    TORCH_CHECK(t);
-    TORCH_CHECK(! t->key_set().has(DispatchKey::CheckpointTensorId));
-    pool->last_used_time = std::chrono::system_clock::now();
-    return *t;
-  }
+  Tensor get();
   void pin() {
     get();
     pool->head_remat.reset();
@@ -540,9 +521,18 @@ struct TORCH_API CheckpointTensorImpl : public TensorImpl {
   // };
 };
 
+struct CustomCompare {
+    bool operator()(uintptr_t& a, uintptr_t& b) const {
+        // 根据地址高位进行排序
+        // auto a_h = a & 0xffffffff0000;
+        return a<b;
+    }
+};
+
 // CheckpointPool keep a list of AliasPool, and search over them to choose the best one to evict.
 struct CheckpointPool {
   std::vector<weak_intrusive_ptr<AliasPool>> aps;
+  // std::map<uintptr_t, weak_intrusive_ptr<AliasPool>> ordered_aps;
   std::vector<weak_intrusive_ptr<External>> exts;
   std::random_device rd;
   std::mt19937 gen = std::mt19937(rd());
