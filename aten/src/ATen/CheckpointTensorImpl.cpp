@@ -178,11 +178,28 @@ Timer::~Timer() {
   STATS.timers.push_back(stats);
 }
 
+/**
+ * Methods of CheckpointPool
+ * Implementation about eviction stragety
+ * Management about AliasPools in the pool
+*/
+#pragma region CheckpointPool
 
 CheckpointPool pool;  // cannot be extern
+
 void CheckpointPool::add(const intrusive_ptr<AliasPool>& p) {
   if (p->memory > 0 && (memory_count == 0 || !ignore_small_tensors || p->memory >= 0.01 * double(memory_sum/memory_count))) {
     aps.push_back(weak_intrusive_ptr<AliasPool>(p));
+    constexpr uintptr_t addr_mask = 0xffffff0000000000;
+    uintptr_t addr_key = p->addr & addr_mask;
+    // this key existed
+    if (ordered_aps.find(addr_key) != ordered_aps.end()){
+      ordered_aps[addr_key].push_back(weak_intrusive_ptr<AliasPool>(p));
+    }else{
+      std::vector<weak_intrusive_ptr<AliasPool>> new_aps;
+      new_aps.push_back(weak_intrusive_ptr<AliasPool>(p));
+      ordered_aps[addr_key] = std::move(new_aps);
+    }
   }
 }
 
@@ -198,8 +215,8 @@ size_t reserved_memory(){
   return device_stat.allocated_bytes[0].peak;
 }
 
-void log_cur_mem_statics(){
 #ifdef DEBUG_MODE
+void log_cur_mem_statics(){
   if(record_mem_addr){
     for(const auto ex: pool.exts){
       if(auto ref = ex.lock())
@@ -207,8 +224,8 @@ void log_cur_mem_statics(){
       // DTRLogAddress(get_cpti(cp)->counter_name(), reinterpret_cast<uintptr_t>(get_cpti(cp)->ref->value->value.get()->pool->addr), get_cpti(cp)->ref->value->value.get()->pool->memory);
     }
   }
-#endif
 }
+#endif
 
 void CheckpointPool::auto_evict() {
   STATS.track("CheckpointPool::auto_evict");
@@ -240,8 +257,44 @@ void CheckpointPool::auto_evict(size_t size_bytes){
   }
 }
 
-//
+// for debug
 void CheckpointPool::force_evict(int mode){
+  auto remove_from_aps = [&](size_t i) {
+                           aps[i] = aps[aps.size() - 1];
+                           aps.pop_back();
+                         };
+  auto evict_from_idx = [&](size_t idx) {
+                            auto ap_strong = aps[idx].lock();
+                            TORCH_CHECK(ap_strong.defined());
+                            ap_strong->evict(0);
+                            remove_from_aps(idx);
+                          };
+  for (size_t i = 0; i < aps.size(); i++) {
+    auto cannot_evict = [&]() {
+                          // shrunk = true;
+                          remove_from_aps(i);
+                        };
+    auto ap_strong = aps[i].lock();
+    if (!ap_strong.defined()) {
+      cannot_evict();
+    }
+    else if (ap_strong->ecn) {    // 当aliaspool被驱逐后，会初始化其ecn，用于remat
+      if(record_er_counts){
+        cannot_evict_counts += 1;
+      }
+      cannot_evict();
+    }else{
+#ifdef DEBUG_MODE
+      if(record_er_counts){
+        evict_counts += 1;
+      }
+#endif
+      evict_from_idx(i);
+    }
+  }
+}
+
+void CheckpointPool::initiative_evict(){
   auto remove_from_aps = [&](size_t i) {
                            aps[i] = aps[aps.size() - 1];
                            aps.pop_back();
@@ -353,10 +406,19 @@ void CheckpointPool::evict() {
 
 CheckpointPool::CheckpointPool() { }
 
+#pragma endregion
+
+
+/**
+ * Interface expose to at native
+ * Kinds of log methods
+ * Initiative methods in Aten
+*/
+#pragma region InterfaceForAtenNative
+
 namespace native {
 
-
-/// TODO: 引入张量t有undefined的情况，此种情况cpti构造出来的tensor却不是undefined的了
+/// TODO: 潜在问题 引入张量t有undefined的情况，此种情况cpti构造出来的tensor却不是undefined的了
 Tensor checkpoint(const Tensor& t) {
   STATS.track("checkpoint");
   // if(!t.defined())
@@ -514,31 +576,14 @@ long loop_time() {
 
 }
 
-[[inline]]
-Tensor uncheckpoint(const strong& input) {
-  return input->get();
-}
+#pragma endregion
 
-Tensors uncheckpoint(const strongs& inputs) {
-  STATS.track("uncheckpoint");
-  Tensors ret;
-  ret.reserve(inputs.size());
-  for (const strong& input : inputs) {
-    // inlined manually
-    ret.push_back(input->get());
-  }
-  return ret;
-};
 
-Tensors try_checkpoint(const Tensors& inputs) {
-  STATS.track("try_checkpoint");
-  Tensors ret;
-  ret.reserve(inputs.size());
-  for (const Tensor& input : inputs) {
-    ret.push_back(at::native::try_checkpoint(input));
-  }
-  return ret;
-}
+/**
+ * Methods of AliasPool
+ * Implementation about metrics updating and eviction behavior 
+*/
+#pragma region AliasPoolMethods
 
 CheckpointInfo merge_cpi(CheckpointInfo l, CheckpointInfo r) {
   STATS.track("merge_cpi");
@@ -607,48 +652,6 @@ double AliasPool::cost(time_t current_time) {
   return ret;
 }
 
-void External::release_resources() {
-  value->pool->release_external();
-  value.reset();
-}
-
-void Rematerializer::remat() {
-  if(record_er_counts){
-    remat_counts += 1;
-  }
-  // TODO: refactor using RAII for exception safety.
-  for (const strong& s : inputs) {
-    s->pool->lock();
-  }
-  Tensors ts = uncheckpoint(inputs);
-  time_t pre = std::chrono::system_clock::now();
-  auto ret = func(ts);
-  time_t post = std::chrono::system_clock::now();
-  pool.auto_evict();
-  remat_compute_time_ += (post - pre).count();
-  TORCH_CHECK(ret.size() == outputs.size());
-  for (size_t i = 0; i < outputs.size(); ++i) {
-    if (auto output_cell = outputs[i].lock()) {
-      output_cell->fill(ret[i]);
-    }
-  }
-  ecn.reset();
-  for (const strong& s : inputs) {
-    s->pool->unlock();
-  }
-}
-
-ecn_ptr Rematerializer::get_ecn() {
-  if (!ecn) {
-    ecn = ecn_ptr::make(CheckpointInfo(compute_cost));
-  }
-  return ecn;
-}
-
-CheckpointInfo Rematerializer::get_cpi() {
-  return CheckpointInfo(ecn ? duration_t(0) : compute_cost);
-}
-
 std::set<ecn_ptr> AliasPool::neighbor_ecn() {
   STATS.track("AliasPool::neighbor_ecn");
   std::set<ecn_ptr> ptr_set;
@@ -683,6 +686,99 @@ void AliasPool::set_not_evicted(const intrusive_ptr<AliasPool>& self) {
     pool.add(self);
   }
 }
+
+void External::release_resources() {
+  value->pool->release_external();
+  value.reset();
+}
+
+
+#pragma endregion
+
+
+/**
+ * Methods of Rematerializer
+ * Implementation about remat methods and several methods of packing and unpacking
+*/
+#pragma region RematerializerMethods
+
+[[inline]]
+Tensor uncheckpoint(const strong& input) {
+  return input->get();
+}
+
+Tensors uncheckpoint(const strongs& inputs) {
+  STATS.track("uncheckpoint");
+  Tensors ret;
+  ret.reserve(inputs.size());
+  for (const strong& input : inputs) {
+    // inlined manually
+    ret.push_back(input->get());
+  }
+  return ret;
+};
+
+Tensors try_checkpoint(const Tensors& inputs) {
+  STATS.track("try_checkpoint");
+  Tensors ret;
+  ret.reserve(inputs.size());
+  for (const Tensor& input : inputs) {
+    ret.push_back(at::native::try_checkpoint(input));
+  }
+  return ret;
+}
+
+void Rematerializer::remat() {
+  if(record_er_counts){
+    remat_counts += 1;
+  }
+  // TODO: refactor using RAII for exception safety.
+  for (const strong& s : inputs) {
+    s->pool->lock();
+  }
+  Tensors ts = uncheckpoint(inputs);
+#ifdef DEBUG_MODE
+  time_t pre = std::chrono::system_clock::now();
+#endif
+  auto ret = func(ts);
+  pool.auto_evict();
+#ifdef DEBUG_MODE
+  time_t post = std::chrono::system_clock::now();
+  remat_compute_time_ += (post - pre).count();
+#endif
+  TORCH_CHECK(ret.size() == outputs.size());
+  for (size_t i = 0; i < outputs.size(); ++i) {
+    if (auto output_cell = outputs[i].lock()) {
+      output_cell->fill(ret[i]);
+    }
+  }
+  ecn.reset();
+  for (const strong& s : inputs) {
+    s->pool->unlock();
+  }
+}
+
+ecn_ptr Rematerializer::get_ecn() {
+  if (!ecn) {
+    ecn = ecn_ptr::make(CheckpointInfo(compute_cost));
+  }
+  return ecn;
+}
+
+CheckpointInfo Rematerializer::get_cpi() {
+  return CheckpointInfo(ecn ? duration_t(0) : compute_cost);
+}
+
+#pragma endregion
+
+
+/**
+ * Methods of CheckpointTensorCell && CheckpointTensorImpl
+ * Basic but important methods about tensor's functionality
+ * Important implementation about raw backend calling with pre-processing and post-processing
+ * Register aliaspool and merge tensor sharing with the same ap
+*/
+#pragma region CheckpointTensorCellAndImpl
 
 void CheckpointTensorCell::fill(const Tensor& t) {
   STATS.track("CheckpointTensorCell::fill");
@@ -720,7 +816,6 @@ Tensor CheckpointTensorCell::get(){
 
 intrusive_ptr<TensorImpl> CheckpointTensorImpl::shallow_copy_and_detach(const VariableVersion& version_counter,
                                                                         bool allow_tensor_metadata_change) const{
-  // auto ret = intrusive_ptr<CheckpointTensorImpl>::make(ref);
   auto impl = c10::make_intrusive<CheckpointTensorImpl>(ref);
   TensorImpl::copy_tensor_metadata(
         /*src_impl=*/this,
@@ -735,25 +830,6 @@ intrusive_ptr<TensorImpl> CheckpointTensorImpl::shallow_copy_and_detach(const Va
 #endif
   return impl;
 }
-
-// is used in the process of Variable's creation during Backward, but this method is private
-// template <typename VariableVersion>
-// c10::intrusive_ptr<TensorImpl> CheckpointTensorImpl::shallow_copy_and_detach_core(
-//     VariableVersion&& version_counter,
-//     bool allow_tensor_metadata_change) const {
-//   auto impl = c10::make_intrusive<CheckpointTensorImpl>(ref);
-
-//   copy_tensor_metadata(
-//       /*src_impl=*/this,
-//       /*dest_impl=*/impl.get(),
-//       /*version_counter=*/std::forward<VariableVersion>(version_counter),
-//       /*allow_tensor_metadata_change=*/allow_tensor_metadata_change);
-//   impl->refresh_numel();
-//   if (use_log_) {
-//     DTRLogCopy(impl->counter_name(), counter_name());
-//   }
-//   return impl;
-// }
 
 // necessary in the process of autograd, use this func to copy and detach new tensor with cpti
 c10::intrusive_ptr<TensorImpl> CheckpointTensorImpl::shallow_copy_and_detach(
@@ -1072,5 +1148,7 @@ CheckpointTensorImpl::CheckpointTensorImpl(const Tensor& t) : CheckpointTensorIm
     set_sizes_and_strides(ref->value->value->get().sizes(), ref->value->value->get().strides());
   pool.exts.push_back(weak_intrusive_ptr<External>(ref->value));
 }
+
+#pragma endregion
 
 }

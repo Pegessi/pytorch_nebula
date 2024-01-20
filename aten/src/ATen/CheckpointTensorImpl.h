@@ -529,10 +529,11 @@ struct CustomCompare {
     }
 };
 
+using aps_t = std::tuple<std::vector<weak_intrusive_ptr<AliasPool>>, size_t, time_t>;
 // CheckpointPool keep a list of AliasPool, and search over them to choose the best one to evict.
 struct CheckpointPool {
   std::vector<weak_intrusive_ptr<AliasPool>> aps;
-  // std::map<uintptr_t, weak_intrusive_ptr<AliasPool>> ordered_aps;
+  std::map<uintptr_t, std::vector<weak_intrusive_ptr<AliasPool>>> ordered_aps;
   std::vector<weak_intrusive_ptr<External>> exts;
   std::random_device rd;
   std::mt19937 gen = std::mt19937(rd());
@@ -551,6 +552,7 @@ struct CheckpointPool {
   void auto_evict(size_t size_bytes);
   /// for initiative evict
   void force_evict(int mode);
+  void initiative_evict();
 };
 
 inline CheckpointTensorImpl* get_cpti(const Tensor& t) {
