@@ -18,6 +18,14 @@
   variants: function
 - func: set_memory_budget(int budget) -> ()
   variants: function
+- func: set_reserved() -> ()
+  variants: function
+- func: unset_reserved() -> ()
+  variants: function
+- func: set_during_backward() -> ()
+  variants: function
+- func: unset_during_backward() -> ()
+  variants: function
 - func: force_evict(int mode) -> ()
   variants: function
 - func: log_dtr_statics() -> ()

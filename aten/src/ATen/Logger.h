@@ -50,6 +50,10 @@ const std::string CONSTANT = "CONSTANT";
 const std::string VALUE = "VALUE";
 const std::string EVICT = "EVICT";
 const std::string REMAT = "REMAT";
+const std::string REMATCOST = "REMAT COST";
+const std::string ADDR = "ADDR";
+const std::string DEGREE = "DEGREE";
+const std::string TENSOR = "TENSOR REC";
 
 void DTRLogCounts(const std::string& name, size_t counts){
   if (log_json){
@@ -123,10 +127,25 @@ void DTRLogRematEvents(const std::string& name, size_t counts){
 void DTRLogAddress(const std::string& name, uintptr_t addr, size_t memory){
   if (log_json){
     json j;
-    j[INSTRUCTION] = CONSTANT;
+    j[INSTRUCTION] = TENSOR;
     j[NAME] = name;
-    j[VALUE] = addr;
+    j[ADDR] = addr;
     j[MEMORY] = memory;
+    DTRLogger::logger().log(j.dump());
+  } else {
+    DTRLogger::logger().log(CONSTANT + " " + name);
+  }
+}
+
+void DTRLogTensorInfo(const std::string& name, uintptr_t addr, size_t memory, size_t degree, double cost){
+  if (log_json){
+    json j;
+    j[INSTRUCTION] = TENSOR;
+    j[NAME] = name;
+    j[ADDR] = addr;
+    j[MEMORY] = memory;
+    j[DEGREE] = degree;
+    j[REMATCOST] = cost;
     DTRLogger::logger().log(j.dump());
   } else {
     DTRLogger::logger().log(CONSTANT + " " + name);

@@ -1738,9 +1738,10 @@ Tensor checkpoint__to_copy(const at::Tensor & self, c10::optional<at::ScalarType
 
 template <typename T, typename = std::enable_if_t<std::is_same<T, int64_t>::value>>
 at::Tensor checkpoint_view(const at::Tensor & self, at::IntArrayRef size) {
+  auto size_ = size.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
-      return {at::native::view(vec.at(0), size)};
+      return {at::native::view(vec.at(0), size_)};
     };
   return CheckpointTensorImpl::make("view", rt, {self})[0];
 }
@@ -1854,9 +1855,10 @@ at::Tensor checkpoint_rsqrt(const at::Tensor & self) {
 
 /// ['/// ', 'at::Tensor', 'repeat', '(const at::Tensor & self, at::IntArrayRef repeats)']
 at::Tensor checkpoint_repeat(const at::Tensor & self, at::IntArrayRef repeats) {
+  auto repeats_ = repeats.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
-      return {vec.at(0).repeat(repeats)};
+      return {vec.at(0).repeat(repeats_)};
     };
   return CheckpointTensorImpl::make("aten::repeat", rt, {self})[0];
 }
@@ -2002,9 +2004,10 @@ at::Tensor & checkpoint_sub_(Tensor& self, const Scalar& other, const Scalar& al
 
 /// ['aten::slice_backward', 'at::Tensor', 'slice_backward', '(const at::Tensor & grad_output, at::IntArrayRef input_sizes, int64_t dim, int64_t start, int64_t end, int64_t step)']
 at::Tensor checkpoint_slice_backward(const at::Tensor & grad_output, at::IntArrayRef input_sizes, int64_t dim, int64_t start, int64_t end, int64_t step) {
+  auto input_sizes_ = input_sizes.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
-      return {at::slice_backward(vec.at(0), input_sizes, dim, start, end, step)};
+      return {at::slice_backward(vec.at(0), input_sizes_, dim, start, end, step)};
     };
   return CheckpointTensorImpl::make("aten::slice_backward", rt, {grad_output})[0];
 }
@@ -2033,10 +2036,17 @@ std::vector<at::Tensor> checkpoint__foreach_norm(at::TensorList self, const at::
 
 /// ['aten::linalg_vector_norm_outf', 'at::Tensor &', 'linalg_vector_norm_outf', '(const at::Tensor & self, const at::Scalar & ord, at::OptionalIntArrayRef dim, bool keepdim, c10::optional<at::ScalarType> dtype, at::Tensor & out)']
 at::Tensor & checkpoint_linalg_vector_norm_out(const at::Tensor & self, const at::Scalar & ord, at::OptionalIntArrayRef dim, bool keepdim, c10::optional<at::ScalarType> dtype, at::Tensor & out) {
+  std::vector<int64_t> dim_; 
+  if(dim.has_value()){
+    dim_ = dim.value().vec();
+  }
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
       Tensor out = vec.at(1);
-      return {at::linalg_vector_norm_outf(vec.at(0), ord, dim, keepdim, dtype, out)};
+      if(dim.has_value())
+        return {at::linalg_vector_norm_outf(vec.at(0), ord, dim_, keepdim, dtype, out)};
+      else
+        return {at::linalg_vector_norm_outf(vec.at(0), ord, dim, keepdim, dtype, out)};
     };
   return CheckpointTensorImpl::make("aten::linalg_vector_norm_outf", rt, {self, out})[0];
 }

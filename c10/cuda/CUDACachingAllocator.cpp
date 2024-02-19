@@ -1486,13 +1486,13 @@ class DeviceCachingAllocator {
       block = new Block(device, stream, size, pool, block->ptr);
       block->expandable_segment_ = remaining->expandable_segment_;
       block->prev = remaining->prev;
-      if (block->prev) {
+      if (block->prev) {                // insert block ahead of remaining
         block->prev->next = block;
       }
       block->next = remaining;
 
       remaining->prev = block;
-      remaining->ptr = static_cast<char*>(remaining->ptr) + size;
+      remaining->ptr = static_cast<char*>(remaining->ptr) + size;   // remaining data pointer offset <size>, remaining means unallocated block
       remaining->size -= size;
       bool inserted = pool->blocks.insert(remaining).second;
       TORCH_INTERNAL_ASSERT_DEBUG_ONLY(inserted);

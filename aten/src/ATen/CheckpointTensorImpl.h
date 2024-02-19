@@ -240,18 +240,20 @@ struct AliasPool : intrusive_ptr_target {
   // lock_count count how many time a tensor is referenced by get.
   size_t lock_count = 0;
   size_t external_count = 0;
-  void lock() {
+  inline void lock() {
     ++lock_count;
   }
-  void unlock() {
+  inline void unlock() {
     --lock_count;
   }
   intrusive_ptr<Rematerializer> head_remat;
   bool evictable() const {
-    return lock_count == 0 && head_remat;
+    return lock_count == 0 && head_remat && !is_remated;   // 存在一些没有head_remat的权重转换，如rope的freqs
   }
   // if it is not evictable it must not be evicted.
   bool is_evicted = false;
+  bool is_retain = false;
+  bool is_remated = false;
   size_t memory;
   time_t last_used_time;
   uintptr_t addr;               // address of tensor data ptr
@@ -529,11 +531,13 @@ struct CustomCompare {
     }
 };
 
-using aps_t = std::tuple<std::vector<weak_intrusive_ptr<AliasPool>>, size_t, time_t>;
+using aps_t = std::tuple<std::vector<weak_intrusive_ptr<AliasPool>>, size_t>;
 // CheckpointPool keep a list of AliasPool, and search over them to choose the best one to evict.
 struct CheckpointPool {
   std::vector<weak_intrusive_ptr<AliasPool>> aps;
-  std::map<uintptr_t, std::vector<weak_intrusive_ptr<AliasPool>>> ordered_aps;
+  std::set<weak_intrusive_ptr<AliasPool>> reserved_aps;
+  std::map<uintptr_t, aps_t> ordered_aps;
+  size_t group_evict_threshold;
   std::vector<weak_intrusive_ptr<External>> exts;
   std::random_device rd;
   std::mt19937 gen = std::mt19937(rd());
@@ -544,15 +548,17 @@ struct CheckpointPool {
   bool has_memory_budget = false;
   long memory_budget;
   void evict();
+  void evict(size_t need_to_free_bytes);
   void auto_evict();
   void clear_checkpointpool();
   void add(const intrusive_ptr<AliasPool>&);
+  void reserved_add(const intrusive_ptr<AliasPool>&);
   CheckpointPool();
   /// for early check and evict
   void auto_evict(size_t size_bytes);
   /// for initiative evict
   void force_evict(int mode);
-  void initiative_evict();
+  void initiative_evict(size_t to_free_bytes);
 };
 
 inline CheckpointTensorImpl* get_cpti(const Tensor& t) {
