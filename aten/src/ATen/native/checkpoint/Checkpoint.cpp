@@ -1069,7 +1069,7 @@ Tensor& checkpoint_clamp_min_out(const Tensor& self, const c10::Scalar& min, Ten
     Tensor out = vec.at(1);
     at::clamp_min_out(out, vec.at(0), min);
   };
-  CheckpointTensorImpl::mutate("clamp_min__out", mt, {self, out}, {0});
+  CheckpointTensorImpl::mutate("clamp_min__out", mt, {self, out}, {1});
   return out;
 }
 
@@ -1405,7 +1405,7 @@ Tensor& checkpoint_clamp_out(const Tensor& self, const c10::optional<Scalar>& mi
     Tensor res = vec.at(1);
     at::clamp_outf(vec.at(0), min, max, res);
   };
-  CheckpointTensorImpl::mutate("clamp_out", mt, {self, result}, {0});
+  CheckpointTensorImpl::mutate("clamp_out", mt, {self, result}, {1});
   return {result};
 }
 

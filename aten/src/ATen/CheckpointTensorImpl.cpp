@@ -6,8 +6,11 @@
 #include <string>
 #include <random>
 #include <cmath>
+#include <unordered_map>
 
 // #define TIME_REC
+#define MINIMAL_EVICT                    /// 最小驱逐策略（贪心+随机 DTR）
+// #define MINIMAL_EVICT_COST                /// 最小驱逐策略+cost cache（贪心+随机 DTR）
 
 #ifdef TIME_REC
 auto start_time = std::chrono::high_resolution_clock::now();
@@ -129,20 +132,25 @@ size_t memory_sum = 0;
 size_t memory_max = 0;
 size_t memory_count = 0;
 
-bool use_log_ = false;
-bool use_profile_ = false;
-bool record_er_counts = false;
-bool record_mem_addr = false;
 long base_compute_time_ = 0;
 long remat_compute_time_ = 0;
 long search_time_ = 0;
 long cost_time_ = 0;
+bool use_log_ = false;
+bool use_profile_ = false;
+#ifdef DEBUG_MODE
+bool record_er_counts = false;
+bool record_mem_addr = false;
+bool record_op_recs = false;
+
+
 std::atomic<size_t> evict_counts = 0;
 std::atomic<size_t> tensor_evict_counts = 0;
 std::atomic<size_t> remat_counts = 0;
 std::atomic<size_t> cannot_evict_counts = 0;
 std::atomic<size_t> destruct_counts = 0;
 std::atomic<size_t> tensor_destruct_counts = 0;
+#endif
 
 bool reserved_range = false;
 bool during_backward = false;
@@ -159,11 +167,10 @@ inline size_t memory(const Tensor& t) {
   }
   auto& storage = t.storage();
   size_t res = storage.nbytes();
-#ifdef DEBUG_MODE
+  // these metrics are used for add aps
   memory_sum += res;
   memory_max = std::max(memory_max, res);
   memory_count += 1;
-#endif
   return res;
 }
 
@@ -191,8 +198,11 @@ Timer::~Timer() {
 #pragma region CheckpointPool
 
 CheckpointPool pool;  // cannot be extern
+std::unordered_map<int64_t, duration_t> compute_cost_records;
+std::unordered_map<int64_t, size_t> memory_cost_records;
 
 void CheckpointPool::add(const intrusive_ptr<AliasPool>& p) {
+  // ignore storage smaller than 1% average size
   if (p->memory > 0 && (memory_count == 0 || !ignore_small_tensors || p->memory >= 0.01 * double(memory_sum/memory_count))) {
     aps.push_back(weak_intrusive_ptr<AliasPool>(p));
     constexpr uintptr_t addr_mask = 0xffffff0000000000;
@@ -270,11 +280,17 @@ void CheckpointPool::auto_evict() {
     // }
     // 使用cuda获取只能获取到reserved的情况，而pytorch存在自己的显存池，释放只是allocated部分发生了变化
     // 因此必须使用torch的CUDACachingAllocator获取显存情况
+    int check_counts = 0;
     while (current_memory() > memory_budget) {
       // std::cout<<"passive trigger\n";
-      // evict();
-      force_evict(0);
+      evict();
       // evict(static_cast<size_t>(evict_mem_scale * memory_budget));
+      // force_evict(0);
+      check_counts++;
+      if(check_counts>100){
+        std::cout << "Eviction progress has been trapped in dead loop\n";
+        throw std::runtime_error("Eviction progress has been trapped in dead loop");
+      }
     }
 #ifdef DEBUG_MODE
       // use_log_ = true;
@@ -290,14 +306,25 @@ void CheckpointPool::auto_evict() {
   }
 }
 
+// bool peak_out = false;
 void CheckpointPool::auto_evict(size_t size_bytes){
   STATS.track("CheckpointPool::auto_evict");
     if (has_memory_budget) {
     // 使用cuda获取只能获取到reserved的情况，而pytorch存在自己的显存池，释放只是allocated部分发生了变化
     // 因此必须使用torch的CUDACachingAllocator获取显存情况
+    // auto peak = reserved_memory();
+    // if(peak>memory_budget)
+    //   peak_out = true;
+    // //   throw std::runtime_error("Peak memory out.");
+    // if(!peak_out){
+    //   while ((reserved_memory() + size_bytes) > memory_budget) {
+    //     evict();
+    //   }
+    // }else{
     while ((current_memory() + size_bytes) > memory_budget) {
       evict();
     }
+    // }
   }
 }
 
@@ -319,7 +346,7 @@ void CheckpointPool::force_evict(int mode){
                           // shrunk = true;
                           remove_from_aps(i);
                         };
-    auto ap_strong = aps[i].lock();     // 此处的lock不是自定义的Lock // 这里发生了死锁
+    auto ap_strong = aps[i].lock();     // 此处的lock不是自定义的Lock // 这里发生过死锁
     if (!ap_strong.defined()) {
       cannot_evict();
     }
@@ -336,7 +363,8 @@ void CheckpointPool::force_evict(int mode){
         evict_counts += 1;
       }
 #endif
-      if(ap_strong->evictable()&&(reserved_aps.find(aps[i])==reserved_aps.end())){  // 不在保留区间内
+      // if(ap_strong->evictable()&&(reserved_aps.find(aps[i])==reserved_aps.end())){  // 不在保留区间内
+      if(ap_strong->evictable()&&!ap_strong->is_retain){  // 不在保留区间内
         // evict_from_idx(i);
         TORCH_CHECK(ap_strong.defined());
         ap_strong->evict(0);
@@ -429,9 +457,11 @@ void CheckpointPool::evict() {
   for (size_t i = 0; i < aps.size();) {
     auto cannot_evict = [&]() {
                           shrunk = true;
+                          #ifdef DEBUG_MODE
                           if(record_er_counts){
                             cannot_evict_counts += 1;
                           }
+                          #endif
                           remove_from_aps(i);
                         };
     auto ap_strong = aps[i].lock();
@@ -621,12 +651,12 @@ Tensor checkpoint(const Tensor& t) {
   // if(!t.defined())
   //   return Tensor(nullptr);
   // auto cpti = intrusive_ptr<CheckpointTensorImpl>::make(t);   // 调用了Ref<intrusive_ptr<External>> External CheckpointTensorCell的相关构造函数
-  auto cpti = c10::make_intrusive<CheckpointTensorImpl>(t);      // cpti->ref->value->value->t 是包裹的unique_ptr<Tensor>
+  auto cpti = c10::make_intrusive<CheckpointTensorImpl>(t);      // cpti->ref->value->value->t 是包裹的unique_ptr<Tensor> unsafeGetTensorCell()
   // auto res = detail::make_tensor<CheckpointTensorImpl>(cpti);    // 这种做法会导致impl成了父类对象，没有cpti的信息了
 #ifdef DEBUG_MODE
   if (use_log_) {
     DTRLogConstant(cpti->counter_name());
-    DTRLogMemory(cpti->counter_name(), cpti->ref->value->value->memory());
+    DTRLogMemory(cpti->counter_name(), cpti->unsafeGetTensorCell()->memory());
   }
 #endif
   auto res = Tensor(cpti);
@@ -637,7 +667,7 @@ Tensor uncheckpoint(const Tensor& t) {
   STATS.track("uncheckpoint");
   auto* cpti = dynamic_cast<CheckpointTensorImpl*>(t.unsafeGetTensorImpl());
   TORCH_CHECK(cpti != nullptr);
-  return cpti->ref->value->value->get();
+  return cpti->unsafeGetTensorCell()->get();
 }
 
 /**
@@ -647,13 +677,13 @@ void pin(Tensor& t) {
   STATS.track("pin");
   auto* cpti = dynamic_cast<CheckpointTensorImpl*>(t.unsafeGetTensorImpl());
   TORCH_CHECK(cpti != nullptr);
-  cpti->ref->value->value->pin();
+  cpti->unsafeGetTensorCell()->pin();
 }
 
 Tensor decheckpoint(const Tensor& t) {
   STATS.track("decheckpoint");
   auto* cpti = dynamic_cast<CheckpointTensorImpl*>(t.unsafeGetTensorImpl());
-  return cpti ? cpti->ref->value->value->get() : t;
+  return cpti ? cpti->unsafeGetTensorCell()->get() : t;
 }
 
 bool is_checkpoint(const Tensor& t) {
@@ -732,6 +762,7 @@ void force_evict(long mode){
 }
 
 void log_dtr_statics(){
+#ifdef DEBUG_MODE
   if(record_er_counts){
     DTRLogCounts("evict counts", evict_counts);
     DTRLogCounts("evict tensor counts", tensor_evict_counts);
@@ -742,6 +773,7 @@ void log_dtr_statics(){
   }else{
     std::cout<<"record counts control varaiable should be true for export data.\n";
   }
+#endif
 }
 
 void toggle_sampling(bool sample) {
@@ -835,17 +867,17 @@ void AliasPool::evict(int mode) { // 0 - evict | 1 - destruct
 
 void AliasPool::release_external() {
   --external_count;
-    if (external_count == 0) {
-      if (lock_count > 0) {return;}
-      TORCH_CHECK(lock_count == 0);
-      if (memory > 0 && (!ecn) && head_remat) {
+  if (external_count == 0) {          /// TODO: 潜在bug，如果lock_count>0，此后这个aps会成为僵尸内存
+    if (lock_count > 0) {return;}
+    TORCH_CHECK(lock_count == 0);
+    if (memory > 0 && (!ecn) && head_remat) {
 #ifdef DEBUG_MODE
-        // DTRLogDestructEvents();
-        destruct_counts += 1;
+      // DTRLogDestructEvents();
+      destruct_counts += 1;
 #endif
-        evict(1);
-      }
+      evict(1);
     }
+  }
 }
 
 double AliasPool::cost(time_t current_time) {
@@ -900,12 +932,6 @@ void AliasPool::set_not_evicted(const intrusive_ptr<AliasPool>& self) {
   }
 }
 
-void External::release_resources() {
-  value->pool->release_external();
-  value.reset();
-}
-
-
 #pragma endregion
 
 
@@ -941,24 +967,35 @@ Tensors try_checkpoint(const Tensors& inputs) {
   return ret;
 }
 
+size_t remat_counts = 0;
+
 void Rematerializer::remat() {
 #ifdef DEBUG_MODE
   if(record_er_counts){
     remat_counts += 1;
   }
+  remat_counts += 1;
+  if(remat_counts>1e5)
+    throw std::runtime_error("Remat progress has been trapped in dead loop");
 #endif
-  if(during_backward)
-    std::cout<<"2";
   // TODO: refactor using RAII for exception safety.
   for (const strong& s : inputs) {
     s->pool->lock();
   }
+  remat_counts++;
   Tensors ts = uncheckpoint(inputs);
 #ifdef DEBUG_MODE
   time_t pre = std::chrono::system_clock::now();
 #endif
+
+#ifdef MINIMAL_EVICT_COST
+  pool.auto_evict(memory_cost_records[rid]);
+#endif
   auto ret = func(ts);
+#ifdef MINIMAL_EVICT
   pool.auto_evict();
+#endif
+
 #ifdef DEBUG_MODE
   time_t post = std::chrono::system_clock::now();
   remat_compute_time_ += (post - pre).count();
@@ -972,8 +1009,6 @@ void Rematerializer::remat() {
   }
   ecn.reset();
   for (const strong& s : inputs) {
-    if(s->pool->is_remated)
-      s->pool->is_remated = false;
     s->pool->unlock();
   }
 }
@@ -1004,7 +1039,7 @@ void CheckpointTensorCell::fill(const Tensor& t) {
   STATS.track("CheckpointTensorCell::fill");
   if (!(this->t)) {
     this->t = std::make_unique<Tensor>(std::move(t));
-    pool->set_not_evicted(pool);                          /// TODO:这里会将重物化后的tensor设置为不可驱逐状态，导致冗余堆积
+    pool->set_not_evicted(pool);                          /// TODO:改变标志位，更新cost
     if (!defined) {
       defined = true;
       is_undefined_tensor = !t.defined();
@@ -1108,11 +1143,25 @@ int get_alias(const Tensors& ts, const Tensor& t) {
   return -1;
 }
 
+#ifdef DEBUG_MODE
+struct OperationRecord {
+  int64_t rid;
+  std::string name;
+  duration_t time;
+  size_t mem;
+  std::vector<string> inputs;
+  std::vector<string> outputs;
+};
+#endif
+
 struct MakeRawResult {
   std::vector<intrusive_ptr<External>> outputs;
   std::vector<int> aliases;
   duration_t time;
   intrusive_ptr<Rematerializer> rematerializer;
+#ifdef DEBUG_MODE
+  OperationRecord rec;
+#endif
 };
 
 void add_neighbor(const strong& l, const strong& r) {
@@ -1120,6 +1169,7 @@ void add_neighbor(const strong& l, const strong& r) {
   r->pool->neighbors.push_back(weak(l));
 }
 
+#ifdef DEBUG_MODE
 #include <execinfo.h>
 void printStackTrace() {
     const int maxFrames = 200; // Adjust the number of frames to print as needed
@@ -1174,6 +1224,8 @@ void printStackTrace() {
         free(symbols);
     }
 }
+#endif
+
 // remat take a single vector of tensors,
 // while there are two vector, one storing nonconstants and one storing constants.
 // the constants are small and they will not be considered for eviction.
@@ -1182,8 +1234,6 @@ void printStackTrace() {
 MakeRawResult make_raw(const rematerialize_function_t& remat_f,
                        const strongs& inputs) {
   STATS.track("make_raw");
-  if(during_backward)
-    std::cout<<"1";
   for (const strong& s : inputs) {                  // lock for unevictable
     s->pool->lock();
   }
@@ -1192,17 +1242,18 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
   time_t pre = std::chrono::system_clock::now();
   auto raw_outputs = remat_f(raw_inputs);
   time_t post = std::chrono::system_clock::now();
+  auto cur_compute_cost = post - pre;
+  // auto cur_compute_cost = test_time_post - test_time_cur;
 
   pool.auto_evict();
 #ifdef DEBUG_MODE
-  base_compute_time_ += (post - pre).count();       // if sync?
+  // base_compute_time_ += (post - pre).count();       // if sync?
   // c10::cuda::device_synchronize();
 #endif
   std::vector<intrusive_ptr<External>> outputs;
   std::vector<int> aliases;
   weaks weak_outputs;
-  auto remat = intrusive_ptr<Rematerializer>::make(Unsafe(), remat_f, inputs, post - pre);
-  // auto remat = intrusive_ptr<Rematerializer>::make(Unsafe(), remat_f, inputs, test_time_post - test_time_cur);
+  auto remat = intrusive_ptr<Rematerializer>::make(Unsafe(), remat_f, inputs, cur_compute_cost);
 
   for (const Tensor& t : raw_outputs) {             // prepare checkpoint for raw_outputs
     intrusive_ptr<AliasPool> alias_pool;
@@ -1212,14 +1263,15 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
       // alias_pool = intrusive_ptr<AliasPool>::make(Unsafe(), remat, m);
       alias_pool = intrusive_ptr<AliasPool>::make(Unsafe(), remat, m, get_addr(t));
       pool.add(alias_pool);     /// TAG: alaispool新增的唯一入口
-      if(reserved_range)                     /// TAG: 保留区间内的aps保存
-        pool.reserved_add(alias_pool);
+      if(reserved_range){     /// TAG: 保留区间内的aps保存
+        alias_pool->is_retain = true;
+        // alias_pool->lock();    /// 一直保存了，需要主动释放
+      }
     }
     else {
       alias_pool = inputs[alias]->pool;
       if (alias_pool->head_remat) {
-        alias_pool->head_remat->compute_cost += (post - pre);
-        // alias_pool->head_remat->compute_cost += (test_time_post - test_time_cur);
+        alias_pool->head_remat->compute_cost += cur_compute_cost;
       }
     }
     auto e = intrusive_ptr<External>::make(t, alias_pool, remat); // bind external for t
@@ -1240,66 +1292,103 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
     }
   }
   for (const strong& s : inputs) {
-    if(s->pool->is_remated)
-      s->pool->is_remated = false;
     s->pool->unlock();
   }
 
-  return {outputs, aliases, post - pre, remat};
+#ifdef DEBUG_MODE
+  return {outputs, aliases, cur_compute_cost, remat, {{},{},{},{},{},{}}};
+#else
+  return {outputs, aliases, cur_compute_cost, remat};
+#endif
 }
 
-// 自定义的 vector<int> 的哈希函数
+template <class T>
+inline void hash_combine(int64_t& seed, const T& v) {
+    std::hash<T> hasher;
+    seed ^= hasher(v) + 0x9e3779b9 + (seed<<6) + (seed>>2);
+}
+
+// 自定义的哈希函数, int64_t是IntArrayRef.vec()的默认类型
 struct VectorHash {
-    std::size_t operator()(const std::vector<int>& v) const {
-        std::size_t hash = 0;
-        for (int num : v) {
+    int64_t operator()(const std::vector<int64_t>& v) const {
+        int64_t hash = 0;
+        for (auto &num : v) {
             // 结合每个元素的哈希值，这里使用了位移和异或来混合哈希值  //  0×9e3779b9是 黄金分割数 乘 2^32次方 的16进制表示，32位无符号整数中它处在黄金分割的位置
-            hash ^= std::hash<int>{}(num) + 0x9e3779b9 + (hash << 6) + (hash >> 2);
+            hash_combine(hash, num);
         }
         return hash;
     }
 };
 
-// 生成唯一哈希值的函数
-std::size_t generateUniqueHash(const std::string& functionName, const std::vector<int>& inputSize, const std::vector<int>& outputSize) {
-    std::size_t hash = 0;
+// 添加缓存机制来避免重复哈希字符串
+std::unordered_map<std::string, int64_t> functionNameHashCache;
 
-    // 为字符串（函数名）生成哈希值
-    hash ^= std::hash<std::string>{}(functionName) + 0x9e3779b9 + (hash << 6) + (hash >> 2);
+inline int64_t generateUniqueHash(const std::string& functionName, const Tensors &inputs) {
+    int64_t hash = 0;
 
-    // 为输入和输出尺寸生成哈希值并合并
+    // 从缓存中获取或计算函数名的哈希值
+    auto it = functionNameHashCache.find(functionName);
+    if (it == functionNameHashCache.end()) {
+        int64_t fnHash = std::hash<std::string>{}(functionName) + 0x9e3779b9;
+        functionNameHashCache[functionName] = fnHash;
+        hash ^= fnHash;
+    } else {
+        hash ^= it->second;
+    }
+
+    // 为输入尺寸生成哈希值并合并
     VectorHash vectorHasher;
-    hash ^= vectorHasher(inputSize) + 0x9e3779b9 + (hash << 6) + (hash >> 2);
-    hash ^= vectorHasher(outputSize) + 0x9e3779b9 + (hash << 6) + (hash >> 2);
+    for(auto &input: inputs){
+        hash_combine(hash, vectorHasher(input.sizes().vec()));
+    }
 
     return hash;
 }
+
 
 // func name and size for cost model
 MakeRawResult make_raw(const rematerialize_function_t& remat_f,
                        const strongs& inputs, const std::string& name) {
   STATS.track("make_raw with hash");
-  auto hash_calculate = [&](){
 
-  };
   for (const strong& s : inputs) {                  // lock for unevictable
     s->pool->lock();
   }
   Tensors raw_inputs = uncheckpoint(inputs);        // cancel the monitor and get tensors
+  Tensors raw_outputs;
 
-  time_t pre = std::chrono::system_clock::now();
-  auto raw_outputs = remat_f(raw_inputs);
-  time_t post = std::chrono::system_clock::now();
+  auto rid = generateUniqueHash(name, raw_inputs);
+  auto search_res = compute_cost_records.find(rid);
+  bool have_record = false;
+  duration_t cur_compute_cost;
+  size_t cur_mem_cost;
+  if(search_res != compute_cost_records.end()){ // 有记录
+    have_record = true;
+  }
 
-  pool.auto_evict();
-#ifdef DEBUG_MODE
-  base_compute_time_ += (post - pre).count();       // if sync?
-  // c10::cuda::device_synchronize();
-#endif
+  if(have_record){
+    cur_mem_cost = memory_cost_records[rid];
+    pool.auto_evict(cur_mem_cost);
+    cur_compute_cost = compute_cost_records[rid];
+    raw_outputs = remat_f(raw_inputs);
+  }else{
+    size_t pre_mem = current_memory();
+    time_t pre_time = std::chrono::system_clock::now();
+    raw_outputs = remat_f(raw_inputs);
+    time_t post_time = std::chrono::system_clock::now();
+    size_t post_mem = current_memory();
+    cur_compute_cost = post_time - pre_time;
+    // insert new record item
+    compute_cost_records[rid] = cur_compute_cost;
+    cur_mem_cost = post_mem - pre_mem;
+    memory_cost_records[rid] = cur_mem_cost;
+    pool.auto_evict();
+  }
+  
   std::vector<intrusive_ptr<External>> outputs;
   std::vector<int> aliases;
   weaks weak_outputs;
-  auto remat = intrusive_ptr<Rematerializer>::make(Unsafe(), remat_f, inputs, post - pre);
+  auto remat = intrusive_ptr<Rematerializer>::make(Unsafe(), remat_f, inputs, rid, cur_compute_cost);
 
   for (const Tensor& t : raw_outputs) {             // prepare checkpoint for raw_outputs
     intrusive_ptr<AliasPool> alias_pool;
@@ -1313,7 +1402,7 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
     else {
       alias_pool = inputs[alias]->pool;
       if (alias_pool->head_remat) {
-        alias_pool->head_remat->compute_cost += (post - pre);
+        alias_pool->head_remat->compute_cost += (cur_compute_cost);
       }
     }
     auto e = intrusive_ptr<External>::make(t, alias_pool, remat); // bind external for t
@@ -1336,8 +1425,12 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
   for (const strong& s : inputs) {
     s->pool->unlock();
   }
-
-  return {outputs, aliases, post - pre, remat};
+#ifdef DEBUG_MODE
+  OperationRecord rec = {rid, name, cur_compute_cost, cur_mem_cost, {}, {}};
+  return {outputs, aliases, cur_compute_cost, remat, rec};
+#else
+  return {outputs, aliases, cur_compute_cost, remat};
+#endif
 }
 
 std::string from_time(duration_t t) {
@@ -1363,7 +1456,7 @@ Tensors CheckpointTensorImpl::make(const std::string& name,
   for (const Tensor& t: checkpointed_inputs) {  // bind External for inputs intrusive_ptr
     auto* cpti = dynamic_cast<CheckpointTensorImpl*>(t.unsafeGetTensorImpl());
     TORCH_CHECK(cpti);
-    input_values.push_back(cpti->ref->value->value);
+    input_values.push_back(cpti->unsafeGetTensorCell());
 #ifdef DEBUG_MODE
     if (use_log_) {
       args.push_back(cpti->counter_name());
@@ -1371,20 +1464,38 @@ Tensors CheckpointTensorImpl::make(const std::string& name,
 #endif
   }
 
+#ifdef MINIMAL_EVICT
   auto ret = make_raw(remat, input_values);
+#endif
+#ifdef MINIMAL_EVICT_COST
+  auto ret = make_raw(remat, input_values, name);
+#endif
 
   Tensors tensors;
   tensors.reserve(ret.outputs.size());
 
   for (const auto& t: ret.outputs) {
     auto cp = Tensor(intrusive_ptr<CheckpointTensorImpl>::make(t));
-    // if(record_mem_addr){
-    //     DTRLogAddress(get_cpti(cp)->counter_name(), reinterpret_cast<uintptr_t>(get_cpti(cp)->ref->value->value.get()->pool->addr), get_cpti(cp)->ref->value->value.get()->pool->memory);
-    // }
     tensors.push_back(cp);
   }
 
 #ifdef DEBUG_MODE
+  if(record_op_recs){
+    std::vector<string> input_ids;
+    std::vector<string> output_ids;
+    for (const auto& t: checkpointed_inputs) {  // bind External for inputs intrusive_ptr
+      auto* cpti = dynamic_cast<CheckpointTensorImpl*>(t.unsafeGetTensorImpl());
+      input_ids.push_back(cpti->unsafeGetTensorCell()->counter_name());
+    }
+    for (const auto& t: tensors) {
+      auto* cpti = dynamic_cast<CheckpointTensorImpl*>(t.unsafeGetTensorImpl());
+      output_ids.push_back(cpti->unsafeGetTensorCell()->counter_name());
+    }
+    ret.rec.inputs = std::move(input_ids);
+    ret.rec.outputs = std::move(output_ids);
+    DTRLogOPRecords(ret.rec.rid, ret.rec.name, static_cast<int64_t>(std::chrono::duration_cast<std::chrono::microseconds>(ret.rec.time).count()),
+                    ret.rec.mem, ret.rec.inputs, ret.rec.outputs);
+  }
   if (use_log_) {
     std::vector<std::string> res;
     res.reserve(ret.outputs.size());
@@ -1397,9 +1508,9 @@ Tensors CheckpointTensorImpl::make(const std::string& name,
     for (size_t i = 0; i < tensors.size(); ++i) {
       Tensor t = tensors[i];
       auto cpti = get_cpti(t);
-      DTRLogMemory(cpti->counter_name(), cpti->ref->value->value->memory());
+      DTRLogMemory(cpti->counter_name(), cpti->unsafeGetTensorCell()->memory());
       DTRLogAlias(cpti->counter_name(), ret.aliases[i]);
-      // DTRLogAlias(cpti->counter_name(), ret.aliases[i], cpti->ref->value->value->pool->tensors.size());
+      // DTRLogAlias(cpti->counter_name(), ret.aliases[i], cpti->unsafeGetTensorCell()->pool->tensors.size());
     }
   }
 #endif
@@ -1428,19 +1539,40 @@ void CheckpointTensorImpl::mutate(const std::string& name,
   for (const Tensor& t: checkpointed_inputs) {
     auto* cpti = dynamic_cast<CheckpointTensorImpl*>(t.unsafeGetTensorImpl());
     TORCH_CHECK(cpti);
-    input_values.push_back(cpti->ref->value->value);
+    input_values.push_back(cpti->unsafeGetTensorCell());
 #ifdef DEBUG_MODE
     if (use_log_) {
       args.push_back(cpti->counter_name());
     }
 #endif
   }
+#ifdef MINIMAL_EVICT
   auto ret = make_raw(remat, input_values);
+#endif
+#ifdef MINIMAL_EVICT_COST
+  auto ret = make_raw(remat, input_values, name);
+#endif
+
   const auto& modified = ret.outputs;
   for (size_t idx: mutate_idx) {
     cell_from_tensor(inputs[idx])->value = modified[idx];
   }
 #ifdef DEBUG_MODE
+  if(record_op_recs){
+    std::vector<string> input_ids;
+    std::vector<string> output_ids;
+    for (const auto& t: checkpointed_inputs) {  // bind External for inputs intrusive_ptr
+      auto* cpti = dynamic_cast<CheckpointTensorImpl*>(t.unsafeGetTensorImpl());
+      input_ids.push_back(cpti->unsafeGetTensorCell()->counter_name());
+    }
+    for (size_t idx: mutate_idx) {
+      output_ids.push_back(cell_from_tensor(inputs[idx])->value->value->counter_name());
+    }
+    ret.rec.inputs = std::move(input_ids);
+    ret.rec.outputs = std::move(output_ids);
+    DTRLogOPRecords(ret.rec.rid, ret.rec.name, static_cast<int64_t>(std::chrono::duration_cast<std::chrono::microseconds>(ret.rec.time).count()),
+                    ret.rec.mem, ret.rec.inputs, ret.rec.outputs);
+  }
   if (use_log_) {
     DTRLogMutate(name, args, mutate_idx, from_time(ret.time));
   }
@@ -1459,8 +1591,8 @@ void CheckpointTensorImpl::release_resources() {
 CheckpointTensorImpl::CheckpointTensorImpl(const Tensor& t) : CheckpointTensorImpl(c10::make_intrusive<External>(t)) {
   // set_custom_sizes_strides(SizesStridesPolicy::CustomStrides);
   // set_custom_sizes_strides(SizesStridesPolicy::CustomSizes);
-  if(ref->value->value->get().defined())
-    set_sizes_and_strides(ref->value->value->get().sizes(), ref->value->value->get().strides());
+  if(unsafeGetTensorCell()->get().defined())
+    set_sizes_and_strides(unsafeGetTensorCell()->get().sizes(), unsafeGetTensorCell()->get().strides());
   pool.exts.push_back(weak_intrusive_ptr<External>(ref->value));
 }
 

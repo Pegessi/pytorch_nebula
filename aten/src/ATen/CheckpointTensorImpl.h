@@ -202,6 +202,7 @@ struct Rematerializer : intrusive_ptr_target {
   strongs inputs;
   weaks outputs;
   duration_t compute_cost;
+  int64_t rid;   // remat func fingerprint
   // when some output in here get evicted, they should belong to this ecn.
   // a rematerializer have to track this,
   // because when multiple output of a rematerializer get evicted,
@@ -213,6 +214,16 @@ struct Rematerializer : intrusive_ptr_target {
                  duration_t compute_cost)  :
     func(func),
     inputs(inputs),
+    compute_cost(compute_cost) {
+  }
+  Rematerializer(const Unsafe&,
+                 const rematerialize_function_t& func,
+                 const strongs& inputs,
+                 int64_t rid,
+                 duration_t compute_cost)  :
+    func(func),
+    inputs(inputs),
+    rid(rid),
     compute_cost(compute_cost) {
   }
   void release_resources() final {
@@ -240,11 +251,20 @@ struct AliasPool : intrusive_ptr_target {
   // lock_count count how many time a tensor is referenced by get.
   size_t lock_count = 0;
   size_t external_count = 0;
+  // lock() && unlock() used for protect storage during tensor operations
   inline void lock() {
     ++lock_count;
   }
   inline void unlock() {
     --lock_count;
+    /// improvement for life cycle
+    /// because that staleness is harmful to eviction of remated tensor during backward progress, which should be released immediately
+    if(is_remated && external_count == 0 && lock_count == 0){
+      is_remated = false;
+      if (memory > 0 && (!ecn) && head_remat) {
+        evict(1);
+      }
+    }
   }
   intrusive_ptr<Rematerializer> head_remat;
   bool evictable() const {
@@ -253,7 +273,7 @@ struct AliasPool : intrusive_ptr_target {
   // if it is not evictable it must not be evicted.
   bool is_evicted = false;
   bool is_retain = false;
-  bool is_remated = false;
+  bool is_remated = false;    /// mark if any tensor in this aps has been remated
   size_t memory;
   time_t last_used_time;
   uintptr_t addr;               // address of tensor data ptr
@@ -273,6 +293,7 @@ struct AliasPool : intrusive_ptr_target {
   ecn_ptr ecn;
   double cost(time_t current_time);
   void evict(int mode=0);
+  // register_external() && release_external() is used for maintain the aps natural period
   void register_external() {
     ++external_count;
   }
@@ -343,6 +364,9 @@ struct CheckpointTensorCell : intrusive_ptr_target {
     return pool->memory;
   }
   Tensor get();
+  // std::vector<int64_t> sizes(){
+  //   return get().sizes().vec();
+  // }
   void pin() {
     get();
     pool->head_remat.reset();
@@ -364,7 +388,7 @@ struct CheckpointTensorCell : intrusive_ptr_target {
 // When new CheckpointTensorImpl is constructed.
 struct External : intrusive_ptr_target {
   External(const strong& value) : value(value) {
-    value->pool->register_external();
+    value->pool->register_external();                     /// TAG: Aliaspool引用计数的唯一增加入口
   }
   External(const Tensor& value) :
     External(strong::make(value,
@@ -376,17 +400,24 @@ struct External : intrusive_ptr_target {
            const intrusive_ptr<Rematerializer>& remat) :
     External(strong::make(value, pool, remat)) { }
   strong value;
-  void release_resources() override;
+  void release_resources() override{    /// TAG: Aliaspool引用计数的唯一减少入口
+      value->pool->release_external();
+      value.reset();
+  }
 };
 
+#ifdef DEBUG_MODE
 void printStackTrace();
+#endif
 
 inline DispatchKeySet convert_key_set(const DispatchKeySet& t) {
+  #ifdef DEBUG_MODE
   if(t.has(DispatchKey::Checkpoint)) 
   {
     printStackTrace();
     // return t;
   }
+  #endif
   CHECK(!t.has(DispatchKey::Checkpoint));
   auto ret = t.add(DispatchKey::Checkpoint);
   return ret;
@@ -410,6 +441,10 @@ struct TORCH_API CheckpointTensorImpl : public TensorImpl {
   }
 
   Ref<intrusive_ptr<External>> ref;
+
+  strong unsafeGetTensorCell(){
+    return ref->value->value;
+  }
 
   void release_resources() override;
 
