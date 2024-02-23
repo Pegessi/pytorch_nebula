@@ -249,8 +249,10 @@ struct AliasPool : intrusive_ptr_target {
   // it is likely that get() will run out of memory, and when it does so, it will try to evict.
   // so, it is crucial that we dont try to evict those tensors - doing so will not evict anything.
   // lock_count count how many time a tensor is referenced by get.
-  size_t lock_count = 0;
-  size_t external_count = 0;
+  /// triple ref counts for management of aps life cycle
+  size_t lock_count = 0;          // for get() call, which is used in remat() and make_raw()
+  size_t external_count = 0;      // for original life cycle of pytorch tensor
+  size_t remat_count = 0;         // for remat() call, which is used for improving the life cycle during backward
   // lock() && unlock() used for protect storage during tensor operations
   inline void lock() {
     ++lock_count;
@@ -259,21 +261,30 @@ struct AliasPool : intrusive_ptr_target {
     --lock_count;
     /// improvement for life cycle
     /// because that staleness is harmful to eviction of remated tensor during backward progress, which should be released immediately
-    if(is_remated && external_count == 0 && lock_count == 0){
-      is_remated = false;
-      if (memory > 0 && (!ecn) && head_remat) {
-        evict(1);
+#ifndef ORIGINAL_DTR
+    if(remat_count>0){
+      unlock_remated();
+      if(remat_count == 0 && external_count == 0 && lock_count == 0){
+        if (memory > 0 && (!ecn) && head_remat) {
+          evict(1);
+        }
       }
     }
+#endif
+  }
+  inline void lock_remated(){
+    ++remat_count;
+  }
+  inline void unlock_remated(){
+    --remat_count;
   }
   intrusive_ptr<Rematerializer> head_remat;
   bool evictable() const {
-    return lock_count == 0 && head_remat && !is_remated;   // 存在一些没有head_remat的权重转换，如rope的freqs
+    return lock_count == 0 && head_remat && remat_count == 0;   // 存在一些没有head_remat的权重转换，如rope的freqs
   }
   // if it is not evictable it must not be evicted.
   bool is_evicted = false;
   bool is_retain = false;
-  bool is_remated = false;    /// mark if any tensor in this aps has been remated
   size_t memory;
   time_t last_used_time;
   uintptr_t addr;               // address of tensor data ptr

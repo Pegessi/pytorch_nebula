@@ -1004,7 +1004,7 @@ void Rematerializer::remat() {
   for (size_t i = 0; i < outputs.size(); ++i) {
     if (auto output_cell = outputs[i].lock()) {
       output_cell->fill(ret[i]);
-      output_cell->pool->is_remated = true;
+      output_cell->pool->lock_remated();
     }
   }
   ecn.reset();
