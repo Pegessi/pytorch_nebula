@@ -201,6 +201,210 @@ CheckpointPool pool;  // cannot be extern
 std::unordered_map<int64_t, duration_t> compute_cost_records;
 std::unordered_map<int64_t, size_t> memory_cost_records;
 
+size_t current_memory(int device = 0) {
+  auto device_stat = c10::cuda::CUDACachingAllocator::getDeviceStats(device);
+  return device_stat.allocated_bytes[0].current;
+}
+
+size_t reserved_memory(int device = 0){
+  auto device_stat = c10::cuda::CUDACachingAllocator::getDeviceStats(device);
+  return device_stat.reserved_bytes[0].current;
+}
+
+namespace dtb {
+
+  class DTBCheckpointPool{
+    private:
+      std::vector<std::unique_ptr<CheckpointPool>> device_dtbpool;
+      bool device_id_check(int device_id){
+        return device_id >= 0;
+      }
+
+    public:
+
+      void init(int device_count) {
+        const auto size = static_cast<int64_t>(device_dtbpool.size());
+        if (size < device_count) {
+          device_dtbpool.resize(device_count);
+          for (const auto i : c10::irange(size, device_count)) {
+            device_dtbpool[i] = std::make_unique<CheckpointPool>();
+          }
+        }
+      }
+
+      bool initialized() {
+        return !device_dtbpool.empty();
+      }
+
+      void auto_evict(int device) {
+        if(!device_id_check(device)) return;
+        auto pool = device_dtbpool[device].get();
+        if (pool->has_memory_budget) {
+      #ifdef DEBUG_MODE
+          int check_counts = 0;
+      #endif
+          while (current_memory(device) > pool->memory_budget) {
+            pool->evict();
+      #ifdef DEBUG_MODE
+            check_counts++;
+            if(check_counts>100){
+              std::cout << "Eviction progress has been trapped in dead loop\n";
+              throw std::runtime_error("Eviction progress has been trapped in dead loop");
+            }
+      #endif
+          }
+        }
+      }
+
+      void auto_evict(int device, size_t coming_bytes) {
+        if(!device_id_check(device)) return;
+        auto pool = device_dtbpool[device].get();
+        if (pool->has_memory_budget) {
+      #ifdef DEBUG_MODE
+          int check_counts = 0;
+      #endif
+          while ((current_memory(device) + coming_bytes) > pool->memory_budget) {
+            pool->evict();
+      #ifdef DEBUG_MODE
+            check_counts++;
+            if(check_counts>100){
+              std::cout << "Eviction progress has been trapped in dead loop\n";
+              throw std::runtime_error("Eviction progress has been trapped in dead loop");
+            }
+      #endif
+          }
+        }
+      }
+
+      void force_evict(int device, int mode) {
+        if(!device_id_check(device)) return;
+        auto pool = device_dtbpool[device].get();
+        pool->force_evict(mode);
+      }
+
+      inline void add_ap(int device, const intrusive_ptr<AliasPool>& new_ap){
+        // if(!device_id_check(device)) return;
+        if(likely(device>=0)){
+          auto pool = device_dtbpool[device].get();
+          pool->add(new_ap);
+        }else if(device==-1){
+          for (const auto& pool : device_dtbpool) {
+            pool->add(new_ap);
+          }
+        }else{
+          throw std::runtime_error("Invalid device was detected during ap inserting.");
+        }
+      }
+
+      inline void add_ext(int device, const weak_intrusive_ptr<External>& new_ext) {
+        // if(!device_id_check(device)) return;
+        if(likely(device>=0)){
+          auto pool = device_dtbpool[device].get();
+          pool->exts.push_back(new_ext);
+        }else if(device==-1){
+          for (const auto& pool : device_dtbpool) {
+            pool->exts.push_back(new_ext);
+          }
+        }else{
+          throw std::runtime_error("Invalid device was detected during exts inserting.");
+        }
+      }
+
+      void toggle_sampling(bool if_sampling){
+        for (const auto& pool : device_dtbpool) {
+          if (pool) {
+            pool->set_sample_tensors(if_sampling);
+          }
+        }
+      }
+
+      void toggle_ignore_small_tensors(bool if_ignore){
+        for (const auto& pool : device_dtbpool) {
+          if (pool) {
+            pool->set_ignore_small_tensors(if_ignore);
+          }
+        }
+      }
+
+      void set_memory_budget(long budget){
+        for (const auto& pool : device_dtbpool) {
+          if (pool) {
+            pool->set_memory_budget(budget);
+          }
+        }
+      }
+
+      void unset_memory_budget(){
+        for (const auto& pool : device_dtbpool) {
+          if (pool) {
+            pool->unset_memory_budget();
+          }
+        }
+      }
+
+      void clear_checkpointpool(){
+        for (const auto& pool : device_dtbpool) {
+          if (pool) {
+            pool->clear_exts();
+          }
+        }
+      }
+
+  };
+
+  DTBCheckpointPool dtb_pool;
+  std::atomic<DTBCheckpointPool*> PoolManager;
+
+  struct BackendStaticInitializer{
+    DTBCheckpointPool* parseEnvForBackend() {
+      /// TODO: TO BE ADD STATIC ENV SETTING
+      /* 
+      const char* val = getenv("PYTORCH_CUDA_ALLOC_CONF");
+      if (val != nullptr) {
+        const std::string config(val);
+
+        std::regex exp("[\\s,]+");
+        std::sregex_token_iterator it(config.begin(), config.end(), exp, -1);
+        std::sregex_token_iterator end;
+        std::vector<std::string> options(it, end);
+
+        for (auto option : options) {
+          std::regex exp2("[:]+");
+          std::sregex_token_iterator it2(option.begin(), option.end(), exp2, -1);
+          std::sregex_token_iterator end2;
+          std::vector<std::string> kv(it2, end2);
+          if (kv.size() >= 2) {
+            if (kv[0] == "backend") {
+              if (kv[1] == "cudaMallocAsync")
+                return CudaMallocAsync::allocator();
+              if (kv[1] == "native")
+                return &Native::allocator;
+            }
+          }
+        }
+      }
+      */
+      return &dtb_pool;
+    }
+
+    BackendStaticInitializer() {
+      auto r = parseEnvForBackend();
+      PoolManager.store(r);
+    }
+  };
+
+  BackendStaticInitializer backend_static_initializer;
+
+  inline DTBCheckpointPool* get() {
+    return PoolManager.load();
+  }
+
+  inline void init(int device_count) {
+    return get()->init(device_count);
+  }
+
+}
+
 void CheckpointPool::add(const intrusive_ptr<AliasPool>& p) {
   // ignore storage smaller than 1% average size
   if (p->memory > 0 && (memory_count == 0 || !ignore_small_tensors || p->memory >= 0.01 * double(memory_sum/memory_count))) {
@@ -230,17 +434,22 @@ void CheckpointPool::reserved_add(const intrusive_ptr<AliasPool>& p) {
   }
 }
 
-size_t current_memory() {
-  STATS.track("current_memory");
-  /// TODO: 写死的0
-  auto device_stat = c10::cuda::CUDACachingAllocator::getDeviceStats(0);
-  return device_stat.allocated_bytes[0].current;
+static c10::once_flag dtb_init;
+
+void dtbPoolInitEntry() {
+  const auto num_devices = c10::cuda::device_count_ensure_non_zero();
+  dtb::init(num_devices);
 }
 
-size_t reserved_memory(){
-  auto device_stat = c10::cuda::CUDACachingAllocator::getDeviceStats(0);
-  return device_stat.reserved_bytes[0].current;
+void lazyInitDTB() {
+  c10::call_once(dtb_init, [&] { dtbPoolInitEntry(); });
 }
+
+/// use pool with call: auto* poolManager = getDTBPoolManager();
+dtb::DTBCheckpointPool* getDTBPoolManager() {
+  return dtb::get();
+}
+
 
 #ifdef DEBUG_MODE
 void log_cur_mem_statics(){
@@ -979,7 +1188,6 @@ void Rematerializer::remat() {
   for (const strong& s : inputs) {
     s->pool->lock();
   }
-  remat_counts++;
   Tensors ts = uncheckpoint(inputs);
 #ifdef DEBUG_MODE
   time_t pre = std::chrono::system_clock::now();

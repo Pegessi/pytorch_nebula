@@ -605,6 +605,29 @@ struct CheckpointPool {
   /// for initiative evict
   void force_evict(int mode);
   void initiative_evict(size_t to_free_bytes);
+
+  /// functional
+  void set_sample_tensors(bool flag){
+    sample_tensors = flag;
+  }
+  void set_ignore_small_tensors(bool flag){
+    ignore_small_tensors = flag;
+  }
+  void set_memory_budget(long budget){
+    memory_budget = budget;
+    has_memory_budget = true;
+  }
+  void unset_memory_budget(){
+    has_memory_budget = false;
+  }
+  void clear_exts(){
+    while (!exts.empty()) {
+      if (auto e = exts.back().lock()) {
+        e->value->pin();
+      }
+      exts.pop_back();
+    }
+  }
 };
 
 inline CheckpointTensorImpl* get_cpti(const Tensor& t) {
