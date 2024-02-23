@@ -967,16 +967,13 @@ Tensors try_checkpoint(const Tensors& inputs) {
   return ret;
 }
 
-size_t remat_counts = 0;
-
 void Rematerializer::remat() {
 #ifdef DEBUG_MODE
   if(record_er_counts){
     remat_counts += 1;
   }
-  remat_counts += 1;
-  if(remat_counts>1e5)
-    throw std::runtime_error("Remat progress has been trapped in dead loop");
+  // if(remat_counts>1e5)
+  //   throw std::runtime_error("Remat progress has been trapped in dead loop");
 #endif
   // TODO: refactor using RAII for exception safety.
   for (const strong& s : inputs) {
