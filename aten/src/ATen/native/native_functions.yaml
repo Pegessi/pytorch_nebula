@@ -2014,6 +2014,7 @@
     CPU: embedding_dense_backward_cpu
     CUDA: embedding_dense_backward_cuda
     MPS: embedding_dense_backward_mps
+    Checkpoint: checkpoint_embedding_dense_backward
   autogen: embedding_dense_backward.out
   tags: core
 - func: embedding_renorm_(Tensor(a!) self, Tensor indices, float max_norm, float norm_type)
@@ -5950,6 +5951,7 @@
     SparseCsrCPU, SparseCsrCUDA: zero_sparse_csr_
     MkldnnCPU: mkldnn_zero_
     NestedTensorCPU, NestedTensorCUDA: zero_nested_
+    Checkpoint: checkpoint_zero_
   autogen: zero, zero.out
 - func: sub.out(Tensor self, Tensor other, *, Scalar alpha=1, Tensor(a!) out) -> Tensor(a!)
   device_check: NoCheck

@@ -810,14 +810,14 @@ Tensor checkpoint_slice(const Tensor& a, long b, long c, long d, long e) {
 //   return CheckpointTensorImpl::make("slice_backward", rt, {a})[0];
 // }
 
-Tensor& checkpoint_zero_(Tensor& a) {
-  mutate_function_t mt =
-    [=](const Tensors& vec) {
-      vec.at(0).zero_();
-    };
-  CheckpointTensorImpl::mutate("zero_", mt, {a}, {0});
-  return a;
-}
+// Tensor& checkpoint_zero_(Tensor& a) {
+//   mutate_function_t mt =
+//     [=](const Tensors& vec) {
+//       vec.at(0).zero_();
+//     };
+//   CheckpointTensorImpl::mutate("zero_", mt, {a}, {0});
+//   return a;
+// }
 
 Tensor& checkpoint_squeeze_(at::Tensor& a, at::Dimname b) {
   mutate_function_t mt =
@@ -2065,6 +2065,27 @@ void checkpoint__foreach_mul_(at::TensorList self, const at::Tensor & other) {
   at::_foreach_mul_(at::TensorList(inputs), other.decheckpoint());
   // CheckpointTensorImpl::mutate("_foreach_mul_.Tensor", mt, {self, other}, {0});
 }
+
+/// ['aten::embedding_dense_backward', 'at::Tensor', 'embedding_dense_backward', '(const at::Tensor & grad_output, const at::Tensor & indices, int64_t num_weights, int64_t padding_idx, bool scale_grad_by_freq)']
+at::Tensor checkpoint_embedding_dense_backward(const at::Tensor & grad_output, const at::Tensor & indices, int64_t num_weights, int64_t padding_idx, bool scale_grad_by_freq) {
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      return {at::embedding_dense_backward(vec.at(0), vec.at(1), num_weights, padding_idx, scale_grad_by_freq)};
+    };
+  return CheckpointTensorImpl::make("aten::embedding_dense_backward", rt, {grad_output, indices})[0];
+}
+
+/// ['aten::zero_', 'at::Tensor &', 'zero_', '(at::Tensor & self)']
+at::Tensor & checkpoint_zero_(at::Tensor & self) {
+  mutate_function_t mt =
+    [=](const Tensors& vec) {
+      Tensor self = vec.at(0);
+      at::zero_(self);
+    };
+  CheckpointTensorImpl::mutate("zero_", mt, {self}, {0});
+  return {self};
+}
+
 
 ////////////////////////////////// auto generate part //////////////////////////////////////
 

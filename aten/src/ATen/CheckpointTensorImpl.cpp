@@ -12,6 +12,8 @@
 #define MINIMAL_EVICT                    /// 最小驱逐策略（贪心+随机 DTR）
 // #define MINIMAL_EVICT_COST                /// 最小驱逐策略+cost cache（贪心+随机 DTR）
 
+#define MULTI_MODE
+
 #ifdef TIME_REC
 auto start_time = std::chrono::high_resolution_clock::now();
 auto end_time = std::chrono::high_resolution_clock::now();                                    
@@ -283,31 +285,31 @@ namespace dtb {
       }
 
       inline void add_ap(int device, const intrusive_ptr<AliasPool>& new_ap){
-        // if(!device_id_check(device)) return;
-        if(likely(device>=0)){
-          auto pool = device_dtbpool[device].get();
-          pool->add(new_ap);
-        }else if(device==-1){
-          for (const auto& pool : device_dtbpool) {
-            pool->add(new_ap);
-          }
-        }else{
-          throw std::runtime_error("Invalid device was detected during ap inserting.");
-        }
+        if(!device_id_check(device)) return;
+        // if(likely(device>=0)){
+        auto pool = device_dtbpool[device].get();
+        pool->add(new_ap);
+        // }else if(device==-1){
+        //   for (const auto& pool : device_dtbpool) {
+        //     pool->add(new_ap);
+        //   }
+        // }else{
+        //   throw std::runtime_error("Invalid device was detected during ap inserting.");
+        // }
       }
 
       inline void add_ext(int device, const weak_intrusive_ptr<External>& new_ext) {
-        // if(!device_id_check(device)) return;
-        if(likely(device>=0)){
-          auto pool = device_dtbpool[device].get();
-          pool->exts.push_back(new_ext);
-        }else if(device==-1){
-          for (const auto& pool : device_dtbpool) {
-            pool->exts.push_back(new_ext);
-          }
-        }else{
-          throw std::runtime_error("Invalid device was detected during exts inserting.");
-        }
+        if(!device_id_check(device)) return;
+        // if(likely(device>=0)){
+        auto pool = device_dtbpool[device].get();
+        pool->exts.push_back(new_ext);
+        // }else if(device==-1){
+        //   for (const auto& pool : device_dtbpool) {
+        //     pool->exts.push_back(new_ext);
+        //   }
+        // }else{
+        //   throw std::runtime_error("Invalid device was detected during exts inserting.");
+        // }
       }
 
       void toggle_sampling(bool if_sampling){
@@ -405,6 +407,22 @@ namespace dtb {
 
 }
 
+static c10::once_flag dtb_init;
+
+void dtbPoolInitEntry() {
+  const auto num_devices = c10::cuda::device_count_ensure_non_zero();
+  dtb::init(num_devices);
+}
+
+void lazyInitDTB() {
+  c10::call_once(dtb_init, [&] { dtbPoolInitEntry(); });
+}
+
+/// use pool with call: auto* poolManager = getDTBPoolManager();
+dtb::DTBCheckpointPool* getDTBPoolManager() {
+  return dtb::get();
+}
+
 void CheckpointPool::add(const intrusive_ptr<AliasPool>& p) {
   // ignore storage smaller than 1% average size
   if (p->memory > 0 && (memory_count == 0 || !ignore_small_tensors || p->memory >= 0.01 * double(memory_sum/memory_count))) {
@@ -433,23 +451,6 @@ void CheckpointPool::reserved_add(const intrusive_ptr<AliasPool>& p) {
     reserved_aps.insert(weak_intrusive_ptr<AliasPool>(p));
   }
 }
-
-static c10::once_flag dtb_init;
-
-void dtbPoolInitEntry() {
-  const auto num_devices = c10::cuda::device_count_ensure_non_zero();
-  dtb::init(num_devices);
-}
-
-void lazyInitDTB() {
-  c10::call_once(dtb_init, [&] { dtbPoolInitEntry(); });
-}
-
-/// use pool with call: auto* poolManager = getDTBPoolManager();
-dtb::DTBCheckpointPool* getDTBPoolManager() {
-  return dtb::get();
-}
-
 
 #ifdef DEBUG_MODE
 void log_cur_mem_statics(){
@@ -854,9 +855,13 @@ CheckpointPool::CheckpointPool() { }
 
 namespace native {
 
-/// TODO: 潜在问题 引入张量t有undefined的情况，此种情况cpti构造出来的tensor却不是undefined的了
+/// !TODO: 潜在问题 引入张量t有undefined的情况，此种情况cpti构造出来的tensor却不是undefined的了，可以额外标记tensor是undefined
+/// 需要规避空tensor带来的可能问题，调用empty tensor的成员方法会报错
 Tensor checkpoint(const Tensor& t) {
   STATS.track("checkpoint");
+#ifdef MULTI_MODE
+  lazyInitDTB();
+#endif
   // if(!t.defined())
   //   return Tensor(nullptr);
   // auto cpti = intrusive_ptr<CheckpointTensorImpl>::make(t);   // 调用了Ref<intrusive_ptr<External>> External CheckpointTensorCell的相关构造函数
@@ -933,21 +938,37 @@ void toggle_log(bool b) {
 }
 
 void clear_checkpointpool() {
+#ifdef MULTI_MODE
+  auto *pm = getDTBPoolManager();
+  pm->clear_checkpointpool();
+#else
   while (likely(!pool.exts.empty())) {
     if (auto e = pool.exts.back().lock()) {
       e->value->pin();
     }
     pool.exts.pop_back();
   }
+#endif
 }
 
 void unset_memory_budget() {
+#ifdef MULTI_MODE
+  auto *pm = getDTBPoolManager();
+  pm->unset_memory_budget();
+#else
   pool.has_memory_budget = false;
+#endif
 }
 
 void set_memory_budget(long budget) {
+#ifdef MULTI_MODE
+  lazyInitDTB();
+  auto *pm = getDTBPoolManager();
+  pm->set_memory_budget(budget);
+#else
   pool.memory_budget = budget;
   pool.has_memory_budget = true;
+#endif
 }
 
 void set_reserved(){
@@ -966,8 +987,14 @@ void unset_during_backward(){
   during_backward = false;
 }
 
+/// TODO: use dtb, useless here
 void force_evict(long mode){
+#ifdef MULTI_MODE
+  auto *pm = getDTBPoolManager();
+  pm->force_evict(0, mode);
+#else
   pool.force_evict(mode);
+#endif
 }
 
 void log_dtr_statics(){
@@ -985,12 +1012,24 @@ void log_dtr_statics(){
 #endif
 }
 
+/// TODO: use dtb
 void toggle_sampling(bool sample) {
+#ifdef MULTI_MODE
+  auto *pm = getDTBPoolManager();
+  pm->toggle_sampling(sample);
+#else
   pool.sample_tensors = sample;
+#endif
 }
 
+/// TODO: as pool member function
 void toggle_ignore_small_tensors(bool ignore) {
+#ifdef MULTI_MODE
+  auto *pm = getDTBPoolManager();
+  pm->toggle_ignore_small_tensors(ignore);
+#else
   pool.ignore_small_tensors = ignore;
+#endif
 }
 
 void reset_profile() {
@@ -1076,7 +1115,7 @@ void AliasPool::evict(int mode) { // 0 - evict | 1 - destruct
 
 void AliasPool::release_external() {
   --external_count;
-  if (external_count == 0) {          /// TODO: 潜在bug，如果lock_count>0，此后这个aps会成为僵尸内存
+  if (external_count == 0) {          /// TODO: 潜在bug，如果lock_count>0，此后这个aps会成为僵尸内存; 反向内存堆积的原因是否是因为这个？ 还是其他的引用计数
     if (lock_count > 0) {return;}
     TORCH_CHECK(lock_count == 0);
     if (memory > 0 && (!ecn) && head_remat) {
@@ -1137,7 +1176,13 @@ void AliasPool::set_not_evicted(const intrusive_ptr<AliasPool>& self) {
       update_t(ecn, CheckpointInfo(cpi.compute_cost - head_remat->compute_cost));
       ecn.reset();
     }
+    /// TODO: use dtb
+#ifdef MULTI_MODE
+    auto *pm = getDTBPoolManager();
+    pm->add_ap(device_id, self);
+#else
     pool.add(self);
+#endif
   }
 }
 
@@ -1184,7 +1229,7 @@ void Rematerializer::remat() {
   // if(remat_counts>1e5)
   //   throw std::runtime_error("Remat progress has been trapped in dead loop");
 #endif
-  // TODO: refactor using RAII for exception safety.
+  // NOTE: author thinks that refactor using RAII for exception safety. however, RAII is not suitable for remat
   for (const strong& s : inputs) {
     s->pool->lock();
   }
@@ -1193,12 +1238,23 @@ void Rematerializer::remat() {
   time_t pre = std::chrono::system_clock::now();
 #endif
 
+#ifdef MULTI_MODE
+  auto device_id = static_cast<int>(ts[0].device().index());
+  auto *pm = getDTBPoolManager();
+#endif
+
 #ifdef MINIMAL_EVICT_COST
   pool.auto_evict(memory_cost_records[rid]);
 #endif
+
   auto ret = func(ts);
+
 #ifdef MINIMAL_EVICT
+  #ifdef MULTI_MODE
+  pm->auto_evict(device_id);
+  #else
   pool.auto_evict();
+  #endif
 #endif
 
 #ifdef DEBUG_MODE
@@ -1244,7 +1300,7 @@ void CheckpointTensorCell::fill(const Tensor& t) {
   STATS.track("CheckpointTensorCell::fill");
   if (!(this->t)) {
     this->t = std::make_unique<Tensor>(std::move(t));
-    pool->set_not_evicted(pool);                          /// TODO:改变标志位，更新cost
+    pool->set_not_evicted(pool);                          /// TAG: 改变标志位，更新cost
     if (!defined) {
       defined = true;
       is_undefined_tensor = !t.defined();
@@ -1443,6 +1499,7 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
     s->pool->lock();
   }
   Tensors raw_inputs = uncheckpoint(inputs);        // cancel the monitor and get tensors
+  auto device_id = static_cast<int>(raw_inputs[0].device().index());  /// do not influence device
 
   time_t pre = std::chrono::system_clock::now();
   auto raw_outputs = remat_f(raw_inputs);
@@ -1450,7 +1507,13 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
   auto cur_compute_cost = post - pre;
   // auto cur_compute_cost = test_time_post - test_time_cur;
 
+#ifdef MULTI_MODE
+  auto* pm = getDTBPoolManager();
+  pm->auto_evict(device_id);
+#else
   pool.auto_evict();
+#endif
+
 #ifdef DEBUG_MODE
   // base_compute_time_ += (post - pre).count();       // if sync?
   // c10::cuda::device_synchronize();
@@ -1465,13 +1528,17 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
     int alias = get_alias(raw_inputs, t);           // if t is an alias of tensor in inputs?
     if (alias == -1) {
       auto m = memory(t);
-      // alias_pool = intrusive_ptr<AliasPool>::make(Unsafe(), remat, m);
-      alias_pool = intrusive_ptr<AliasPool>::make(Unsafe(), remat, m, get_addr(t));
-      pool.add(alias_pool);     /// TAG: alaispool新增的唯一入口
+      // alias_pool = intrusive_ptr<AliasPool>::make(Unsafe(), remat, m, device_id);
+      alias_pool = intrusive_ptr<AliasPool>::make(Unsafe(), remat, m, get_addr(t), device_id);
       if(reserved_range){     /// TAG: 保留区间内的aps保存
         alias_pool->is_retain = true;
         // alias_pool->lock();    /// 一直保存了，需要主动释放
       }
+#ifdef MULTI_MODE
+      pm->add_ap(device_id, alias_pool);
+#else
+      pool.add(alias_pool);     /// TAG: alaispool新增的唯一入口
+#endif
     }
     else {
       alias_pool = inputs[alias]->pool;
@@ -1480,7 +1547,11 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
       }
     }
     auto e = intrusive_ptr<External>::make(t, alias_pool, remat); // bind external for t
+#ifdef MULTI_MODE
+    pm->add_ext(device_id, weak_intrusive_ptr<External>(e));
+#else
     pool.exts.push_back(weak_intrusive_ptr<External>(e));
+#endif
     alias_pool->tensors.push_back(weak(e->value));                // same storage in one alias_pool
     outputs.push_back(e);
     aliases.push_back(alias);
@@ -1561,6 +1632,7 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
   }
   Tensors raw_inputs = uncheckpoint(inputs);        // cancel the monitor and get tensors
   Tensors raw_outputs;
+  auto device_id = static_cast<int>(raw_inputs[0].device().index());
 
   auto rid = generateUniqueHash(name, raw_inputs);
   auto search_res = compute_cost_records.find(rid);
@@ -1571,9 +1643,16 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
     have_record = true;
   }
 
+#ifdef MULTI_MODE
+  auto *pm = getDTBPoolManager();
+#endif
   if(have_record){
     cur_mem_cost = memory_cost_records[rid];
+#ifdef MULTI_MODE
+    pm->auto_evict(device_id, cur_mem_cost);
+#else
     pool.auto_evict(cur_mem_cost);
+#endif
     cur_compute_cost = compute_cost_records[rid];
     raw_outputs = remat_f(raw_inputs);
   }else{
@@ -1587,7 +1666,11 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
     compute_cost_records[rid] = cur_compute_cost;
     cur_mem_cost = post_mem - pre_mem;
     memory_cost_records[rid] = cur_mem_cost;
+#ifdef MULTI_MODE
+    pm->auto_evict(device_id);
+#else
     pool.auto_evict();
+#endif
   }
   
   std::vector<intrusive_ptr<External>> outputs;
@@ -1600,9 +1683,13 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
     int alias = get_alias(raw_inputs, t);           // if t is an alias of tensor in inputs?
     if (alias == -1) {
       auto m = memory(t);
-      // alias_pool = intrusive_ptr<AliasPool>::make(Unsafe(), remat, m);
-      alias_pool = intrusive_ptr<AliasPool>::make(Unsafe(), remat, m, get_addr(t));
+      // alias_pool = intrusive_ptr<AliasPool>::make(Unsafe(), remat, m, device_id);
+      alias_pool = intrusive_ptr<AliasPool>::make(Unsafe(), remat, m, get_addr(t), device_id);
+#ifdef MULTI_MODE
+      pm->add_ap(device_id, alias_pool);
+#else
       pool.add(alias_pool);     /// TAG: alaispool新增的唯一入口
+#endif
     }
     else {
       alias_pool = inputs[alias]->pool;
@@ -1611,7 +1698,11 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
       }
     }
     auto e = intrusive_ptr<External>::make(t, alias_pool, remat); // bind external for t
+#ifdef MULTI_MODE
+    pm->add_ext(device_id, weak_intrusive_ptr<External>(e));
+#else
     pool.exts.push_back(weak_intrusive_ptr<External>(e));
+#endif
     alias_pool->tensors.push_back(weak(e->value));                // same storage in one alias_pool
     outputs.push_back(e);
     aliases.push_back(alias);
@@ -1798,7 +1889,13 @@ CheckpointTensorImpl::CheckpointTensorImpl(const Tensor& t) : CheckpointTensorIm
   // set_custom_sizes_strides(SizesStridesPolicy::CustomSizes);
   if(unsafeGetTensorCell()->get().defined())
     set_sizes_and_strides(unsafeGetTensorCell()->get().sizes(), unsafeGetTensorCell()->get().strides());
+#ifdef MULTI_MODE
+  auto device_id = C10_LIKELY(t.defined()) ? static_cast<int>(t.device().index()) : -1;      /// CPU data possible or undefiend tensor
+  auto *pm = getDTBPoolManager();
+  pm->add_ext(device_id, weak_intrusive_ptr<External>(ref->value));
+#else
   pool.exts.push_back(weak_intrusive_ptr<External>(ref->value));
+#endif
 }
 
 #pragma endregion

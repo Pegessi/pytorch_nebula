@@ -359,7 +359,7 @@ c10::DispatchKey parseDispatchKey(const std::string& k) {
       {"AutogradPrivateUse1", c10::DispatchKey::AutogradPrivateUse1},
       {"AutogradPrivateUse2", c10::DispatchKey::AutogradPrivateUse2},
       {"AutogradPrivateUse3", c10::DispatchKey::AutogradPrivateUse3},
-      // {"AutogradCheckpoint", c10::DispatchKey::AutogradCheckpoint},
+      // {"AutogradCheckpoint", c10::DispatchKey::AutogradCheckpoint},  // AutogradCheckpoint is auto-generated
 
       {"Autograd", c10::DispatchKey::Autograd},
       {"CompositeImplicitAutograd",

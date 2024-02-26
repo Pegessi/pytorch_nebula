@@ -242,6 +242,7 @@ struct Rematerializer : intrusive_ptr_target {
 // Additionally, the AliasPool contain weak pointer to all children of tensors,
 // in order to compute the score of evicting a Storage.
 struct AliasPool : intrusive_ptr_target {
+  int device_id;
   weaks tensors;
   weaks neighbors;
   std::set<ecn_ptr> neighbor_ecn();
@@ -289,15 +290,17 @@ struct AliasPool : intrusive_ptr_target {
   time_t last_used_time;
   uintptr_t addr;               // address of tensor data ptr
   // An aliaspool cant register itself to the checkpointpool - you have to do it yourself.
-  AliasPool(const Unsafe&, intrusive_ptr<Rematerializer> head_remat, size_t memory) :
+  AliasPool(const Unsafe&, intrusive_ptr<Rematerializer> head_remat, size_t memory, int device_id) :
     head_remat(head_remat),
     memory(memory),
+    device_id(device_id),
     last_used_time(std::chrono::system_clock::now()) {
   }
-  AliasPool(const Unsafe&, intrusive_ptr<Rematerializer> head_remat, size_t memory, uintptr_t addr) :
+  AliasPool(const Unsafe&, intrusive_ptr<Rematerializer> head_remat, size_t memory, uintptr_t addr, int device_id) :
     head_remat(head_remat),
     memory(memory),
     addr(addr),
+    device_id(device_id),
     last_used_time(std::chrono::system_clock::now()) {
   }
   // if it is evicted, then hold the evicted tensor group.
@@ -405,7 +408,9 @@ struct External : intrusive_ptr_target {
     External(strong::make(value,
                           intrusive_ptr<AliasPool>::make(Unsafe(),
                                                          intrusive_ptr<Rematerializer>(),
-                                                         memory(value)))) { }
+                                                         memory(value),
+                                                         value.defined() ? static_cast<int>(value.device().index()) : -1))) { }
+                                                         /// static_cast<int>(value.device().index()) 存在无device的tensor, probably empty tensor
   External(const Tensor& value,
            const intrusive_ptr<AliasPool>& pool,
            const intrusive_ptr<Rematerializer>& remat) :
