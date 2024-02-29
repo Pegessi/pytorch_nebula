@@ -55,7 +55,12 @@ if(${COMPILER_SUPPORTS_HIDDEN_VISIBILITY})
 endif()
 
 # ---[ Dependency of c10_cuda
-target_link_libraries(c10_cuda PUBLIC c10 torch::cudart)
+# if("$ENV{GMLAKE_ENABLED}" STREQUAL "1")
+target_link_libraries(c10_cuda PUBLIC c10 torch::cudart caffe2::cuda)
+# message(STATUS "Use GMLake Allocator")
+# else()
+# target_link_libraries(c10_cuda PUBLIC c10 torch::cudart)
+# endif()
 
 if(NOT WIN32)
 target_link_libraries(c10_cuda PRIVATE dl)

@@ -16,6 +16,8 @@
   variants: function
 - func: clear_checkpointpool() -> ()
   variants: function
+- func: init_dtb_manager() -> ()
+  variants: function
 - func: set_memory_budget(int budget) -> ()
   variants: function
 - func: set_reserved() -> ()
@@ -1525,6 +1527,7 @@
   device_check: NoCheck
   device_guard: false
   dispatch:
+    Checkpoint: checkpoint_copy_
     MkldnnCPU: copy_mkldnn_
     SparseCPU, SparseCUDA: copy_sparse_wrapper_
     CompositeExplicitAutograd: copy_

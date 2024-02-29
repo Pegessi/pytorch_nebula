@@ -26,6 +26,7 @@
 #define unlikely(x)    __builtin_expect(!!(x), 0)
 #define TORCH_CHECK(a, ...) // profile mode
 
+// #define ORIGINAL_DTR
 // #define DEBUG_MODE
 
 // System Description:
@@ -281,7 +282,11 @@ struct AliasPool : intrusive_ptr_target {
   }
   intrusive_ptr<Rematerializer> head_remat;
   bool evictable() const {
+#ifndef ORIGINAL_DTR
     return lock_count == 0 && head_remat && remat_count == 0;   // 存在一些没有head_remat的权重转换，如rope的freqs
+#else
+    return lock_count == 0 && head_remat;
+#endif
   }
   // if it is not evictable it must not be evicted.
   bool is_evicted = false;

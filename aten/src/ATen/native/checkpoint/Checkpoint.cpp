@@ -2118,6 +2118,17 @@ at::Tensor checkpoint_uniform(const at::Tensor & self, double from, double to, c
   return CheckpointTensorImpl::make("aten::uniform", rt, {self})[0];
 }
 
+/// ['aten::copy_', 'at::Tensor &', 'copy_', '(at::Tensor & self, const at::Tensor & src, bool non_blocking)']
+at::Tensor & checkpoint_copy_(at::Tensor & self, const at::Tensor & src, bool non_blocking) {
+  mutate_function_t mt =
+    [=](const Tensors& vec) {
+      Tensor self = vec.at(0);
+      self.copy_(vec.at(1), non_blocking);
+    };
+  CheckpointTensorImpl::mutate("copy_", mt, {self, src}, {0});
+  return {self};
+}
+
 /// ['aten::copy', 'at::Tensor', 'copy', '(const at::Tensor & self, const at::Tensor & src, bool non_blocking=false)']
 at::Tensor checkpoint_copy(const at::Tensor & self, const at::Tensor & src, bool non_blocking) {
   rematerialize_function_t rt =
