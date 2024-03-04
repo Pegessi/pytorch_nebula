@@ -1,3 +1,8 @@
+/*
+  文件开头的宏定义是用于不同优化或者debug模式进行开关的
+*/
+#pragma once
+
 #include <ATen/CheckpointTensorImpl.h>
 #include <ATen/Logger.h>
 #include <c10/cuda/CUDACachingAllocator.h>
@@ -7,14 +12,16 @@
 #include <random>
 #include <cmath>
 #include <unordered_map>
+#include <unistd.h>
 
-// #define TIME_REC
+// #define TIME_REC                      /// 方便debug的宏定义
 #define MINIMAL_EVICT                    /// 最小驱逐策略（贪心+随机 DTR）
 // #define MINIMAL_EVICT_COST                /// 最小驱逐策略+cost cache（贪心+随机 DTR）
 
-#define MULTI_MODE
+#define MULTI_MODE                      /// 是否启用多卡管理模式
 
-#define TIMER_ENABLE
+// #define TIMER_ENABLE                 /// 是否启用计时(debug)
+// #define DEPTH_ENABLE                 /// 记录每次重物化所累计恢复的张量个数
 
 #ifdef TIME_REC
 auto start_time = std::chrono::high_resolution_clock::now();
@@ -132,6 +139,7 @@ struct PerfStats {
 
 static PerfStats STATS = PerfStats();
 
+/* 这几项用于记录tensor内存分布特征 */
 size_t memory_sum = 0;
 size_t memory_max = 0;
 size_t memory_count = 0;
@@ -143,10 +151,12 @@ long cost_time_ = 0;
 bool use_log_ = false;
 bool use_profile_ = false;
 #ifdef DEBUG_MODE
-bool record_er_counts = false;
-bool record_mem_addr = false;
-bool record_op_recs = false;
-bool record_fragmentation = false;
+bool record_er_counts = false;        // 驱逐&重物化次数
+bool record_mem_addr = false;         // 是否记录内存地址
+bool record_op_recs = false;          // 是否记录op历史
+bool record_fragmentation = false;    // 记录碎片化和内存占用数据
+bool record_lifecycle = false;        // 记录ap生命周期分布
+bool record_ap_cost = false;          // 记录ap的cost分布
 
 
 std::atomic<size_t> evict_counts = 0;
@@ -260,7 +270,7 @@ namespace dtb {
         return !device_dtbpool.empty();
       }
 
-      void auto_evict(int device) {
+      void auto_evict(int device) {                 /// TAG: multi mode evict entry
         if(!device_id_check(device)) return;
         init_check();
       #ifdef DEBUG_MODE
@@ -271,18 +281,81 @@ namespace dtb {
       #ifdef DEBUG_MODE
           int check_counts = 0;
       #endif
+
+          bool if_eviction = false;
+          bool if_rec = true;
           while (current_memory(device) > pool->memory_budget) {
+            if_eviction = true;
             pool->evict();
-      #ifdef DEBUG_MODE
-            check_counts++;
-            if(check_counts>100){
-              std::cout << "Eviction progress has been trapped in dead loop\n";
-              throw std::runtime_error("Eviction progress has been trapped in dead loop");
-            }
-      #endif
           }
+          if(if_eviction){
+            #ifdef DEBUG_MODE
+              // use_log_ = true;
+            if(record_mem_addr && pool->exts.size()>10){
+              /// 单独用这个，记录某次驱逐后的mem snapshot
+              pool_cur_mem_snapshot(device);
+              // if_rec = false;
+              /// 单独用这个，记录每次驱逐后的内存变化
+              // DTRLogMemAlloc(current_memory(), reserved_memory());
+            // }
+            }
+            #endif
+          }
+          //   record_mem_addr = false;
+
         }
       }
+      
+      // void auto_evict(int device) {                 /// TAG: multi mode evict entry
+      //   if(!device_id_check(device)) return;
+      //   init_check();
+      // #ifdef DEBUG_MODE
+      //   update_max_meminfo(device);
+      // #endif
+      //   auto pool = device_dtbpool[device].get();
+      //   if (pool->has_memory_budget) {
+      // #ifdef DEBUG_MODE
+      //     size_t check_counts = 0;
+      // #endif
+
+      //     bool if_eviction = false;
+      //     bool if_clear = false;
+      //     while (current_memory(device) > pool->memory_budget) {
+      //       if_eviction = true;
+      //       check_counts++;
+      //       if(check_counts<10)
+      //         pool->mem_first_evict(if_clear);
+      //       else
+      //         pool->exec_first_evict();
+
+      // #ifdef DEBUG_MODE
+      //       // if(check_counts>1000){
+      //       //   std::cout << "Eviction progress has been trapped in dead loop\n";
+      //       //   throw std::runtime_error("Eviction progress has been trapped in dead loop");
+      //       // }
+      // #endif
+
+      //     }
+      //     if(check_counts>0){
+      //       DTRLogCounts("search counts", check_counts);
+      //       DTRLogMemAlloc(current_memory(), reserved_memory());
+      //     }
+
+      //     if(if_eviction){
+      //       #ifdef DEBUG_MODE
+      //       if(record_mem_addr && pool->exts.size()>10){
+      //         /// 单独用这个，记录某次驱逐后的mem snapshot
+      //         pool_cur_mem_snapshot(device);
+      //         /// 单独用这个，记录每次驱逐后的内存变化
+      //         // DTRLogMemAlloc(current_memory(), reserved_memory());
+      //       // }
+      //       }
+      //       #endif
+      //     }
+      //     //   record_mem_addr = false;
+
+      //   }
+      // }
 
       void auto_evict(int device, size_t coming_bytes) {
         if(!device_id_check(device)) return;
@@ -295,11 +368,11 @@ namespace dtb {
           while ((current_memory(device) + coming_bytes) > pool->memory_budget) {
             pool->evict();
       #ifdef DEBUG_MODE
-            check_counts++;
-            if(check_counts>100){
-              std::cout << "Eviction progress has been trapped in dead loop\n";
-              throw std::runtime_error("Eviction progress has been trapped in dead loop");
-            }
+            // check_counts++;
+            // if(check_counts>100){
+            //   std::cout << "Eviction progress has been trapped in dead loop\n";
+            //   throw std::runtime_error("Eviction progress has been trapped in dead loop");
+            // }
       #endif
           }
         }
@@ -347,6 +420,11 @@ namespace dtb {
         // }
       }
 
+      inline void erase_ap(int device, uintptr_t addr){
+        auto pool = device_dtbpool[device].get();
+        pool->mem_ordered_aps.erase(addr);
+      }
+
       void toggle_sampling(bool if_sampling){
         for (const auto& pool : device_dtbpool) {
           if (pool) {
@@ -383,6 +461,26 @@ namespace dtb {
         for (const auto& pool : device_dtbpool) {
           if (pool) {
             pool->clear_exts();
+          }
+        }
+      }
+
+      void pool_cur_mem_snapshot(int device){
+        time_t current_time = std::chrono::system_clock::now();
+        for(const auto& ex: device_dtbpool[device].get()->exts){ 
+          if(auto ref = ex.lock()){
+            if(ref->value->defined){
+              auto& remat = ref->value->remat;
+              size_t degree = 0;
+              double cost = 0;
+              if(remat!=nullptr){ /// TODO: 存在没有remat的tensor 无源之水，从内存大小来看是一些用到的常量直接checkpoint了，甚至有的常量读进来不用?
+                degree = (remat->inputs.size()) + (remat->outputs.size());
+                // auto ap_strong = ref->value->pool.get(); /// TODO: 这里会触发段错误，访问了野指针？
+                // cost = ap_strong->cost(current_time);
+              }
+              // if(ref->value->pool->memory!=0)
+              DTRLogTensorInfo(ref->value->counter_name(), ref->value->pool->addr, ref->value->pool->memory, degree, cost, device);
+            }
           }
         }
       }
@@ -468,9 +566,12 @@ dtb::DTBCheckpointPool* getDTBPoolManager() {
 void CheckpointPool::add(const intrusive_ptr<AliasPool>& p) {
   // ignore storage smaller than 1% average size
   if (p->memory > 0 && (memory_count == 0 || !ignore_small_tensors || p->memory >= 0.01 * double(memory_sum/memory_count))) {
-    aps.push_back(weak_intrusive_ptr<AliasPool>(p));
-    constexpr uintptr_t addr_mask = 0xffffff0000000000;
-    uintptr_t addr_key = p->addr & addr_mask;
+    auto new_ap = weak_intrusive_ptr<AliasPool>(p);
+    aps.push_back(new_ap);
+
+    /// TO BE DELETE
+    // constexpr uintptr_t addr_mask = 0xffffff0000000000;
+    // uintptr_t addr_key = p->addr & addr_mask;
     // this key existed
     // if (ordered_aps.find(addr_key) != ordered_aps.end()){
     //   auto& exist_aps = std::get<0>(ordered_aps[addr_key]);
@@ -485,6 +586,11 @@ void CheckpointPool::add(const intrusive_ptr<AliasPool>& p) {
     //   group_evict_threshold = std::max(mem_total, group_evict_threshold);
     //   ordered_aps[addr_key] = {std::move(new_aps), mem_total};
     // }
+    auto result = mem_ordered_aps.insert(std::make_pair(p->addr, new_ap));
+    if (!result.second) {
+        // 键已存在，更新其值
+        result.first->second = new_ap;
+    }
   }
 }
 
@@ -495,8 +601,12 @@ void CheckpointPool::reserved_add(const intrusive_ptr<AliasPool>& p) {
 }
 
 #ifdef DEBUG_MODE
-void log_cur_mem_statics(){
+void log_cur_mem_statics(){ /// single mode use
   if(record_mem_addr){
+#ifdef MULTI_MODE
+    auto *pm = getDTBPoolManager();
+    pm->pool_cur_mem_snapshot(0);
+#else
     time_t current_time = std::chrono::system_clock::now();
     for(const auto& ex: pool.exts){
       if(auto ref = ex.lock()){
@@ -510,12 +620,13 @@ void log_cur_mem_statics(){
             // cost = ap_strong->cost(current_time);
           }
           // if(ref->value->pool->memory!=0)
-          DTRLogTensorInfo(ref->value->counter_name(), ref->value->pool->addr, ref->value->pool->memory, degree, cost);
+          DTRLogTensorInfo(ref->value->counter_name(), ref->value->pool->addr, ref->value->pool->memory, degree, cost, 0);
         }
       }
         // DTRLogAddress(ref->value->counter_name(), ref->value->pool->addr, ref->value->pool->memory);
     }
     // DTRLogMemAlloc(current_memory(), reserved_memory());
+#endif
   }
 }
 #endif
@@ -729,6 +840,10 @@ void CheckpointPool::evict() {
     else {
       if (ap_strong->evictable()) {
         double cost = ap_strong->cost(current_time);
+      #ifdef DEBUG_MODE
+        if(record_ap_cost)
+          DTRLogApCost("check cost", cost);
+      #endif
         if (cost < evict_cost) {
           evict_cost = cost;
           evict_idx = i;
@@ -749,7 +864,7 @@ void CheckpointPool::evict() {
 #ifdef DEBUG_MODE
     if(record_er_counts){
       evict_counts += 1;
-      DTRLogEvictAPSEvents(evict_counts);
+      // DTRLogEvictAPSEvents(evict_counts);
     }
 #endif
     auto evict_from_idx = [&](size_t idx) {
@@ -758,8 +873,163 @@ void CheckpointPool::evict() {
                             ap_strong->evict(0);
                             remove_from_aps(evict_idx);
                           };
+    auto ap_strong = aps[evict_idx].lock();
+#ifdef DEBUG_MODE
+    if(record_ap_cost){
+      ap_strong->update_dependency();
+      DTRLogApCost("evicted cost", evict_cost);
+      DTRLogCounts("dependecy counts", ap_strong->dependency);
+    }
+    if(record_mem_addr){  // TAG: mark evicted tensor for visualization
+      for(const auto& wp: ap_strong->tensors){
+        if(auto cp = wp.lock()){
+          DTRLogTensorInfo(cp->counter_name(), cp->pool->addr, cp->pool->memory, 0, 0, -999);
+        }
+      }
+    }
+#endif
     evict_from_idx(evict_idx);
   }
+#ifdef ORIGINAL_DTR
+  time_t post = std::chrono::system_clock::now();
+  search_time_ += (post - pre).count();
+#endif
+#ifdef TIMER_ENABLE
+  time_t post = std::chrono::system_clock::now();
+  search_time_ += (post - pre).count();
+#endif
+}
+
+void CheckpointPool::exec_first_evict() {
+  STATS.track("CheckpointPool::exec_first_evict");
+  TORCH_CHECK(aps.size() > 0);
+  // shrunk: either something has been evicted or the pools have gotten smaller
+  bool shrunk = false;
+  double evict_cost = INFINITY;
+  auto best_it = mem_ordered_aps.begin();
+  time_t current_time = std::chrono::system_clock::now();
+
+
+  for (auto it = mem_ordered_aps.begin(); it != mem_ordered_aps.end();) {
+    auto ap_strong = it->second.lock();
+    if (!ap_strong.defined()||ap_strong->ecn) {
+      it = mem_ordered_aps.erase(it);
+    }
+    else {
+      if (ap_strong->evictable()) {
+        double cost = ap_strong->cost(current_time);
+
+        if (cost < evict_cost) {
+          evict_cost = cost;
+          best_it = it;
+        }
+      }
+      it++;
+      // if (sample_tensors) {
+      //   i += distrib(gen);
+      // } else {
+      //   i += 1;
+      // }
+    }
+  }
+  // 执行驱逐
+  auto ap_strong = best_it->second.lock();
+  if(ap_strong->evictable()){
+    ap_strong->evict(0);
+    mem_ordered_aps.erase(best_it->first);
+  }
+}
+
+/// @brief  TODO: bug 死锁
+/// @param if_cleared 
+void CheckpointPool::mem_first_evict(bool &if_cleared) {
+#ifdef ORIGINAL_DTR
+  time_t pre = std::chrono::system_clock::now();
+#endif 
+#ifdef TIMER_ENABLE
+  time_t pre = std::chrono::system_clock::now();
+#endif
+  STATS.track("CheckpointPool::mem_first_evict");
+  TORCH_CHECK(aps.size() > 0);
+
+  int evict_idx = -1;
+  constexpr int search_box_size = 3;  // 
+
+  // std::uniform_int_distribution<> distrib(1, 1 * std::max(1, static_cast<int>(std::sqrt(aps.size()))));
+
+  //   #ifdef DEBUG_MODE
+      //   if(record_ap_cost)
+      //     DTRLogApCost("check cost", cost);
+    // #endif
+
+  time_t current_time = std::chrono::system_clock::now();
+  auto best_it = mem_ordered_aps.begin();
+  double min_evict_cost = INFINITY;
+  auto size_map = mem_ordered_aps.size();
+
+  std::vector<uintptr_t> to_be_erase;
+  if (size_map>search_box_size){
+
+    for (auto it = mem_ordered_aps.begin(); std::distance(it, mem_ordered_aps.end()) >= search_box_size; it++) {
+        auto end_it = std::next(it, search_box_size);
+        double part_cost = 0;
+        for (auto jt = it; jt != end_it; ++jt) {
+          auto ap_strong = jt->second.lock();
+          if (!ap_strong.defined()||ap_strong->ecn){
+            to_be_erase.push_back(jt->first);
+          }
+          else if(!ap_strong->evictable()){  // 对不可驱逐的给一个比较大的惩罚 | 直接设为无穷会牺牲驱逐可能性
+            part_cost += ap_strong->cost(current_time) * 100;
+            // part_cost = INFINITY;
+            // break;
+          }else
+            part_cost += ap_strong->cost(current_time); // 调用成员函数并累加返回值
+        }
+
+        if (part_cost < min_evict_cost) {
+            min_evict_cost = part_cost;
+            best_it = it;
+        }
+
+        // int i = 0;
+        // while(i++ < search_box_size && std::distance(it, mem_ordered_aps.end()) >= search_box_size) it++;
+    }
+
+    // 删除具有最小代价的k个元素
+    auto end_it = std::next(best_it, search_box_size);
+    for(auto it = best_it; it != end_it; it++){
+      auto ap_strong = it->second.lock();
+      if(ap_strong.defined()&&ap_strong->evictable()){
+        ap_strong->evict(0);
+        to_be_erase.push_back(it->first);
+      }
+    }
+  }else{
+    for (auto it = mem_ordered_aps.begin(); it != mem_ordered_aps.end(); it++) {
+      auto ap_strong = it->second.lock();
+      if (!ap_strong.defined()||ap_strong->ecn){
+        to_be_erase.push_back(it->first);
+      }else if(ap_strong->evictable()){  // 对不可驱逐的给一个比较大的惩罚
+        if (ap_strong->cost(current_time) < min_evict_cost) {
+            min_evict_cost = ap_strong->cost(current_time);
+            best_it = it;
+        }
+      }
+    }
+    auto ap_strong = best_it->second.lock();
+    if(ap_strong.defined()&&ap_strong->evictable()){
+      ap_strong->evict(0);
+      to_be_erase.push_back(best_it->first);
+    }
+  }
+
+  for(const auto& addr: to_be_erase)
+    mem_ordered_aps.erase(addr);
+
+  // else{
+  //   throw std::runtime_error("Choose smaller k to keep evicting. Maybe memory budget is the lowest.");
+  // }
+
 #ifdef ORIGINAL_DTR
   time_t post = std::chrono::system_clock::now();
   search_time_ += (post - pre).count();
@@ -1068,6 +1338,7 @@ void log_dtr_statics(){
   }
 #endif
   if(record_er_counts){
+    // DTRLogCounts("memory budget", memo);
     DTRLogCounts("evict counts", evict_counts);
     DTRLogCounts("evict tensor counts", tensor_evict_counts);
     DTRLogCounts("cannot evict counts", cannot_evict_counts);
@@ -1151,10 +1422,10 @@ CheckpointInfo merge_cpi(CheckpointInfo l, CheckpointInfo r) {
   return CheckpointInfo(l.compute_cost + r.compute_cost);
 }
 
-void AliasPool::evict(int mode) { // 0 - evict | 1 - destruct
+void AliasPool::evict(int mode) { // 0 - evict | 1 - deconstruct
   STATS.track("AliasPool::evict");
   TORCH_CHECK(!ecn);
-  ecn = head_remat->get_ecn();
+  ecn = head_remat->get_ecn();      /// 发生驱逐行为，初始化ecn
   auto ecns = neighbor_ecn();
   for (const auto& necn : ecns) {
     merge<CheckpointInfo>(merge_cpi, ecn, necn);
@@ -1170,7 +1441,7 @@ void AliasPool::evict(int mode) { // 0 - evict | 1 - destruct
         if(mode==0)
         {
           tensor_evict_counts += 1;
-          DTRLogEvictEvents(cell->counter_name(), tensor_evict_counts);
+          // DTRLogEvictEvents(cell->counter_name(), tensor_evict_counts);
         }
         else
           tensor_destruct_counts += 1;
@@ -1179,7 +1450,33 @@ void AliasPool::evict(int mode) { // 0 - evict | 1 - destruct
       cell->evict();
     }
   }
+  if(mode==1){
+    auto *pm = getDTBPoolManager();
+    pm->erase_ap(device_id, addr);
+  }
 }
+
+void AliasPool::unlock() {
+    --lock_count;
+    /// improvement for life cycle
+    /// because that staleness is harmful to eviction of remated tensor during backward progress, which should be released immediately
+#ifndef ORIGINAL_DTR
+    if(remat_count>0){
+      unlock_remated();
+    #ifdef DEBUG_MODE
+      if(record_lifecycle){
+        pid_t pid = getpid();
+        DTRLogLifeCycle(pid, external_count, lock_count, remat_count);
+      }
+    #endif
+      if(remat_count == 0 && external_count == 0 && lock_count == 0 && retain_count == 0){
+        if (memory > 0 && (!ecn) && head_remat) {
+          evict(1);
+        }
+      }
+    }
+#endif
+  }
 
 void AliasPool::release_external() {
   --external_count;
@@ -1192,6 +1489,21 @@ void AliasPool::release_external() {
       destruct_counts += 1;
 #endif
       evict(1);
+    }
+  }
+}
+
+void AliasPool::update_dependency() {
+  dependency = 0;
+  for (size_t i = 0; i < tensors.size(); i++){
+    {
+      if(auto cell = tensors[i].lock()){
+        if(cell->pool->dependency>0){
+          dependency += cell->pool->dependency;
+        }else{
+          cell->precheck(dependency);
+        }
+      }
     }
   }
 }
@@ -1286,6 +1598,21 @@ Tensors uncheckpoint(const strongs& inputs) {
   return ret;
 };
 
+Tensors uncheckpoint_with_depth(const strongs& inputs, int& cumulative_num) {
+  STATS.track("uncheckpoint");
+  Tensors ret;
+  ret.reserve(inputs.size());
+  for (const strong& input : inputs) {
+    // TAG: Remat entry
+    /// TODO: 延长机制
+    if(cumulative_num%42==0){
+      input->pool->lock_retain();
+    }
+    ret.push_back(input->get(cumulative_num));
+  }
+  return ret;
+};
+
 Tensors try_checkpoint(const Tensors& inputs) {
   STATS.track("try_checkpoint");
   Tensors ret;
@@ -1358,6 +1685,78 @@ void Rematerializer::remat() {
   }
 }
 
+void Rematerializer::remat(int& cumulative_num) {
+#ifdef DEBUG_MODE
+  if(record_er_counts){
+    remat_counts += 1;
+  }
+  // if(remat_counts>1e5)
+  //   throw std::runtime_error("Remat progress has been trapped in dead loop");
+#endif
+  // NOTE: author thinks that refactor using RAII for exception safety. however, RAII is not suitable for remat
+  for (const strong& s : inputs) {
+    s->pool->lock();
+  }
+  cumulative_num++;
+  Tensors ts = uncheckpoint_with_depth(inputs, cumulative_num);
+#ifdef ORIGINAL_DTR
+  time_t pre = std::chrono::system_clock::now();
+#endif
+#ifdef TIMER_ENABLE
+  time_t pre = std::chrono::system_clock::now();
+#endif
+
+#ifdef MULTI_MODE
+  auto device_id = static_cast<int>(ts[0].device().index());
+  auto *pm = getDTBPoolManager();
+#endif
+
+#ifdef MINIMAL_EVICT_COST
+  pool.auto_evict(memory_cost_records[rid]);
+#endif
+
+  auto ret = func(ts);
+
+#ifdef MINIMAL_EVICT
+  #ifdef MULTI_MODE
+  pm->auto_evict(device_id);
+  #else
+  pool.auto_evict();
+  #endif
+#endif
+
+#ifdef ORIGINAL_DTR
+  time_t post = std::chrono::system_clock::now();
+  remat_compute_time_ += (post - pre).count();
+#endif
+#ifdef TIMER_ENABLE
+  time_t post = std::chrono::system_clock::now();
+  remat_compute_time_ += (post - pre).count();
+#endif
+  TORCH_CHECK(ret.size() == outputs.size());
+  for (size_t i = 0; i < outputs.size(); ++i) {
+    if (auto output_cell = outputs[i].lock()) {
+      output_cell->fill(ret[i]);
+#ifndef ORIGINAL_DTR
+      output_cell->pool->lock_remated();
+#endif
+    }
+  }
+  ecn.reset();
+  for (const strong& s : inputs) {
+    s->pool->unlock();
+  }
+}
+
+void Rematerializer::precheck(int& dep){
+  for (const strong& s : inputs) {
+    if(!s->defined){
+      dep++;
+      s->precheck(dep);
+    }
+  }
+}
+
 ecn_ptr Rematerializer::get_ecn() {
   if (!ecn) {
     ecn = ecn_ptr::make(CheckpointInfo(compute_cost));
@@ -1385,6 +1784,7 @@ void CheckpointTensorCell::fill(const Tensor& t) {
   if (!(this->t)) {
     this->t = std::make_unique<Tensor>(std::move(t));
     pool->set_not_evicted(pool);                          /// TAG: 改变标志位，更新cost
+    pool->set_addr(get_addr(t));
     if (!defined) {
       defined = true;
       is_undefined_tensor = !t.defined();
@@ -1403,8 +1803,8 @@ Tensor CheckpointTensorCell::get(){
   if (!t) {
       TORCH_CHECK(remat);
 #ifdef DEBUG_MODE
-      if(record_er_counts)
-        DTRLogRematEvents(counter_name(), 0);
+      // if(record_er_counts)
+      //   DTRLogRematEvents(counter_name(), 0);
 #endif
       remat->remat();
     }
@@ -1413,6 +1813,29 @@ Tensor CheckpointTensorCell::get(){
     TORCH_CHECK(!t->key_set().has(DispatchKey::CheckpointTensorId));
     pool->last_used_time = std::chrono::system_clock::now();
     return *t;
+}
+
+Tensor CheckpointTensorCell::get(int& cumulative_num){  
+  if (!t) {
+    TORCH_CHECK(remat);
+#ifdef DEBUG_MODE
+    // if(record_er_counts)
+    //   DTRLogRematEvents(counter_name(), 0);
+#endif
+    remat->remat(cumulative_num);
+  }
+  defined = true;
+  TORCH_CHECK(t);
+  TORCH_CHECK(!t->key_set().has(DispatchKey::CheckpointTensorId));
+  pool->last_used_time = std::chrono::system_clock::now();
+  return *t;
+}
+
+void CheckpointTensorCell::precheck(int& dep){  
+  // 递归太慢
+  pool->set_dependency(dep);
+  if(dep>100) return;
+  remat->precheck(dep);
 }
 
 intrusive_ptr<TensorImpl> CheckpointTensorImpl::shallow_copy_and_detach(const VariableVersion& version_counter,
@@ -1582,7 +2005,12 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
   for (const strong& s : inputs) {                  // lock for unevictable
     s->pool->lock();
   }
+#ifdef DEPTH_ENABLE
+  int cumulative_num = 0;
+  Tensors raw_inputs = uncheckpoint_with_depth(inputs, cumulative_num);
+#else
   Tensors raw_inputs = uncheckpoint(inputs);        // cancel the monitor and get tensors
+#endif
   auto device_id = static_cast<int>(raw_inputs[0].device().index());  /// do not influence device
 
   time_t pre = std::chrono::system_clock::now();
@@ -1612,11 +2040,12 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
 
   for (const Tensor& t : raw_outputs) {             // prepare checkpoint for raw_outputs
     intrusive_ptr<AliasPool> alias_pool;
-    int alias = get_alias(raw_inputs, t);           // if t is an alias of tensor in inputs?
+    int alias = get_alias(raw_inputs, t);           // check if t is an alias of tensor in inputs
     if (alias == -1) {
       auto m = memory(t);
+      auto addr = get_addr(t);
       // alias_pool = intrusive_ptr<AliasPool>::make(Unsafe(), remat, m, device_id);
-      alias_pool = intrusive_ptr<AliasPool>::make(Unsafe(), remat, m, get_addr(t), device_id);
+      alias_pool = intrusive_ptr<AliasPool>::make(Unsafe(), remat, m, addr, device_id);
       if(reserved_range){     /// TAG: 保留区间内的aps保存
         alias_pool->is_retain = true;
         // alias_pool->lock();    /// 一直保存了，需要主动释放
@@ -1629,6 +2058,7 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
     }
     else {
       alias_pool = inputs[alias]->pool;
+      alias_pool->set_addr(get_addr(t));    // TODO: why org addr become a strange addr
       if (alias_pool->head_remat) {
         alias_pool->head_remat->compute_cost += cur_compute_cost;
       }
@@ -1717,7 +2147,12 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
   for (const strong& s : inputs) {                  // lock for unevictable
     s->pool->lock();
   }
+#ifdef DEPTH_ENABLE
+  int cumulative_num = 0;
+  Tensors raw_inputs = uncheckpoint_with_depth(inputs, cumulative_num);
+#else
   Tensors raw_inputs = uncheckpoint(inputs);        // cancel the monitor and get tensors
+#endif
   Tensors raw_outputs;
   auto device_id = static_cast<int>(raw_inputs[0].device().index());
 
@@ -1729,6 +2164,12 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
   if(search_res != compute_cost_records.end()){ // 有记录
     have_record = true;
   }
+
+#ifdef DEPTH_ENABLE
+  if(cumulative_num>0){
+    DTRLogCalculativeRematsRecords(rid, name, cumulative_num);
+  }
+#endif
 
 #ifdef MULTI_MODE
   auto *pm = getDTBPoolManager();
@@ -1937,7 +2378,7 @@ void CheckpointTensorImpl::mutate(const std::string& name,
 #endif
 
   const auto& modified = ret.outputs;
-  for (size_t idx: mutate_idx) {                              /// 存在inputs中不为cpti的tensor，但受限于语法无法直接修改
+  for (size_t idx: mutate_idx) {                              /// 可能存在inputs中不为cpti的tensor，但受限于语法无法直接修改
     // if(C10_UNLIKELY(!native::is_checkpoint(inputs[idx])))
     //   inputs[idx] = native::checkpoint(inputs[idx]);
     cell_from_tensor(inputs[idx])->value = modified[idx];

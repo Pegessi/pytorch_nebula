@@ -137,7 +137,7 @@ void DTRLogAddress(const std::string& name, uintptr_t addr, size_t memory){
   }
 }
 
-void DTRLogTensorInfo(const std::string& name, uintptr_t addr, size_t memory, size_t degree, double cost){
+void DTRLogTensorInfo(const std::string& name, uintptr_t addr, size_t memory, size_t degree, double cost, int device){
   if (log_json){
     json j;
     j[INSTRUCTION] = TENSOR;
@@ -146,6 +146,7 @@ void DTRLogTensorInfo(const std::string& name, uintptr_t addr, size_t memory, si
     j[MEMORY] = memory;
     j[DEGREE] = degree;
     j[REMATCOST] = cost;
+    j["device"] = device;
     DTRLogger::logger().log(j.dump());
   } else {
     DTRLogger::logger().log(CONSTANT + " " + name);
@@ -165,6 +166,33 @@ void DTRLogOPRecords(const int64_t& rid, const std::string& name, const int64_t&
     DTRLogger::logger().log(j.dump());
   } else {
     DTRLogger::logger().log(CONSTANT + " " + name);
+  }
+}
+
+void DTRLogCalculativeRematsRecords(const int64_t& rid, const std::string& name, const int& remat_counts){
+   if (log_json){
+    json j;
+    j[INSTRUCTION] = INSTRUCTION;
+    j["rid"] = std::to_string(rid);
+    j["name"] = name;
+    j["cumulative_remat_counts"] = std::to_string(remat_counts);
+    DTRLogger::logger().log(j.dump());
+  } else {
+    DTRLogger::logger().log(CONSTANT + " " + name);
+  }
+}
+
+void DTRLogLifeCycle(const int& pid, const size_t& org, const size_t& lck, const size_t& remat){
+  if (log_json){
+    json j;
+    j[INSTRUCTION] = "life cycle";
+    j["pid"] = std::to_string(pid);
+    j["external_count"] = std::to_string(org);
+    j["lock_count"] = std::to_string(lck);
+    j["remat_count"] = std::to_string(remat);
+    DTRLogger::logger().log(j.dump());
+  } else {
+    DTRLogger::logger().log(CONSTANT);
   }
 }
 
@@ -188,6 +216,17 @@ void DTRLogMemory(const std::string& name, size_t memory) {
     DTRLogger::logger().log(j.dump());
   } else {
     DTRLogger::logger().log(name + " " + MEMORY + ": " + std::to_string(memory));
+  }
+}
+
+void DTRLogApCost(const std::string& name, double cost) {
+  if (log_json) {
+    json j;
+    j[NAME] = name;
+    j["cost"] = std::to_string(cost * 1e7);
+    DTRLogger::logger().log(j.dump());
+  } else {
+    DTRLogger::logger().log(name + ": " + std::to_string(cost));
   }
 }
 

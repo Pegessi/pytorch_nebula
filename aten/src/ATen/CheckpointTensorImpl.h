@@ -27,7 +27,7 @@
 #define TORCH_CHECK(a, ...) // profile mode
 
 // #define ORIGINAL_DTR
-// #define DEBUG_MODE
+#define DEBUG_MODE
 
 // System Description:
 // Every Tensor is managed by a CheckpointTensor,
@@ -233,6 +233,8 @@ struct Rematerializer : intrusive_ptr_target {
     outputs.clear();
   }
   void remat();
+  void remat(int&);
+  void precheck(int&);
   ecn_ptr get_ecn();
   CheckpointInfo get_cpi();
 };
@@ -255,31 +257,24 @@ struct AliasPool : intrusive_ptr_target {
   size_t lock_count = 0;          // for get() call, which is used in remat() and make_raw()
   size_t external_count = 0;      // for original life cycle of pytorch tensor
   size_t remat_count = 0;         // for remat() call, which is used for improving the life cycle during backward
+  size_t retain_count = 0;        // for retain long remat, |disabled| performance worse
+
+  int dependency = 0;
   // lock() && unlock() used for protect storage during tensor operations
   inline void lock() {
     ++lock_count;
   }
-  inline void unlock() {
-    --lock_count;
-    /// improvement for life cycle
-    /// because that staleness is harmful to eviction of remated tensor during backward progress, which should be released immediately
-#ifndef ORIGINAL_DTR
-    if(remat_count>0){
-      unlock_remated();
-      if(remat_count == 0 && external_count == 0 && lock_count == 0){
-        if (memory > 0 && (!ecn) && head_remat) {
-          evict(1);
-        }
-      }
-    }
-#endif
-  }
+  inline void unlock();
   inline void lock_remated(){
     ++remat_count;
   }
   inline void unlock_remated(){
     --remat_count;
   }
+  inline void lock_retain(){
+    retain_count++;
+  }
+  
   intrusive_ptr<Rematerializer> head_remat;
   bool evictable() const {
 #ifndef ORIGINAL_DTR
@@ -312,11 +307,14 @@ struct AliasPool : intrusive_ptr_target {
   ecn_ptr ecn;
   double cost(time_t current_time);
   void evict(int mode=0);
+  void update_dependency();
+  void set_dependency(int dep) { dependency = dep; }
+  void set_addr(uintptr_t new_addr) { addr = new_addr; }
   // register_external() && release_external() is used for maintain the aps natural period
   void register_external() {
     ++external_count;
   }
-  void release_external();
+  void release_external();    /// original release trigger
   // if it was evicted, refresh it. otherwise do nothing.
   // have to check so, because when we rematerialize a single tensor in an aliaspool,
   // we will set it to non-evicted, and when we rematerialize it's tensor they will also reset this.
@@ -383,6 +381,8 @@ struct CheckpointTensorCell : intrusive_ptr_target {
     return pool->memory;
   }
   Tensor get();
+  Tensor get(int&);
+  void precheck(int&);
   // std::vector<int64_t> sizes(){
   //   return get().sizes().vec();
   // }
@@ -588,11 +588,21 @@ struct CustomCompare {
 };
 
 using aps_t = std::tuple<std::vector<weak_intrusive_ptr<AliasPool>>, size_t>;
+
+struct WeakAliasPoolWithOrder {
+  uintptr_t addr;
+  weak_intrusive_ptr<AliasPool> w_ap;
+  bool operator<(const WeakAliasPoolWithOrder& other) const {
+    return addr <= other.addr;
+  }
+};
+
 // CheckpointPool keep a list of AliasPool, and search over them to choose the best one to evict.
 struct CheckpointPool {
   std::vector<weak_intrusive_ptr<AliasPool>> aps;
-  std::set<weak_intrusive_ptr<AliasPool>> reserved_aps;
-  std::map<uintptr_t, aps_t> ordered_aps;
+  std::set<weak_intrusive_ptr<AliasPool>> reserved_aps;         /// TO BE DELETE
+  std::map<uintptr_t, aps_t> ordered_aps;                       /// TO BE DELETE
+  std::map<uintptr_t, weak_intrusive_ptr<AliasPool>> mem_ordered_aps;
   size_t group_evict_threshold;
   std::vector<weak_intrusive_ptr<External>> exts;
   std::random_device rd;
@@ -605,6 +615,8 @@ struct CheckpointPool {
   long memory_budget;
   void evict();
   void evict(size_t need_to_free_bytes);
+  void mem_first_evict(bool&);
+  void exec_first_evict();
   void auto_evict();
   void clear_checkpointpool();
   void add(const intrusive_ptr<AliasPool>&);
