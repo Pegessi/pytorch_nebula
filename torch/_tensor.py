@@ -489,9 +489,12 @@ class Tensor(torch._C._TensorBase):
                 create_graph=create_graph,
                 inputs=inputs,
             )
+        torch.set_backward_flag()
         torch.autograd.backward(
             self, gradient, retain_graph, create_graph, inputs=inputs
         )
+        torch.unset_backward_flag()
+        torch.clear_checkpointpool(self.device.index)
 
     def register_hook(self, hook):
         r"""Registers a backward hook.

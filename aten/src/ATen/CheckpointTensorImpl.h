@@ -4,6 +4,7 @@
 #include <memory>
 #include <numeric>
 #include <random>
+#include <future>
 
 #include <c10/core/Backend.h>
 #include <c10/core/MemoryFormat.h>
@@ -27,7 +28,7 @@
 #define TORCH_CHECK(a, ...) // profile mode
 
 // #define ORIGINAL_DTR
-#define DEBUG_MODE
+// #define DEBUG_MODE
 
 // System Description:
 // Every Tensor is managed by a CheckpointTensor,
@@ -83,12 +84,14 @@
 
 namespace at {
 
+#pragma region UnionSet
+
 // TODO: using a pool allocator might make more sense - no need to allocate and delete each pointer individually.
 template<typename T>
 struct EquivalentClassNode : intrusive_ptr_target {
   explicit EquivalentClassNode(const T& t) : t_unsafe(t) { }
   mutable intrusive_ptr<EquivalentClassNode> parent;
-  bool is_root() {
+  bool is_root() {    // no parent node means root
     return !parent;
   }
   void release_resources() override {
@@ -131,6 +134,25 @@ intrusive_ptr<EquivalentClassNode<T>> merge(const std::function<T(const T&, cons
   r->t_unsafe = merge_t(l->t_unsafe, r->t_unsafe);
   return r;
 }
+
+template<typename T>
+bool is_same_union(const intrusive_ptr<EquivalentClassNode<T>>& lhs,
+                   const intrusive_ptr<EquivalentClassNode<T>>& rhs) {
+  auto l = find_root(lhs);
+  auto r = find_root(rhs);
+  return l == r;
+}
+
+template<typename T>
+intrusive_ptr<EquivalentClassNode<T>> flat(const intrusive_ptr<EquivalentClassNode<T>>& lhs,
+                                            const intrusive_ptr<EquivalentClassNode<T>>& rhs) {
+  auto root = find_root(lhs);
+  lhs->parent = root;
+  rhs->parent = root;
+  return root;
+}
+
+#pragma endregion
 
 size_t memory(const Tensor& t);
 
@@ -234,7 +256,6 @@ struct Rematerializer : intrusive_ptr_target {
   }
   void remat();
   void remat(int&);
-  void precheck(int&);
   ecn_ptr get_ecn();
   CheckpointInfo get_cpi();
 };
@@ -260,6 +281,7 @@ struct AliasPool : intrusive_ptr_target {
   size_t retain_count = 0;        // for retain long remat, |disabled| performance worse
 
   int dependency = 0;
+  std::future<int> dep_future;
   // lock() && unlock() used for protect storage during tensor operations
   inline void lock() {
     ++lock_count;
@@ -307,8 +329,14 @@ struct AliasPool : intrusive_ptr_target {
   ecn_ptr ecn;
   double cost(time_t current_time);
   void evict(int mode=0);
+  int update_dep_task();
   void update_dependency();
-  void set_dependency(int dep) { dependency = dep; }
+  int get_dependency() { 
+    if(dep_future.valid()){
+      dependency = dep_future.get(); 
+    }
+    return dependency;
+  }
   void set_addr(uintptr_t new_addr) { addr = new_addr; }
   // register_external() && release_external() is used for maintain the aps natural period
   void register_external() {
@@ -340,6 +368,9 @@ struct CheckpointTensorCell : intrusive_ptr_target {
   std::unique_ptr<Tensor> t;
   bool defined = false;         // 标记cell是否存在
   bool is_undefined_tensor;     // 标记是否是空张量
+  int degree = 0;
+  void add_degree(int deg) { degree += deg; }
+  int get_degree() { return degree; }
   DispatchKeySet key_set_;
   DispatchKeySet key_set() const {
     TORCH_CHECK(defined);
@@ -382,7 +413,7 @@ struct CheckpointTensorCell : intrusive_ptr_target {
   }
   Tensor get();
   Tensor get(int&);
-  void precheck(int&);
+  int precheck();
   // std::vector<int64_t> sizes(){
   //   return get().sizes().vec();
   // }
@@ -392,6 +423,7 @@ struct CheckpointTensorCell : intrusive_ptr_target {
     remat.reset();
   }
   void release_resources() final {
+    defined = false;
     t.reset();
     pool.reset();
     remat.reset();
@@ -579,32 +611,93 @@ struct TORCH_API CheckpointTensorImpl : public TensorImpl {
   // };
 };
 
-struct CustomCompare {
-    bool operator()(uintptr_t& a, uintptr_t& b) const {
-        // 根据地址高位进行排序
-        // auto a_h = a & 0xffffffff0000;
-        return a<b;
-    }
+
+enum KeyChainStatus {
+  IS_RIGHT_CHAIN,   // 是要找的链
+  TO_BE_DELETE,     // 需要删除该链
+  NORMAL            // 正常状态
 };
 
-using aps_t = std::tuple<std::vector<weak_intrusive_ptr<AliasPool>>, size_t>;
+struct ChainNode;
+using StrongChainNode = intrusive_ptr<ChainNode>;
+using WeakChainNode = intrusive_ptr<ChainNode>;
 
-struct WeakAliasPoolWithOrder {
-  uintptr_t addr;
-  weak_intrusive_ptr<AliasPool> w_ap;
-  bool operator<(const WeakAliasPoolWithOrder& other) const {
-    return addr <= other.addr;
+struct ChainNode : intrusive_ptr_target {
+  weak value;
+  bool is_lock = false;
+  mutable intrusive_ptr<ChainNode> parent;
+  ChainNode(const weak& weak_cell) : value(weak_cell) {}
+  bool is_equal(const StrongChainNode& other) const {
+      return value == other->value;
+  }
+  void lock_value(){
+    if(!is_lock){
+      if(auto cell = value.lock()){
+        cell->get();
+        cell->pool->is_retain = true;
+        cell->pool->lock();
+        is_lock = true;
+      }
+    }
   }
 };
+
+
+// TODO: weak并不能作为键
+struct ResidualChain : intrusive_ptr_target {
+  StrongChainNode root;
+  std::vector<StrongChainNode> members;
+  int last_check_idx = 0;
+
+  ResidualChain(const StrongChainNode& n) : root(n) {
+    members.push_back(n);
+  }
+
+  size_t size(){
+    return members.size();
+  }
+
+  void insert(const StrongChainNode& n) {
+    n->parent = root;
+    members.push_back(n);
+
+    if(size()>8) {  // 认为该链是要找的链
+      for(int i = last_check_idx; i<size(); i++){
+        if(i%2==0)
+          members[i]->lock_value();
+      }
+      last_check_idx = size() - 1;
+    }
+  }
+
+  void erase(const StrongChainNode& n) {
+    auto it = std::find(members.begin(), members.end(), n);
+    if(it!=members.end())
+      members.erase(it);
+  }
+
+  bool in_chain(const StrongChainNode& n){
+    const auto& last_node = members.back();
+    return last_node->is_equal(n);
+  }
+
+  void release_resources() override {
+    members.clear();
+    root.reset();
+  }
+};
+
+using ResidualChainRef = intrusive_ptr<ResidualChain>;
 
 // CheckpointPool keep a list of AliasPool, and search over them to choose the best one to evict.
 struct CheckpointPool {
   std::vector<weak_intrusive_ptr<AliasPool>> aps;
-  std::set<weak_intrusive_ptr<AliasPool>> reserved_aps;         /// TO BE DELETE
-  std::map<uintptr_t, aps_t> ordered_aps;                       /// TO BE DELETE
   std::map<uintptr_t, weak_intrusive_ptr<AliasPool>> mem_ordered_aps;
-  size_t group_evict_threshold;
+
   std::vector<weak_intrusive_ptr<External>> exts;
+  std::vector<weak> candidates;           // candidates for end point
+  std::vector<ResidualChainRef> chains;
+
   std::random_device rd;
   std::mt19937 gen = std::mt19937(rd());
   // whether to take a square-root sample of the pool during an eviction loop
@@ -617,18 +710,21 @@ struct CheckpointPool {
   void evict(size_t need_to_free_bytes);
   void mem_first_evict(bool&);
   void exec_first_evict();
+  
   void auto_evict();
-  void clear_checkpointpool();
-  void add(const intrusive_ptr<AliasPool>&);
-  void reserved_add(const intrusive_ptr<AliasPool>&);
-  CheckpointPool();
-  /// for early check and evict
   void auto_evict(size_t size_bytes);
+  /// for early check and evict
   /// for initiative evict
   void force_evict(int mode);
   void initiative_evict(size_t to_free_bytes);
+  
+  void add(const intrusive_ptr<AliasPool>&);
+  // void add_chain(const intrusive_ptr<KeyChain>&);
+  // void erase_chain(intrusive_ptr<KeyChain>&);
+  CheckpointPool();
 
   /// functional
+  void clear_checkpointpool();
   void set_sample_tensors(bool flag){
     sample_tensors = flag;
   }
@@ -643,9 +739,11 @@ struct CheckpointPool {
     has_memory_budget = false;
   }
   void clear_exts(){
+    candidates.clear();
+    chains.clear();
     while (!exts.empty()) {
       if (auto e = exts.back().lock()) {
-        e->value->pin();
+        e->value->pin();  /// why pin and remat?
       }
       exts.pop_back();
     }

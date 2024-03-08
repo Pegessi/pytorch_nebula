@@ -14,7 +14,7 @@
   variants: function
 - func: toggle_log(bool use_log) -> ()
   variants: function
-- func: clear_checkpointpool() -> ()
+- func: clear_checkpointpool(int device) -> ()
   variants: function
 - func: init_dtb_manager() -> ()
   variants: function
@@ -24,9 +24,9 @@
   variants: function
 - func: unset_reserved() -> ()
   variants: function
-- func: set_during_backward() -> ()
+- func: set_backward_flag() -> ()
   variants: function
-- func: unset_during_backward() -> ()
+- func: unset_backward_flag() -> ()
   variants: function
 - func: force_evict(int mode) -> ()
   variants: function

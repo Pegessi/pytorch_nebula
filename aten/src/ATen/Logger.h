@@ -67,6 +67,19 @@ void DTRLogCounts(const std::string& name, size_t counts){
   }
 }
 
+void DTRLogDepAndCost(const std::string& name, size_t counts, double cost){
+  if (log_json){
+    json j;
+    j[INSTRUCTION] = CONSTANT;
+    j[NAME] = name;
+    j[VALUE] = counts;
+    j[REMATCOST] = cost;
+    DTRLogger::logger().log(j.dump());
+  } else {
+    DTRLogger::logger().log(CONSTANT + " " + name);
+  }
+}
+
 void DTRLogEvictEvents(const std::string& name, size_t counts){
   if (log_json){
     json j;
