@@ -213,7 +213,7 @@ class Tensor(torch._C._TensorBase):
         state = torch._utils._get_obj_state(self)
         if type(self) is Tensor and not state:
             # Fast path for regular tensor without Python state.
-            return self._reduce_ex_internal(proto)
+            return self.decheckpoint()._reduce_ex_internal(proto)
         if has_torch_function_unary(self):
             return handle_torch_function(Tensor.__reduce_ex__, (self,), self, proto)
         func, args = self._reduce_ex_internal(proto)

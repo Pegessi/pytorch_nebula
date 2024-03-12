@@ -3648,6 +3648,7 @@
     SparseCsrCPU, SparseCsrCUDA: mul_sparse_csr_
     MkldnnCPU: mkldnn_mul_
     NestedTensorCPU, NestedTensorCUDA: NestedTensor_mul__Tensor
+    Checkpoint: checkpoint_mul_
   tags: pointwise
 - func: mul.out(Tensor self, Tensor other, *, Tensor(a!) out) -> Tensor(a!)
   device_check: NoCheck
@@ -3680,6 +3681,7 @@
     CompositeExplicitAutograd: mul_
     SparseCsrCPU, SparseCsrCUDA: mul__scalar_sparse_csr
     NestedTensorCPU, NestedTensorCUDA: NestedTensor_mul__Scalar
+    Checkpoint: checkpoint_mul_
   autogen: mul.Scalar_out
   tags: pointwise
 - func: multiply.Tensor(Tensor self, Tensor other) -> Tensor

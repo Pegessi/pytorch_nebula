@@ -59,7 +59,7 @@ Tensor& checkpoint_mul_(at::Tensor& a, at::Tensor const& b) {
   return a;
 }
 
-Tensor& checkpoint_mul_(at::Tensor& a, c10::Scalar b) {
+Tensor& checkpoint_mul_(at::Tensor& a, const Scalar& b) {
   mutate_function_t mt =
     [=](const Tensors& vec) {
       vec.at(0).mul_(b);

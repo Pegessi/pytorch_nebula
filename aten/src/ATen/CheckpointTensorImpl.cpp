@@ -17,10 +17,10 @@
 
 // #define TIME_REC                      /// 方便debug的宏定义
 #define MINIMAL_EVICT                    /// 最小驱逐策略（贪心+随机 DTR）
-// #define MINIMAL_EVICT_COST                /// 最小驱逐策略+cost cache（贪心+随机 DTR）
-// #define MEM_ORDER_ENABLE                /// 是否启用mem order策略
-// #define DEPENDENCY_CHECK 
-#define DEGREE_CHAIN
+// #define MINIMAL_EVICT_COST            /// 最小驱逐策略+cost cache（贪心+随机 DTR）
+// #define MEM_ORDER_ENABLE              /// 是否启用mem order策略
+// #define DEPENDENCY_CHECK              /// 依赖检查策略
+#define DEGREE_CHAIN                     /// 残差链发现策略
 
 int dep_threshold = 50;             /// 重物化链深度阈值
 int threshold_touch_counts = 0;     /// 累积触发次数
@@ -548,27 +548,28 @@ namespace dtb {
 
       void clear_checkpointpool(int device){
         auto pool = device_dtbpool[device].get();
-        /// for debug, clear_exts will 
-        // for (size_t i = 0; i < pool->aps.size(); i++) {
-        //   auto ap_strong = pool->aps[i].lock();
-        //   if (!ap_strong.defined()||ap_strong->ecn) {
-        //     continue;
-        //   } else {
-        //     if (ap_strong->is_retain) {
-        //       DTRLogCounts("ap tensors size", ap_strong->tensors.size());
-        //       auto t = ap_strong->tensors.back().lock();
-        //       DTRLogTensorInfo(t->counter_name(), ap_strong->addr, ap_strong->memory, 0, 0, 0);
-        //       // for(const auto&t: ap_strong->tensors){
-        //       //   auto cell = t.lock();
-        //       //   if(cell->defined)
-        //       //     DTRLogTensorInfo(cell->counter_name(), ap_strong->addr, ap_strong->memory, cell->get_degree(), 0, 0);
-        //       // }
-        //       ap_strong->unlock();
-        //     }
-        //   }
-        // }
-        pool->clear_exts();
-        
+        if(pool->has_memory_budget){
+          /// for debug, clear_exts will 
+          // for (size_t i = 0; i < pool->aps.size(); i++) {
+          //   auto ap_strong = pool->aps[i].lock();
+          //   if (!ap_strong.defined()||ap_strong->ecn) {
+          //     continue;
+          //   } else {
+          //     if (ap_strong->is_retain) {
+          //       DTRLogCounts("ap tensors size", ap_strong->tensors.size());
+          //       auto t = ap_strong->tensors.back().lock();
+          //       DTRLogTensorInfo(t->counter_name(), ap_strong->addr, ap_strong->memory, 0, 0, 0);
+          //       // for(const auto&t: ap_strong->tensors){
+          //       //   auto cell = t.lock();
+          //       //   if(cell->defined)
+          //       //     DTRLogTensorInfo(cell->counter_name(), ap_strong->addr, ap_strong->memory, cell->get_degree(), 0, 0);
+          //       // }
+          //       ap_strong->unlock();
+          //     }
+          //   }
+          // }
+          pool->clear_exts();
+        }
       }
 
       void pool_cur_mem_snapshot(int device){
