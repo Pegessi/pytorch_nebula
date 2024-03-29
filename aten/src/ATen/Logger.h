@@ -166,7 +166,7 @@ void DTRLogTensorInfo(const std::string& name, uintptr_t addr, size_t memory, si
   }
 }
 
-void DTRLogOPRecords(const int64_t& rid, const std::string& name, const int64_t& compute_cost, size_t &mem_cost, std::vector<string> &inputs, std::vector<string> &outputs){
+void DTRLogOPRecords(const int64_t& rid, const std::string& name, const int64_t& compute_cost, size_t &mem_cost, std::vector<string> &inputs, std::vector<string> &outputs, int device){
    if (log_json){
     json j;
     j[INSTRUCTION] = INSTRUCTION;
@@ -176,6 +176,7 @@ void DTRLogOPRecords(const int64_t& rid, const std::string& name, const int64_t&
     j["mem_cost"] = std::to_string(mem_cost);
     j["inputs"] = inputs;
     j["outputs"] = outputs;
+    j["device"] = device;
     DTRLogger::logger().log(j.dump());
   } else {
     DTRLogger::logger().log(CONSTANT + " " + name);

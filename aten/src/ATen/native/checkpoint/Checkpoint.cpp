@@ -440,16 +440,16 @@ Tensor checkpoint_rsub(at::Tensor const& a, c10::Scalar b, c10::Scalar c) {
 //   return CheckpointTensorImpl::make("mul", rt, {a})[0];
 // }
 
-std::tuple<Tensor&, Tensor&> checkpoint_max_pool2d_with_indices_out(Tensor& a, Tensor& b, const Tensor& c, c10::ArrayRef<long> d, c10::ArrayRef<long> e, c10::ArrayRef<long> f, c10::ArrayRef<long> g, bool h) {
-  std::vector<long> d_ = d.vec(), e_ = e.vec(), f_ = f.vec(), g_ = g.vec();
-  mutate_function_t mt =
-    [=](const Tensors& vec) {
-      Tensor a_ = vec.at(0), b_ = vec.at(1);
-      at::max_pool2d_with_indices_out(a_, b_, vec.at(2), d_, e_, f_, g_, h);
-    };
-  CheckpointTensorImpl::mutate("max_pool2d_with_indices_out", mt, {a, b, c}, {0, 1});
-  return {a, b};
-}
+// std::tuple<Tensor&, Tensor&> checkpoint_max_pool2d_with_indices_out(Tensor& a, Tensor& b, const Tensor& c, c10::ArrayRef<long> d, c10::ArrayRef<long> e, c10::ArrayRef<long> f, c10::ArrayRef<long> g, bool h) {
+//   std::vector<long> d_ = d.vec(), e_ = e.vec(), f_ = f.vec(), g_ = g.vec();
+//   mutate_function_t mt =
+//     [=](const Tensors& vec) {
+//       Tensor a_ = vec.at(0), b_ = vec.at(1);
+//       at::max_pool2d_with_indices_out(a_, b_, vec.at(2), d_, e_, f_, g_, h);
+//     };
+//   CheckpointTensorImpl::mutate("max_pool2d_with_indices_out", mt, {a, b, c}, {0, 1});
+//   return {a, b};
+// }
 
 Tensor checkpoint_avg_pool2d(const Tensor& a, c10::ArrayRef<long> b, c10::ArrayRef<long> c, c10::ArrayRef<long> d, bool e, bool f, c10::optional<long> g) {
   std::vector<long> b_ = b.vec(), c_ = c.vec(), d_ = d.vec();
@@ -491,36 +491,36 @@ Tensor& checkpoint_avg_pool2d_backward_grad_input(Tensor& a, const Tensor& b, co
   return a;
 }
 
-std::tuple<Tensor, Tensor> checkpoint_max_pool2d_with_indices(const Tensor& a, c10::ArrayRef<long> b, c10::ArrayRef<long> c, c10::ArrayRef<long> d, c10::ArrayRef<long> e, bool f) {
-  std::vector<long> b_ = b.vec(), c_ = c.vec(), d_ = d.vec(), e_ = e.vec();
-  rematerialize_function_t rt =
-    [=](const Tensors& vec) -> Tensors {
-      auto ret = at::max_pool2d_with_indices(vec.at(0), b_, c_, d_, e_, f);
-      return {std::get<0>(ret), std::get<1>(ret)};
-    };
-  auto ret = CheckpointTensorImpl::make("max_pool2d_backward", rt, {a});
-  return {ret[0], ret[1]};
-}
+// std::tuple<Tensor, Tensor> checkpoint_max_pool2d_with_indices(const Tensor& a, c10::ArrayRef<long> b, c10::ArrayRef<long> c, c10::ArrayRef<long> d, c10::ArrayRef<long> e, bool f) {
+//   std::vector<long> b_ = b.vec(), c_ = c.vec(), d_ = d.vec(), e_ = e.vec();
+//   rematerialize_function_t rt =
+//     [=](const Tensors& vec) -> Tensors {
+//       auto ret = at::max_pool2d_with_indices(vec.at(0), b_, c_, d_, e_, f);
+//       return {std::get<0>(ret), std::get<1>(ret)};
+//     };
+//   auto ret = CheckpointTensorImpl::make("max_pool2d_backward", rt, {a});
+//   return {ret[0], ret[1]};
+// }
 
-Tensor& checkpoint_max_pool2d_with_indices_backward_grad_input(Tensor& a, const Tensor& b, const Tensor& c, c10::ArrayRef<long> d, c10::ArrayRef<long> e, c10::ArrayRef<long> f, c10::ArrayRef<long> g, bool h, const Tensor& i) {
-  std::vector<long> d_ = d.vec(), e_ = e.vec(), f_ = f.vec(), g_ = g.vec();
-  mutate_function_t mt =
-    [=](const Tensors& vec) {
-      Tensor a_ = vec.at(0);
-      at::max_pool2d_with_indices_backward_out(a_, vec.at(1), vec.at(2), d_, e_, f_, g, h, vec.at(3));
-    };
-  CheckpointTensorImpl::mutate("max_pool2d_with_indices_backward_grad_input", mt, {a, b, c, i}, {0});
-  return a;
-}
+// Tensor& checkpoint_max_pool2d_with_indices_backward_grad_input(Tensor& a, const Tensor& b, const Tensor& c, c10::ArrayRef<long> d, c10::ArrayRef<long> e, c10::ArrayRef<long> f, c10::ArrayRef<long> g, bool h, const Tensor& i) {
+//   std::vector<long> d_ = d.vec(), e_ = e.vec(), f_ = f.vec(), g_ = g.vec();
+//   mutate_function_t mt =
+//     [=](const Tensors& vec) {
+//       Tensor a_ = vec.at(0);
+//       at::max_pool2d_with_indices_backward_out(a_, vec.at(1), vec.at(2), d_, e_, f_, g, h, vec.at(3));
+//     };
+//   CheckpointTensorImpl::mutate("max_pool2d_with_indices_backward_grad_input", mt, {a, b, c, i}, {0});
+//   return a;
+// }
 
-Tensor checkpoint_max_pool2d_with_indices_backward(const Tensor& a, const Tensor& b, c10::ArrayRef<long> c, c10::ArrayRef<long> d, c10::ArrayRef<long> e, c10::ArrayRef<long> f, bool g, const Tensor& h) {
-  std::vector<long> c_ = c.vec(), d_ = d.vec(), e_ = e.vec(), f_ = f.vec();
-  rematerialize_function_t rt =
-    [=](const Tensors& vec) -> Tensors {
-      return {at::max_pool2d_with_indices_backward(vec.at(0), vec.at(1), c_, d_, e_, f_, g, vec.at(2))};
-    };
-  return CheckpointTensorImpl::make("max_pool2d_with_indices_backward", rt, {a, b, h})[0];
-}
+// Tensor checkpoint_max_pool2d_with_indices_backward(const Tensor& a, const Tensor& b, c10::ArrayRef<long> c, c10::ArrayRef<long> d, c10::ArrayRef<long> e, c10::ArrayRef<long> f, bool g, const Tensor& h) {
+//   std::vector<long> c_ = c.vec(), d_ = d.vec(), e_ = e.vec(), f_ = f.vec();
+//   rematerialize_function_t rt =
+//     [=](const Tensors& vec) -> Tensors {
+//       return {at::max_pool2d_with_indices_backward(vec.at(0), vec.at(1), c_, d_, e_, f_, g, vec.at(2))};
+//     };
+//   return CheckpointTensorImpl::make("max_pool2d_with_indices_backward", rt, {a, b, h})[0];
+// }
 
 Tensor checkpoint_view(const Tensor& a, c10::ArrayRef<long> b) {
   std::vector<long> b_ = b.vec();
@@ -1487,15 +1487,15 @@ std::tuple<Tensor&, Tensor&, Tensor&> checkpoint_native_batch_norm_out(Tensor& o
   return {out, save_mean, save_invstd};
 }
 
-std::tuple<Tensor, Tensor, Tensor> checkpoint_native_batch_norm_backward(const Tensor& grad_out, const Tensor& input, const Tensor& weight, const Tensor& running_mean, const Tensor& running_var, const Tensor& save_mean, const Tensor& save_invstd, bool train, double eps, std::array<bool, 3ul> output_mask) {
-  rematerialize_function_t rt =
-    [=](const Tensors& vec) -> Tensors {
-    auto ret = at::native_batch_norm_backward(vec.at(0), vec.at(1), vec.at(2), vec.at(3), vec.at(4), vec.at(5), vec.at(6), train, eps, output_mask);
-    return {std::get<0>(ret), std::get<1>(ret), std::get<2>(ret)};
-  };
-  auto ret = CheckpointTensorImpl::make("native_batch_norm_backward", rt, {grad_out, input, weight, running_mean, running_var, save_mean, save_invstd});
-  return {ret[0], ret[1], ret[2]};
-}
+// std::tuple<Tensor, Tensor, Tensor> checkpoint_native_batch_norm_backward(const Tensor& grad_out, const Tensor& input, const Tensor& weight, const Tensor& running_mean, const Tensor& running_var, const Tensor& save_mean, const Tensor& save_invstd, bool train, double eps, std::array<bool, 3ul> output_mask) {
+//   rematerialize_function_t rt =
+//     [=](const Tensors& vec) -> Tensors {
+//     auto ret = at::native_batch_norm_backward(vec.at(0), vec.at(1), vec.at(2), vec.at(3), vec.at(4), vec.at(5), vec.at(6), train, eps, output_mask);
+//     return {std::get<0>(ret), std::get<1>(ret), std::get<2>(ret)};
+//   };
+//   auto ret = CheckpointTensorImpl::make("native_batch_norm_backward", rt, {grad_out, input, weight, running_mean, running_var, save_mean, save_invstd});
+//   return {ret[0], ret[1], ret[2]};
+// }
 
 std::tuple<Tensor, Tensor> checkpoint__cudnn_ctc_loss(const Tensor& log_probs, const Tensor& targets, ArrayRef<long> input_lengths, ArrayRef<long> target_lengths, long blank, bool deterministic, bool zero_infinity) {
   auto input_lengths_ = input_lengths.vec();
@@ -2086,6 +2086,319 @@ at::Tensor & checkpoint_zero_(at::Tensor & self) {
   return {self};
 }
 
+/// ['aten::_slow_conv2d_forward_out', 'at::Tensor &', '_slow_conv2d_forward_out', '(at::Tensor & output, const at::Tensor & self, const at::Tensor & weight, at::IntArrayRef kernel_size, const c10::optional<at::Tensor> & bias, at::IntArrayRef stride, at::IntArrayRef padding)']
+at::Tensor & checkpoint__slow_conv2d_forward_out(at::Tensor & output, const at::Tensor & self, const at::Tensor & weight, at::IntArrayRef kernel_size, const c10::optional<at::Tensor> & bias, at::IntArrayRef stride, at::IntArrayRef padding) {
+  auto kernel_size_ = kernel_size.vec();
+  auto stride_ = stride.vec();
+  auto padding_ = padding.vec();
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      Tensor output = vec.at(0);
+      return {at::_slow_conv2d_forward_out(output, vec.at(1), vec.at(2), kernel_size_, vec.at(3), stride_, padding_)};
+    };
+  c10::MaybeOwned<Tensor> bias_maybe_owned = at::borrow_from_optional_tensor(bias);
+  const Tensor& bias_ = *bias_maybe_owned;
+  return CheckpointTensorImpl::make("aten::_slow_conv2d_forward_out", rt, {output, self, weight, bias_})[0];
+}
+
+
+/// ['aten::_slow_conv2d_forward_outf', 'at::Tensor &', '_slow_conv2d_forward_outf', '(const at::Tensor & self, const at::Tensor & weight, at::IntArrayRef kernel_size, const c10::optional<at::Tensor> & bias, at::IntArrayRef stride, at::IntArrayRef padding, at::Tensor & output)']
+at::Tensor & checkpoint__slow_conv2d_forward_outf(const at::Tensor & self, const at::Tensor & weight, at::IntArrayRef kernel_size, const c10::optional<at::Tensor> & bias, at::IntArrayRef stride, at::IntArrayRef padding, at::Tensor & output) {
+  auto kernel_size_ = kernel_size.vec();
+  auto stride_ = stride.vec();
+  auto padding_ = padding.vec();
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      Tensor output = vec.at(3);
+      return {at::_slow_conv2d_forward_outf(vec.at(0), vec.at(1), kernel_size_, vec.at(2), stride_, padding_, output)};
+    };
+  c10::MaybeOwned<Tensor> bias_maybe_owned = at::borrow_from_optional_tensor(bias);
+  const Tensor& bias_ = *bias_maybe_owned;
+  return CheckpointTensorImpl::make("aten::_slow_conv2d_forward_outf", rt, {self, weight, bias_, output})[0];
+}
+
+/// ['aten::_slow_conv2d_forward', 'at::Tensor', '_slow_conv2d_forward', '(const at::Tensor & self, const at::Tensor & weight, at::IntArrayRef kernel_size, const c10::optional<at::Tensor> & bias, at::IntArrayRef stride, at::IntArrayRef padding)']
+at::Tensor checkpoint__slow_conv2d_forward(const at::Tensor & self, const at::Tensor & weight, at::IntArrayRef kernel_size, const c10::optional<at::Tensor> & bias, at::IntArrayRef stride, at::IntArrayRef padding) {
+  auto kernel_size_ = kernel_size.vec();
+  auto stride_ = stride.vec();
+  auto padding_ = padding.vec();
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      return {at::_slow_conv2d_forward(vec.at(0), vec.at(1), kernel_size_, vec.at(2), stride_, padding_)};
+    };
+  c10::MaybeOwned<Tensor> bias_maybe_owned = at::borrow_from_optional_tensor(bias);
+  const Tensor& bias_ = *bias_maybe_owned;
+  return CheckpointTensorImpl::make("aten::_slow_conv2d_forward", rt, {self, weight, bias_})[0];
+}
+
+/// ['aten::_slow_conv2d_backward.grad_input', '::std::tuple<at::Tensor &,at::Tensor &,at::Tensor &>', '_slow_conv2d_backward_out', '(at::Tensor & grad_input, at::Tensor & grad_weight, at::Tensor & grad_bias, const at::Tensor & grad_output, const at::Tensor & self, const at::Tensor & weight, at::IntArrayRef kernel_size, at::IntArrayRef stride, at::IntArrayRef padding)']
+::std::tuple<at::Tensor &,at::Tensor &,at::Tensor &> checkpoint__slow_conv2d_backward_out(at::Tensor & grad_input, at::Tensor & grad_weight, at::Tensor & grad_bias, const at::Tensor & grad_output, const at::Tensor & self, const at::Tensor & weight, at::IntArrayRef kernel_size, at::IntArrayRef stride, at::IntArrayRef padding) {
+  auto kernel_size_ = kernel_size.vec();
+  auto stride_ = stride.vec();
+  auto padding_ = padding.vec();
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      Tensor grad_input = vec.at(0);
+      Tensor grad_weight = vec.at(1);
+      Tensor grad_bias = vec.at(2);
+      auto ret = at::_slow_conv2d_backward_out(grad_input, grad_weight, grad_bias, vec.at(3), vec.at(4), vec.at(5), kernel_size_, stride_, padding_);
+      return {std::get<0>(ret), std::get<1>(ret), std::get<2>(ret)};
+    };
+  auto ret = CheckpointTensorImpl::make("aten::_slow_conv2d_backward.grad_input", rt, {grad_input, grad_weight, grad_bias, grad_output, self, weight});
+  return {ret[0], ret[1], ret[2]};
+}
+
+/// ['aten::_slow_conv2d_backward.grad_input', '::std::tuple<at::Tensor &,at::Tensor &,at::Tensor &>', '_slow_conv2d_backward_outf', '(const at::Tensor & grad_output, const at::Tensor & self, const at::Tensor & weight, at::IntArrayRef kernel_size, at::IntArrayRef stride, at::IntArrayRef padding, at::Tensor & grad_input, at::Tensor & grad_weight, at::Tensor & grad_bias)']
+::std::tuple<at::Tensor &,at::Tensor &,at::Tensor &> checkpoint__slow_conv2d_backward_outf(const at::Tensor & grad_output, const at::Tensor & self, const at::Tensor & weight, at::IntArrayRef kernel_size, at::IntArrayRef stride, at::IntArrayRef padding, at::Tensor & grad_input, at::Tensor & grad_weight, at::Tensor & grad_bias) {
+  auto kernel_size_ = kernel_size.vec();
+  auto stride_ = stride.vec();
+  auto padding_ = padding.vec();
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      Tensor grad_input = vec.at(3);
+      Tensor grad_weight = vec.at(4);
+      Tensor grad_bias = vec.at(5);
+      auto ret = at::_slow_conv2d_backward_outf(vec.at(0), vec.at(1), vec.at(2), kernel_size_, stride_, padding_, grad_input, grad_weight, grad_bias);
+      return {std::get<0>(ret), std::get<1>(ret), std::get<2>(ret)};
+    };
+  auto ret = CheckpointTensorImpl::make("aten::_slow_conv2d_backward.grad_input", rt, {grad_output, self, weight, grad_input, grad_weight, grad_bias});
+  return {ret[0], ret[1], ret[2]};
+}
+
+/// ['aten::_slow_conv2d_backward.output_mask', '::std::tuple<at::Tensor,at::Tensor,at::Tensor>', '_slow_conv2d_backward', '(const at::Tensor & grad_output, const at::Tensor & self, const at::Tensor & weight, at::IntArrayRef kernel_size, at::IntArrayRef stride, at::IntArrayRef padding, ::std::array<bool,3> output_mask)']
+::std::tuple<at::Tensor,at::Tensor,at::Tensor> checkpoint__slow_conv2d_backward(const at::Tensor & grad_output, const at::Tensor & self, const at::Tensor & weight, at::IntArrayRef kernel_size, at::IntArrayRef stride, at::IntArrayRef padding, ::std::array<bool,3> output_mask) {
+  auto kernel_size_ = kernel_size.vec();
+  auto stride_ = stride.vec();
+  auto padding_ = padding.vec();
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      auto ret = at::_slow_conv2d_backward(vec.at(0), vec.at(1), vec.at(2), kernel_size_, stride_, padding_, output_mask);
+      return {std::get<0>(ret), std::get<1>(ret), std::get<2>(ret)};
+    };
+  auto ret = CheckpointTensorImpl::make("aten::_slow_conv2d_backward.output_mask", rt, {grad_output, self, weight});
+  return {ret[0], ret[1], ret[2]};
+}
+
+/// ['aten::_slow_conv2d_backward.output_mask_out', '::std::tuple<at::Tensor &,at::Tensor &,at::Tensor &>', '_slow_conv2d_backward_out', '(at::Tensor & out0, at::Tensor & out1, at::Tensor & out2, const at::Tensor & grad_output, const at::Tensor & self, const at::Tensor & weight, at::IntArrayRef kernel_size, at::IntArrayRef stride, at::IntArrayRef padding, ::std::array<bool,3> output_mask)']
+::std::tuple<at::Tensor &,at::Tensor &,at::Tensor &> checkpoint__slow_conv2d_backward_out(at::Tensor & out0, at::Tensor & out1, at::Tensor & out2, const at::Tensor & grad_output, const at::Tensor & self, const at::Tensor & weight, at::IntArrayRef kernel_size, at::IntArrayRef stride, at::IntArrayRef padding, ::std::array<bool,3> output_mask) {
+  auto kernel_size_ = kernel_size.vec();
+  auto stride_ = stride.vec();
+  auto padding_ = padding.vec();
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      Tensor out0 = vec.at(0);
+      Tensor out1 = vec.at(1);
+      Tensor out2 = vec.at(2);
+      auto ret = at::_slow_conv2d_backward_out(out0, out1, out2, vec.at(3), vec.at(4), vec.at(5), kernel_size_, stride_, padding_, output_mask);
+      return {std::get<0>(ret), std::get<1>(ret), std::get<2>(ret)};
+    };
+  auto ret = CheckpointTensorImpl::make("aten::_slow_conv2d_backward.output_mask_out", rt, {out0, out1, out2, grad_output, self, weight});
+  return {ret[0], ret[1], ret[2]};
+}
+
+/// ['aten::_slow_conv2d_backward.output_mask_out', '::std::tuple<at::Tensor &,at::Tensor &,at::Tensor &>', '_slow_conv2d_backward_outf', '(const at::Tensor & grad_output, const at::Tensor & self, const at::Tensor & weight, at::IntArrayRef kernel_size, at::IntArrayRef stride, at::IntArrayRef padding, ::std::array<bool,3> output_mask, at::Tensor & out0, at::Tensor & out1, at::Tensor & out2)']
+::std::tuple<at::Tensor &,at::Tensor &,at::Tensor &> checkpoint__slow_conv2d_backward_outf(const at::Tensor & grad_output, const at::Tensor & self, const at::Tensor & weight, at::IntArrayRef kernel_size, at::IntArrayRef stride, at::IntArrayRef padding, ::std::array<bool,3> output_mask, at::Tensor & out0, at::Tensor & out1, at::Tensor & out2) {
+  auto kernel_size_ = kernel_size.vec();
+  auto stride_ = stride.vec();
+  auto padding_ = padding.vec();
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      Tensor out0 = vec.at(3);
+      Tensor out1 = vec.at(4);
+      Tensor out2 = vec.at(5);
+      auto ret = at::_slow_conv2d_backward_outf(vec.at(0), vec.at(1), vec.at(2), kernel_size_, stride_, padding_, output_mask, out0, out1, out2);
+      return {std::get<0>(ret), std::get<1>(ret), std::get<2>(ret)};
+    };
+  auto ret = CheckpointTensorImpl::make("aten::_slow_conv2d_backward.output_mask_out", rt, {grad_output, self, weight, out0, out1, out2});
+  return {ret[0], ret[1], ret[2]};
+}
+
+/// ['aten::max_pool2d_with_indices.out', '::std::tuple<at::Tensor &,at::Tensor &>', 'max_pool2d_with_indices_out', '(at::Tensor & out, at::Tensor & indices, const at::Tensor & self, at::IntArrayRef kernel_size, at::IntArrayRef stride={}, at::IntArrayRef padding=0, at::IntArrayRef dilation=1, bool ceil_mode=false)']
+::std::tuple<at::Tensor &,at::Tensor &> checkpoint_max_pool2d_with_indices_out(at::Tensor & out, at::Tensor & indices, const at::Tensor & self, at::IntArrayRef kernel_size, at::IntArrayRef stride, at::IntArrayRef padding, at::IntArrayRef dilation, bool ceil_mode) {
+  auto kernel_size_ = kernel_size.vec();
+  auto stride_ = stride.vec();
+  auto padding_ = padding.vec();
+  auto dilation_ = dilation.vec();
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      Tensor out = vec.at(0);
+      Tensor indices = vec.at(1);
+      auto ret = at::max_pool2d_with_indices_out(out, indices, vec.at(2), kernel_size_, stride_, padding_, dilation_, ceil_mode);
+      return {std::get<0>(ret), std::get<1>(ret)};
+    };
+  auto ret = CheckpointTensorImpl::make("aten::max_pool2d_with_indices.out", rt, {out, indices, self});
+  return {ret[0], ret[1]};
+}
+
+/// TODO: BUG max_pool2d_with_indices produces leaky memory for some reason unknown(temporarily)
+/// ['aten::max_pool2d_with_indices.out', '::std::tuple<at::Tensor &,at::Tensor &>', 'max_pool2d_with_indices_outf', '(const at::Tensor & self, at::IntArrayRef kernel_size, at::IntArrayRef stride, at::IntArrayRef padding, at::IntArrayRef dilation, bool ceil_mode, at::Tensor & out, at::Tensor & indices)']
+::std::tuple<at::Tensor &,at::Tensor &> checkpoint_max_pool2d_with_indices_outf(const at::Tensor & self, at::IntArrayRef kernel_size, at::IntArrayRef stride, at::IntArrayRef padding, at::IntArrayRef dilation, bool ceil_mode, at::Tensor & out, at::Tensor & indices) {
+  auto kernel_size_ = kernel_size.vec();
+  auto stride_ = stride.vec();
+  auto padding_ = padding.vec();
+  auto dilation_ = dilation.vec();
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      Tensor out = vec.at(1);
+      Tensor indices = vec.at(2);
+      auto ret = at::max_pool2d_with_indices_outf(vec.at(0), kernel_size_, stride_, padding_, dilation_, ceil_mode, out, indices);
+      // at::max_pool2d_with_indices_out(out, indices, vec.at(0), kernel_size_, stride_, padding_, dilation_, ceil_mode);
+      return {std::get<0>(ret), std::get<1>(ret)};
+    };
+  auto ret = CheckpointTensorImpl::make("aten::max_pool2d_with_indices.out", rt, {self, out, indices});
+  return {ret[0], ret[1]};
+  // out = out.checkpoint();
+  // indices = indices.checkpoint();
+  // CheckpointTensorImpl::mutate("aten::max_pool2d_with_indices.out", mt, {self, out, indices}, {1, 2});
+  // return {out, indices};
+}
+
+/// ['aten::max_pool2d_with_indices', '::std::tuple<at::Tensor,at::Tensor>', 'max_pool2d_with_indices', '(const at::Tensor & self, at::IntArrayRef kernel_size, at::IntArrayRef stride={}, at::IntArrayRef padding=0, at::IntArrayRef dilation=1, bool ceil_mode=false)']
+::std::tuple<at::Tensor,at::Tensor> checkpoint_max_pool2d_with_indices(const at::Tensor & self, at::IntArrayRef kernel_size, at::IntArrayRef stride, at::IntArrayRef padding, at::IntArrayRef dilation, bool ceil_mode) {
+  auto kernel_size_ = kernel_size.vec();
+  auto stride_ = stride.vec();
+  auto padding_ = padding.vec();
+  auto dilation_ = dilation.vec();
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      auto ret = at::max_pool2d_with_indices(vec.at(0), kernel_size_, stride_, padding_, dilation_, ceil_mode);
+      return {std::get<0>(ret), std::get<1>(ret)};
+    };
+  auto ret = CheckpointTensorImpl::make("aten::max_pool2d_with_indices", rt, {self});
+  return {ret[0], ret[1]};
+}
+
+/// ['aten::native_batch_norm_backward', '::std::tuple<at::Tensor,at::Tensor,at::Tensor>', 'native_batch_norm_backward', '(const at::Tensor & grad_out, const at::Tensor & input, const c10::optional<at::Tensor> & weight, const c10::optional<at::Tensor> & running_mean, const c10::optional<at::Tensor> & running_var, const c10::optional<at::Tensor> & save_mean, const c10::optional<at::Tensor> & save_invstd, bool train, double eps, ::std::array<bool,3> output_mask)']
+::std::tuple<at::Tensor,at::Tensor,at::Tensor> checkpoint_native_batch_norm_backward(const at::Tensor & grad_out, const at::Tensor & input, const c10::optional<at::Tensor> & weight, const c10::optional<at::Tensor> & running_mean, const c10::optional<at::Tensor> & running_var, const c10::optional<at::Tensor> & save_mean, const c10::optional<at::Tensor> & save_invstd, bool train, double eps, ::std::array<bool,3> output_mask) {
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      auto ret = at::native_batch_norm_backward(vec.at(0), vec.at(1), vec.at(2), vec.at(3), vec.at(4), vec.at(5), vec.at(6), train, eps, output_mask);
+      return {std::get<0>(ret), std::get<1>(ret), std::get<2>(ret)};
+    };
+  c10::MaybeOwned<Tensor> weight_maybe_owned = at::borrow_from_optional_tensor(weight);
+  const Tensor& weight_ = *weight_maybe_owned;
+  c10::MaybeOwned<Tensor> running_mean_maybe_owned = at::borrow_from_optional_tensor(running_mean);
+  const Tensor& running_mean_ = *running_mean_maybe_owned;
+  c10::MaybeOwned<Tensor> running_var_maybe_owned = at::borrow_from_optional_tensor(running_var);
+  const Tensor& running_var_ = *running_var_maybe_owned;
+  c10::MaybeOwned<Tensor> save_mean_maybe_owned = at::borrow_from_optional_tensor(save_mean);
+  const Tensor& save_mean_ = *save_mean_maybe_owned;
+  c10::MaybeOwned<Tensor> save_invstd_maybe_owned = at::borrow_from_optional_tensor(save_invstd);
+  const Tensor& save_invstd_ = *save_invstd_maybe_owned;
+  auto ret = CheckpointTensorImpl::make("aten::native_batch_norm_backward", rt, {grad_out, input, weight_, running_mean_, running_var_, save_mean_, save_invstd_});
+  return {ret[0], ret[1], ret[2]};
+}
+
+/// ['aten::native_batch_norm_backward.out', '::std::tuple<at::Tensor &,at::Tensor &,at::Tensor &>', 'native_batch_norm_backward_out', '(at::Tensor & out0, at::Tensor & out1, at::Tensor & out2, const at::Tensor & grad_out, const at::Tensor & input, const c10::optional<at::Tensor> & weight, const c10::optional<at::Tensor> & running_mean, const c10::optional<at::Tensor> & running_var, const c10::optional<at::Tensor> & save_mean, const c10::optional<at::Tensor> & save_invstd, bool train, double eps, ::std::array<bool,3> output_mask)']
+::std::tuple<at::Tensor &,at::Tensor &,at::Tensor &> checkpoint_native_batch_norm_backward_out(at::Tensor & out0, at::Tensor & out1, at::Tensor & out2, const at::Tensor & grad_out, const at::Tensor & input, const c10::optional<at::Tensor> & weight, const c10::optional<at::Tensor> & running_mean, const c10::optional<at::Tensor> & running_var, const c10::optional<at::Tensor> & save_mean, const c10::optional<at::Tensor> & save_invstd, bool train, double eps, ::std::array<bool,3> output_mask) {
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      Tensor out0 = vec.at(0);
+      Tensor out1 = vec.at(1);
+      Tensor out2 = vec.at(2);
+      auto ret = at::native_batch_norm_backward_out(out0, out1, out2, vec.at(3), vec.at(4), vec.at(5), vec.at(6), vec.at(7), vec.at(8), vec.at(9), train, eps, output_mask);
+      return {std::get<0>(ret), std::get<1>(ret), std::get<2>(ret)};
+    };
+  c10::MaybeOwned<Tensor> weight_maybe_owned = at::borrow_from_optional_tensor(weight);
+  const Tensor& weight_ = *weight_maybe_owned;
+  c10::MaybeOwned<Tensor> running_mean_maybe_owned = at::borrow_from_optional_tensor(running_mean);
+  const Tensor& running_mean_ = *running_mean_maybe_owned;
+  c10::MaybeOwned<Tensor> running_var_maybe_owned = at::borrow_from_optional_tensor(running_var);
+  const Tensor& running_var_ = *running_var_maybe_owned;
+  c10::MaybeOwned<Tensor> save_mean_maybe_owned = at::borrow_from_optional_tensor(save_mean);
+  const Tensor& save_mean_ = *save_mean_maybe_owned;
+  c10::MaybeOwned<Tensor> save_invstd_maybe_owned = at::borrow_from_optional_tensor(save_invstd);
+  const Tensor& save_invstd_ = *save_invstd_maybe_owned;
+  auto ret = CheckpointTensorImpl::make("aten::native_batch_norm_backward.out", rt, {out0, out1, out2, grad_out, input, weight_, running_mean_, running_var_, save_mean_, save_invstd_});
+  return {ret[0], ret[1], ret[2]};
+}
+
+/// ['aten::native_batch_norm_backward.out', '::std::tuple<at::Tensor &,at::Tensor &,at::Tensor &>', 'native_batch_norm_backward_outf', '(const at::Tensor & grad_out, const at::Tensor & input, const c10::optional<at::Tensor> & weight, const c10::optional<at::Tensor> & running_mean, const c10::optional<at::Tensor> & running_var, const c10::optional<at::Tensor> & save_mean, const c10::optional<at::Tensor> & save_invstd, bool train, double eps, ::std::array<bool,3> output_mask, at::Tensor & out0, at::Tensor & out1, at::Tensor & out2)']
+::std::tuple<at::Tensor &,at::Tensor &,at::Tensor &> checkpoint_native_batch_norm_backward_outf(const at::Tensor & grad_out, const at::Tensor & input, const c10::optional<at::Tensor> & weight, const c10::optional<at::Tensor> & running_mean, const c10::optional<at::Tensor> & running_var, const c10::optional<at::Tensor> & save_mean, const c10::optional<at::Tensor> & save_invstd, bool train, double eps, ::std::array<bool,3> output_mask, at::Tensor & out0, at::Tensor & out1, at::Tensor & out2) {
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      Tensor out0 = vec.at(7);
+      Tensor out1 = vec.at(8);
+      Tensor out2 = vec.at(9);
+      auto ret = at::native_batch_norm_backward_outf(vec.at(0), vec.at(1), vec.at(2), vec.at(3), vec.at(4), vec.at(5), vec.at(6), train, eps, output_mask, out0, out1, out2);
+      return {std::get<0>(ret), std::get<1>(ret), std::get<2>(ret)};
+    };
+  c10::MaybeOwned<Tensor> weight_maybe_owned = at::borrow_from_optional_tensor(weight);
+  const Tensor& weight_ = *weight_maybe_owned;
+  c10::MaybeOwned<Tensor> running_mean_maybe_owned = at::borrow_from_optional_tensor(running_mean);
+  const Tensor& running_mean_ = *running_mean_maybe_owned;
+  c10::MaybeOwned<Tensor> running_var_maybe_owned = at::borrow_from_optional_tensor(running_var);
+  const Tensor& running_var_ = *running_var_maybe_owned;
+  c10::MaybeOwned<Tensor> save_mean_maybe_owned = at::borrow_from_optional_tensor(save_mean);
+  const Tensor& save_mean_ = *save_mean_maybe_owned;
+  c10::MaybeOwned<Tensor> save_invstd_maybe_owned = at::borrow_from_optional_tensor(save_invstd);
+  const Tensor& save_invstd_ = *save_invstd_maybe_owned;
+  auto ret = CheckpointTensorImpl::make("aten::native_batch_norm_backward.out", rt, {grad_out, input, weight_, running_mean_, running_var_, save_mean_, save_invstd_, out0, out1, out2});
+  return {ret[0], ret[1], ret[2]};
+}
+
+// Tensor& checkpoint_max_pool2d_with_indices_backward_grad_input(Tensor& a, const Tensor& b, const Tensor& c, c10::ArrayRef<long> d, c10::ArrayRef<long> e, c10::ArrayRef<long> f, c10::ArrayRef<long> g, bool h, const Tensor& i) {
+//   std::vector<long> d_ = d.vec(), e_ = e.vec(), f_ = f.vec(), g_ = g.vec();
+//   mutate_function_t mt =
+//     [=](const Tensors& vec) {
+//       Tensor a_ = vec.at(0);
+//       at::max_pool2d_with_indices_backward_out(a_, vec.at(1), vec.at(2), d_, e_, f_, g, h, vec.at(3));
+//     };
+//   CheckpointTensorImpl::mutate("max_pool2d_with_indices_backward_grad_input", mt, {a, b, c, i}, {0});
+//   return a;
+// }
+
+/// ['aten::max_pool2d_with_indices_backward.grad_input', 'at::Tensor &', 'max_pool2d_with_indices_backward_out', '(at::Tensor & grad_input, const at::Tensor & grad_output, const at::Tensor & self, at::IntArrayRef kernel_size, at::IntArrayRef stride, at::IntArrayRef padding, at::IntArrayRef dilation, bool ceil_mode, const at::Tensor & indices)']
+// at::Tensor & checkpoint_max_pool2d_with_indices_backward_out(at::Tensor & grad_input, const at::Tensor & grad_output, const at::Tensor & self, at::IntArrayRef kernel_size, at::IntArrayRef stride, at::IntArrayRef padding, at::IntArrayRef dilation, bool ceil_mode, const at::Tensor & indices) {
+//   auto kernel_size_ = kernel_size.vec();
+//   auto stride_ = stride.vec();
+//   auto padding_ = padding.vec();
+//   auto dilation_ = dilation.vec();
+//   mutate_function_t mt =
+//     [=](const Tensors& vec) {
+//       Tensor grad_input = vec.at(0);
+//       at::max_pool2d_with_indices_backward_out(grad_input, vec.at(1), vec.at(2), kernel_size_, stride_, padding_, dilation_, ceil_mode, vec.at(3));
+//     };
+//   CheckpointTensorImpl::mutate("aten::max_pool2d_with_indices_backward.grad_input", mt, {grad_input, grad_output, self, indices}, {0});
+//   return grad_input;
+// }
+
+/// TODO: BUG max_pool2d_with_indices_backward_out produces leaky memory for some reason unknown(temporarily)
+/// ['aten::max_pool2d_with_indices_backward.grad_input', 'at::Tensor &', 'max_pool2d_with_indices_backward_outf', '(const at::Tensor & grad_output, const at::Tensor & self, at::IntArrayRef kernel_size, at::IntArrayRef stride, at::IntArrayRef padding, at::IntArrayRef dilation, bool ceil_mode, const at::Tensor & indices, at::Tensor & grad_input)']
+at::Tensor & checkpoint_max_pool2d_with_indices_backward_out(const at::Tensor & grad_output, const at::Tensor & self, at::IntArrayRef kernel_size, at::IntArrayRef stride, at::IntArrayRef padding, at::IntArrayRef dilation, bool ceil_mode, const at::Tensor & indices, at::Tensor & grad_input) {
+  auto kernel_size_ = kernel_size.vec();
+  auto stride_ = stride.vec();
+  auto padding_ = padding.vec();
+  auto dilation_ = dilation.vec();
+  // rematerialize_function_t rt =
+  //   [=](const Tensors& vec) -> Tensors {
+  //     Tensor grad_input = vec.at(3);
+  //     // at::max_pool2d_with_indices_backward_out(grad_input, vec.at(0), vec.at(1), kernel_size_, stride_, padding_, dilation_, ceil_mode, vec.at(2))
+  //     return {at::max_pool2d_with_indices_backward_outf(vec.at(0), vec.at(1), kernel_size_, stride_, padding_, dilation_, ceil_mode, vec.at(2), grad_input)};
+  //   };
+  // return CheckpointTensorImpl::make("aten::max_pool2d_with_indices_backward.grad_input", rt, {grad_output, self, indices, grad_input})[0];
+  mutate_function_t mt =
+  [=](const Tensors& vec) {
+    Tensor grad_input = vec.at(0);
+    at::max_pool2d_with_indices_backward_out(grad_input, vec.at(1), vec.at(2), kernel_size_, stride_, padding_, dilation_, ceil_mode, vec.at(3));
+  };
+  grad_input = grad_input.checkpoint();
+  CheckpointTensorImpl::mutate("aten::max_pool2d_with_indices_backward.grad_input", mt, {grad_input, grad_output, self, indices}, {0});
+  return grad_input;
+}
+
+/// ['aten::max_pool2d_with_indices_backward', 'at::Tensor', 'max_pool2d_with_indices_backward', '(const at::Tensor & grad_output, const at::Tensor & self, at::IntArrayRef kernel_size, at::IntArrayRef stride, at::IntArrayRef padding, at::IntArrayRef dilation, bool ceil_mode, const at::Tensor & indices)']
+at::Tensor checkpoint_max_pool2d_with_indices_backward(const at::Tensor & grad_output, const at::Tensor & self, at::IntArrayRef kernel_size, at::IntArrayRef stride, at::IntArrayRef padding, at::IntArrayRef dilation, bool ceil_mode, const at::Tensor & indices) {
+  auto kernel_size_ = kernel_size.vec();
+  auto stride_ = stride.vec();
+  auto padding_ = padding.vec();
+  auto dilation_ = dilation.vec();
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      return {at::max_pool2d_with_indices_backward(vec.at(0), vec.at(1), kernel_size_, stride_, padding_, dilation_, ceil_mode, vec.at(2))};
+    };
+  return CheckpointTensorImpl::make("aten::max_pool2d_with_indices_backward", rt, {grad_output, self, indices})[0];
+}
 
 ////////////////////////////////// auto generate part //////////////////////////////////////
 
@@ -2125,6 +2438,9 @@ at::Tensor & checkpoint_copy_(at::Tensor & self, const at::Tensor & src, bool no
       Tensor self = vec.at(0);
       self.copy_(vec.at(1), non_blocking);
     };
+  // Tensors inputs;
+  // inputs.push_back(self);
+  // inputs.push_back(src);
   CheckpointTensorImpl::mutate("copy_", mt, {self, src}, {0});
   return {self};
 }

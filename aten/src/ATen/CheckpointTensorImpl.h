@@ -533,9 +533,14 @@ struct TORCH_API CheckpointTensorImpl : public TensorImpl {
                       const Tensors& inputs);
 
   // mutate_idx indicate which of the inputs will get mutated.
+  /// TODO: 左值引用和右值引用都是接收的vector，是原输入的副本，针对副本的修改(register)是不能影响到原输入的
   static void mutate(const std::string& name,
                      const mutate_function_t& mutate,
-                     const Tensors& inputs,
+                     Tensors& inputs,
+                     const std::vector<size_t>& mutate_idx);
+  static void mutate(const std::string& name,
+                     const mutate_function_t& mutate,
+                     Tensors&& inputs,
                      const std::vector<size_t>& mutate_idx);
   intrusive_ptr<TensorImpl> shallow_copy_and_detach(const VariableVersion& version_counter,
                                                     bool allow_tensor_metadata_change) const override;
@@ -750,14 +755,18 @@ struct CheckpointPool {
   }
 };
 
-inline CheckpointTensorImpl* get_cpti(const Tensor& t) {
-  auto* cpti = dynamic_cast<CheckpointTensorImpl*>(t.unsafeGetTensorImpl());
-  TORCH_CHECK(cpti != nullptr);
-  return cpti;
-}
+// inline CheckpointTensorImpl* get_cpti(const Tensor& t) {
+//   auto* cpti = dynamic_cast<CheckpointTensorImpl*>(t.unsafeGetTensorImpl());
+//   if(cpti==nullptr){  // 存在输入是在op内部创建的tensor，其并不是cpti
+    
+//   }else{
+//     TORCH_CHECK(cpti != nullptr);
+//     return cpti;
+//   }
+// }
 
-inline Ref<intrusive_ptr<External>> cell_from_tensor(const Tensor& t) {
-  return get_cpti(t)->ref;
-}
+// inline Ref<intrusive_ptr<External>> cell_from_tensor(const Tensor& t) {
+//   return get_cpti(t)->ref;
+// }
 
 }

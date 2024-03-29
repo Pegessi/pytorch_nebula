@@ -17,7 +17,7 @@
 
 // #define TIME_REC                      /// 方便debug的宏定义
 #define MINIMAL_EVICT                    /// 最小驱逐策略（贪心+随机 DTR）
-// #define MINIMAL_EVICT_COST            /// 最小驱逐策略+cost cache（贪心+随机 DTR）
+// #define MINIMAL_EVICT_COST            /// 最小驱逐策略+cost cache（贪心+随机 DTR） op记录
 // #define MEM_ORDER_ENABLE              /// 是否启用mem order策略
 // #define DEPENDENCY_CHECK              /// 依赖检查策略
 #define DEGREE_CHAIN                     /// 残差链发现策略
@@ -163,9 +163,9 @@ bool use_profile_ = false;
 #ifdef DEBUG_MODE
 bool record_er_counts = false;        // 驱逐&重物化次数
 bool record_mem_addr = false;         // 是否记录内存地址
-bool record_op_recs = false;          // 是否记录op历史
+bool record_op_recs = true;          // 是否记录op历史
 bool record_fragmentation = false;    // 记录碎片化和内存占用数据
-bool record_lifecycle = false;        // 记录ap生命周期分布
+bool record_lifecycle = false;        // 记录ap生命周期计数分布
 bool record_ap_cost = false;          // 记录ap的cost分布
 bool record_dependcy = false;
 bool record_key_chain = false;
@@ -343,7 +343,7 @@ namespace dtb {
             // }
             }
           }
-          //   record_mem_addr = false;
+            record_mem_addr = false;
       #endif
 
         }
@@ -494,7 +494,7 @@ namespace dtb {
 
 #ifdef DEBUG_MODE
         if(record_key_chain){
-          if(pool->candidates.size()>60){
+          if(pool->candidates.size()>0){
             auto chain_num = pool->chains.size();
             auto mem_num = pool->chains.back()->size();
             if(auto first_weak = pool->chains.back()->members[0]->value.lock())
@@ -505,6 +505,7 @@ namespace dtb {
               }
             }
           }
+          // record_key_chain = false;
         }
 #endif
       }
@@ -547,9 +548,11 @@ namespace dtb {
       }
 
       void clear_checkpointpool(int device){
+        if(device_dtbpool.empty()) return;          // exec without dtbpool  
         auto pool = device_dtbpool[device].get();
         if(pool->has_memory_budget){
           /// for debug, clear_exts will 
+        #ifdef DEBUG_MODE
           // for (size_t i = 0; i < pool->aps.size(); i++) {
           //   auto ap_strong = pool->aps[i].lock();
           //   if (!ap_strong.defined()||ap_strong->ecn) {
@@ -568,6 +571,7 @@ namespace dtb {
           //     }
           //   }
           // }
+        #endif
           pool->clear_exts();
         }
       }
@@ -580,14 +584,16 @@ namespace dtb {
               auto& remat = ref->value->remat;
               size_t degree = 0;
               double cost = 0;
+              size_t staleness = 0;
               if(remat!=nullptr){ /// TODO: 存在没有remat的tensor 无源之水，从内存大小来看是一些用到的常量直接checkpoint了，甚至有的常量读进来不用?
                 degree = (remat->inputs.size()) + (remat->outputs.size());
-                // auto ap_strong = ref->value->pool.get(); /// TODO: 这里会触发段错误，访问了野指针？
-                // cost = ap_strong->cost(current_time);
+                auto ap_strong = ref->value->pool; /// TODO: 这里会触发段错误，访问了野指针？
+                cost = ap_strong->cost(current_time);
+                staleness = (current_time-ap_strong->last_used_time).count();
               }
               // if(ref->value->pool->memory!=0)
       #ifdef DEBUG_MODE
-              DTRLogTensorInfo(ref->value->counter_name(), ref->value->pool->addr, ref->value->pool->memory, degree, cost, device);
+              DTRLogTensorInfo(ref->value->counter_name(), ref->value->pool->addr, ref->value->pool->memory, degree, cost, staleness);
       #endif
             }
           }
@@ -984,13 +990,13 @@ void CheckpointPool::evict() {
       // DTRLogApCost("evicted cost", evict_cost);
       DTRLogCounts("dependecy counts", ap_strong->dependency);
     }
-    if(record_mem_addr){  // TAG: mark evicted tensor for visualization
-      for(const auto& wp: ap_strong->tensors){
-        if(auto cp = wp.lock()){
-          DTRLogTensorInfo(cp->counter_name(), cp->pool->addr, cp->pool->memory, 0, 0, -999);
-        }
-      }
-    }
+    // if(record_mem_addr){  // TAG: mark evicted tensor for visualization
+    //   for(const auto& wp: ap_strong->tensors){
+    //     if(auto cp = wp.lock()){
+    //       DTRLogTensorInfo(cp->counter_name(), cp->pool->addr, cp->pool->memory, 0, 0, -999);
+    //     }
+    //   }
+    // }
 #endif
   }
 #ifdef ORIGINAL_DTR
@@ -1902,6 +1908,26 @@ int get_alias(const Tensors& ts, const Tensor& t) {
   return -1;
 }
 
+CheckpointTensorImpl* get_cpti(Tensor& t) {
+  // auto* cpti = dynamic_cast<CheckpointTensorImpl*>(t.unsafeGetTensorImpl());
+  // if(cpti==nullptr){  
+  //   t = at::native::checkpoint(t);
+  //   auto* cpti = dynamic_cast<CheckpointTensorImpl*>(t.unsafeGetTensorImpl());
+  // }
+  // return cpti;
+  /// TODO: BUG 存在输入是在op内部创建的tensor，其并不是cpti
+  // if(!t.is_checkpoint()){
+  //   t = at::native::checkpoint(t);
+  // }
+  auto* cpti = dynamic_cast<CheckpointTensorImpl*>(t.unsafeGetTensorImpl());
+  return cpti;
+}
+
+Ref<intrusive_ptr<External>> cell_from_tensor(Tensor& t) {
+  return get_cpti(t)->ref;
+}
+
+
 #ifdef DEBUG_MODE
 struct OperationRecord {
   int64_t rid;
@@ -1910,6 +1936,7 @@ struct OperationRecord {
   size_t mem;
   std::vector<string> inputs;
   std::vector<string> outputs;
+  int device;
 };
 #endif
 
@@ -2148,7 +2175,7 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
   }
 
 #ifdef DEBUG_MODE
-  return {outputs, aliases, cur_compute_cost, remat, {{},{},{},{},{},{}}};
+  return {outputs, aliases, cur_compute_cost, remat, {{},{},{},{},{},{},{}}};
 #else
   return {outputs, aliases, cur_compute_cost, remat};
 #endif
@@ -2309,7 +2336,7 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
     s->pool->unlock();
   }
 #ifdef DEBUG_MODE
-  OperationRecord rec = {rid, name, cur_compute_cost, cur_mem_cost, {}, {}};
+  OperationRecord rec = {rid, name, cur_compute_cost, cur_mem_cost, {}, {}, device_id};
   return {outputs, aliases, cur_compute_cost, remat, rec};
 #else
   return {outputs, aliases, cur_compute_cost, remat};
@@ -2377,25 +2404,25 @@ Tensors CheckpointTensorImpl::make(const std::string& name,
     ret.rec.inputs = std::move(input_ids);
     ret.rec.outputs = std::move(output_ids);
     DTRLogOPRecords(ret.rec.rid, ret.rec.name, static_cast<int64_t>(std::chrono::duration_cast<std::chrono::microseconds>(ret.rec.time).count()),
-                    ret.rec.mem, ret.rec.inputs, ret.rec.outputs);
+                    ret.rec.mem, ret.rec.inputs, ret.rec.outputs, ret.rec.device);
   }
-  if (use_log_) {
-    std::vector<std::string> res;
-    res.reserve(ret.outputs.size());
+  // if (use_log_) {
+  //   std::vector<std::string> res;
+  //   res.reserve(ret.outputs.size());
 
-    for (const auto& tensor : tensors) {
-      res.push_back(get_cpti(tensor)->counter_name());
-    }
+  //   for (const auto& tensor : tensors) {
+  //     res.push_back(get_cpti(tensor)->counter_name());
+  //   }
 
-    DTRLogCall(res, name, args, from_time(ret.time));
-    for (size_t i = 0; i < tensors.size(); ++i) {
-      Tensor t = tensors[i];
-      auto cpti = get_cpti(t);
-      DTRLogMemory(cpti->counter_name(), cpti->unsafeGetTensorCell()->memory());
-      DTRLogAlias(cpti->counter_name(), ret.aliases[i]);
-      // DTRLogAlias(cpti->counter_name(), ret.aliases[i], cpti->unsafeGetTensorCell()->pool->tensors.size());
-    }
-  }
+  //   DTRLogCall(res, name, args, from_time(ret.time));
+  //   for (size_t i = 0; i < tensors.size(); ++i) {
+  //     Tensor t = tensors[i];
+  //     auto cpti = get_cpti(t);
+  //     DTRLogMemory(cpti->counter_name(), cpti->unsafeGetTensorCell()->memory());
+  //     DTRLogAlias(cpti->counter_name(), ret.aliases[i]);
+  //     // DTRLogAlias(cpti->counter_name(), ret.aliases[i], cpti->unsafeGetTensorCell()->pool->tensors.size());
+  //   }
+  // }
 #endif
 
   return tensors;
@@ -2404,7 +2431,72 @@ Tensors CheckpointTensorImpl::make(const std::string& name,
 // TODO: check that mutated value does not have alias.
 void CheckpointTensorImpl::mutate(const std::string& name,
                                   const mutate_function_t& mutate,
-                                  const Tensors& inputs,
+                                  Tensors& inputs,
+                                  const std::vector<size_t>& mutate_idx) {
+  auto remat = [=](const Tensors& t) -> Tensors {
+                 Tensors new_input_values = t;
+                 for (size_t idx: mutate_idx) {
+                  //  new_input_values[idx] = t[idx].clone();    /// TODO: 绕开clone
+                   new_input_values[idx] = t[idx];
+                 }
+                 mutate(new_input_values);
+                 return new_input_values;
+               };
+  Tensors checkpointed_inputs = try_checkpoint(inputs);
+  strongs input_values;
+  std::vector<std::string> args;
+  // 拿到tensor本体
+  for (const Tensor& t: checkpointed_inputs) {
+    auto* cpti = dynamic_cast<CheckpointTensorImpl*>(t.unsafeGetTensorImpl());
+    TORCH_CHECK(cpti);
+    input_values.push_back(cpti->unsafeGetTensorCell());
+#ifdef DEBUG_MODE
+    if (use_log_) {
+      args.push_back(cpti->counter_name());
+    }
+#endif
+  }
+#ifdef MINIMAL_EVICT
+  auto ret = make_raw(remat, input_values);
+#endif
+#ifdef MINIMAL_EVICT_COST
+  auto ret = make_raw(remat, input_values, name);
+#endif
+
+  const auto& modified = ret.outputs;
+  for (size_t idx: mutate_idx) {                              /// 可能存在inputs中不为cpti的tensor，但受限于语法无法直接修改
+    // if(C10_UNLIKELY(!native::is_checkpoint(inputs[idx])))
+    //   inputs[idx] = native::checkpoint(inputs[idx]);
+    if(!inputs[idx].is_checkpoint()){
+      inputs[idx] = at::native::checkpoint(inputs[idx]);
+    }
+    cell_from_tensor(inputs[idx])->value = modified[idx];
+  }
+#ifdef DEBUG_MODE
+  if(record_op_recs){
+    std::vector<string> input_ids;
+    std::vector<string> output_ids;
+    for (const auto& t: checkpointed_inputs) {  // bind External for inputs intrusive_ptr
+      auto* cpti = dynamic_cast<CheckpointTensorImpl*>(t.unsafeGetTensorImpl());
+      input_ids.push_back(cpti->unsafeGetTensorCell()->counter_name());
+    }
+    for (size_t idx: mutate_idx) {
+      output_ids.push_back(cell_from_tensor(inputs[idx])->value->value->counter_name());
+    }
+    ret.rec.inputs = std::move(input_ids);
+    ret.rec.outputs = std::move(output_ids);
+    DTRLogOPRecords(ret.rec.rid, ret.rec.name, static_cast<int64_t>(std::chrono::duration_cast<std::chrono::microseconds>(ret.rec.time).count()),
+                    ret.rec.mem, ret.rec.inputs, ret.rec.outputs, ret.rec.device);
+  }
+  if (use_log_) {
+    DTRLogMutate(name, args, mutate_idx, from_time(ret.time));
+  }
+#endif
+}
+
+void CheckpointTensorImpl::mutate(const std::string& name,
+                                  const mutate_function_t& mutate,
+                                  Tensors&& inputs,
                                   const std::vector<size_t>& mutate_idx) {
   auto remat = [=](const Tensors& t) -> Tensors {
                  Tensors new_input_values = t;
@@ -2456,7 +2548,7 @@ void CheckpointTensorImpl::mutate(const std::string& name,
     ret.rec.inputs = std::move(input_ids);
     ret.rec.outputs = std::move(output_ids);
     DTRLogOPRecords(ret.rec.rid, ret.rec.name, static_cast<int64_t>(std::chrono::duration_cast<std::chrono::microseconds>(ret.rec.time).count()),
-                    ret.rec.mem, ret.rec.inputs, ret.rec.outputs);
+                    ret.rec.mem, ret.rec.inputs, ret.rec.outputs, ret.rec.device);
   }
   if (use_log_) {
     DTRLogMutate(name, args, mutate_idx, from_time(ret.time));
