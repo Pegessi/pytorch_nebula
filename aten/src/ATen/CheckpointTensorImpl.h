@@ -412,7 +412,7 @@ struct CheckpointTensorCell : intrusive_ptr_target {
     return pool->memory;
   }
   Tensor get();
-  Tensor get(int&);
+  Tensor get(int&);   // for remat count (deprecated)
   int precheck();
   // std::vector<int64_t> sizes(){
   //   return get().sizes().vec();
@@ -494,6 +494,10 @@ struct TORCH_API CheckpointTensorImpl : public TensorImpl {
   }
 
   Ref<intrusive_ptr<External>> ref;
+
+  inline void* mutable_data() {
+    return unsafeGetTensorCell()->t->mutable_data_ptr();
+  }
 
   strong unsafeGetTensorCell(){
     return ref->value->value;

@@ -168,13 +168,13 @@ Tensor& checkpoint_div_(Tensor& a, const Tensor& b) {
 //   return CheckpointTensorImpl::make("clone", rt, {a})[0];
 // }
 
-Tensor checkpoint_where(at::Tensor const& a, at::Tensor const& b, at::Tensor const& c) {
-  rematerialize_function_t rt =
-    [=](const Tensors& vec) -> Tensors {
-      return {at::where(vec.at(0), vec.at(1), vec.at(2))};
-    };
-  return CheckpointTensorImpl::make("where", rt, {a, b, c})[0];
-}
+// Tensor checkpoint_where(at::Tensor const& a, at::Tensor const& b, at::Tensor const& c) {
+//   rematerialize_function_t rt =
+//     [=](const Tensors& vec) -> Tensors {
+//       return {at::where(vec.at(0), vec.at(1), vec.at(2))};
+//     };
+//   return CheckpointTensorImpl::make("where", rt, {a, b, c})[0];
+// }
 
 Tensor checkpoint_constant_pad_nd(Tensor const& a, c10::ArrayRef<long> b, c10::Scalar const& c) {
   std::vector<long> b_ = b.vec();
@@ -898,15 +898,25 @@ Tensor checkpoint_tanh_backward(at::Tensor const& a, at::Tensor const& b) {
   return CheckpointTensorImpl::make("tanh_backward", rt, {a, b})[0];
 }
 
-Tensor& checkpoint_tanh_backward_out(at::Tensor& a, at::Tensor const& b, at::Tensor const& c) {
-  mutate_function_t mt =
-    [=](const Tensors& vec) {
-      Tensor a_ = vec.at(0);
-      at::tanh_backward_out(a_, vec.at(1), vec.at(2));
+/// ['aten::tanh_backward_outf', 'at::Tensor &', 'tanh_backward_outf', '(const at::Tensor & grad_output, const at::Tensor & output, at::Tensor & grad_input)']
+at::Tensor & checkpoint_tanh_backward_out(const at::Tensor & grad_output, const at::Tensor & output, at::Tensor & grad_input) {
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      Tensor grad_input = vec.at(2);
+      return {at::tanh_backward_outf(vec.at(0), vec.at(1), grad_input)};
     };
-  CheckpointTensorImpl::mutate("tanh_backward_out", mt, {a, b, c}, {0});
-  return a;
+  return CheckpointTensorImpl::make("aten::tanh_backward_outf", rt, {grad_output, output, grad_input})[0];
 }
+
+// Tensor& checkpoint_tanh_backward_out(at::Tensor& a, at::Tensor const& b, at::Tensor const& c) {
+//   mutate_function_t mt =
+//     [=](const Tensors& vec) {
+//       Tensor a_ = vec.at(0);
+//       at::tanh_backward_out(a_, vec.at(1), vec.at(2));
+//     };
+//   CheckpointTensorImpl::mutate("tanh_backward_out", mt, {a, b, c}, {0});
+//   return a;
+// }
 
 // Tensor checkpoint_neg(at::Tensor const& a) {
 //   rematerialize_function_t rt =
@@ -1326,15 +1336,31 @@ checkpoint_layer_norm(const Tensor& input, c10::ArrayRef<long> normalized_shape,
 }
 
 // Tensor grad_out, Tensor input, SymInt[] normalized_shape, Tensor mean, Tensor rstd, Tensor? weight, Tensor? bias, bool[3] output_mask
-std::tuple<Tensor, Tensor, Tensor>
-checkpoint_layer_norm_backward(const Tensor& grad_out, const Tensor& input, c10::ArrayRef<long> normalized_shape, const Tensor& mean, const Tensor& rstd, const Tensor& weight, const Tensor& bias, std::array<bool, 3ul> output_mask) {
-  std::vector<long> normalized_shape_ = normalized_shape.vec();
+// std::tuple<Tensor, Tensor, Tensor>
+// checkpoint_layer_norm_backward(const Tensor& grad_out, const Tensor& input, c10::ArrayRef<long> normalized_shape, const Tensor& mean, const Tensor& rstd, const Tensor& weight, const Tensor& bias, std::array<bool, 3ul> output_mask) {
+//   std::vector<long> normalized_shape_ = normalized_shape.vec();
+//   rematerialize_function_t rt =
+//     [=](const Tensors& vec) -> Tensors {
+//     auto ret = at::native_layer_norm_backward(vec.at(0), vec.at(1), normalized_shape_, vec.at(2), vec.at(3), vec.at(4), vec.at(5), output_mask);
+//     return {std::get<0>(ret), std::get<1>(ret), std::get<2>(ret)};
+//   };
+//   auto ret = CheckpointTensorImpl::make("native_layer_norm_backward", rt, {grad_out, input, mean, rstd, weight, bias});
+//   return {ret[0], ret[1], ret[2]};
+// }
+
+/// ['aten::native_layer_norm_backward', 'std::tuple<at::Tensor,at::Tensor,at::Tensor>', 'native_layer_norm_backward', '(const at::Tensor & grad_out, const at::Tensor & input, at::IntArrayRef normalized_shape, const at::Tensor & mean, const at::Tensor & rstd, const c10::optional<at::Tensor> & weight, const c10::optional<at::Tensor> & bias, ::std::array<bool,3> output_mask)']
+std::tuple<at::Tensor,at::Tensor,at::Tensor> checkpoint_native_layer_norm_backward(const at::Tensor & grad_out, const at::Tensor & input, at::IntArrayRef normalized_shape, const at::Tensor & mean, const at::Tensor & rstd, const c10::optional<at::Tensor> & weight, const c10::optional<at::Tensor> & bias, ::std::array<bool,3> output_mask) {
+  auto normalized_shape_ = normalized_shape.vec();
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
-    auto ret = at::native_layer_norm_backward(vec.at(0), vec.at(1), normalized_shape_, vec.at(2), vec.at(3), vec.at(4), vec.at(5), output_mask);
-    return {std::get<0>(ret), std::get<1>(ret), std::get<2>(ret)};
-  };
-  auto ret = CheckpointTensorImpl::make("native_layer_norm_backward", rt, {grad_out, input, mean, rstd, weight, bias});
+      auto ret = at::native_layer_norm_backward(vec.at(0), vec.at(1), normalized_shape_, vec.at(2), vec.at(3), vec.at(4), vec.at(5), output_mask);
+      return {std::get<0>(ret), std::get<1>(ret), std::get<2>(ret)};
+    };
+  c10::MaybeOwned<Tensor> weight_maybe_owned = at::borrow_from_optional_tensor(weight);
+  const Tensor& weight_ = *weight_maybe_owned;
+  c10::MaybeOwned<Tensor> bias_maybe_owned = at::borrow_from_optional_tensor(bias);
+  const Tensor& bias_ = *bias_maybe_owned;
+  auto ret = CheckpointTensorImpl::make("aten::native_layer_norm_backward", rt, {grad_out, input, mean, rstd, weight_, bias_});
   return {ret[0], ret[1], ret[2]};
 }
 
@@ -2053,17 +2079,20 @@ at::Tensor & checkpoint_linalg_vector_norm_out(const at::Tensor & self, const at
 
 /// ['aten::_foreach_mul_', 'void', '_foreach_mul_', '(at::TensorList self, const at::Tensor & other)']
 void checkpoint__foreach_mul_(at::TensorList self, const at::Tensor & other) {
-  // mutate_function_t mt =
-  //   [=](const Tensors& vec) -> Tensors {
-  //     Tensor self = vec.at(0);
-  //     at::_foreach_mul_(self, vec.at(1));
-  //   };
   Tensors inputs;
   for (const auto i : c10::irange(self.size())){
     inputs.push_back(self[i].decheckpoint());
   }
   at::_foreach_mul_(at::TensorList(inputs), other.decheckpoint());
-  // CheckpointTensorImpl::mutate("_foreach_mul_.Tensor", mt, {self, other}, {0});
+}
+
+/// ['aten::_foreach_mul_.Scalar', 'void', '_foreach_mul_', '(at::TensorList self, const at::Tensor & other)']
+void checkpoint__foreach_mul_(at::TensorList self, const at::Scalar & scalar) {
+  Tensors inputs;
+  for (const auto i : c10::irange(self.size())){
+    inputs.push_back(self[i].decheckpoint());
+  }
+  at::_foreach_mul_(at::TensorList(inputs), scalar);
 }
 
 /// ['aten::embedding_dense_backward', 'at::Tensor', 'embedding_dense_backward', '(const at::Tensor & grad_output, const at::Tensor & indices, int64_t num_weights, int64_t padding_idx, bool scale_grad_by_freq)']
@@ -2363,7 +2392,7 @@ at::Tensor checkpoint__slow_conv2d_forward(const at::Tensor & self, const at::Te
 //   return grad_input;
 // }
 
-/// TODO: BUG max_pool2d_with_indices_backward_out produces leaky memory for some reason unknown(temporarily)
+/// TODO: BUG max_pool2d_with_indices_backward_out produces leaky memory for some reason unknown(temporarily) 暂时通过这样的方式解决了，并没有解决本质问题
 /// ['aten::max_pool2d_with_indices_backward.grad_input', 'at::Tensor &', 'max_pool2d_with_indices_backward_outf', '(const at::Tensor & grad_output, const at::Tensor & self, at::IntArrayRef kernel_size, at::IntArrayRef stride, at::IntArrayRef padding, at::IntArrayRef dilation, bool ceil_mode, const at::Tensor & indices, at::Tensor & grad_input)']
 at::Tensor & checkpoint_max_pool2d_with_indices_backward_out(const at::Tensor & grad_output, const at::Tensor & self, at::IntArrayRef kernel_size, at::IntArrayRef stride, at::IntArrayRef padding, at::IntArrayRef dilation, bool ceil_mode, const at::Tensor & indices, at::Tensor & grad_input) {
   auto kernel_size_ = kernel_size.vec();
@@ -2398,6 +2427,83 @@ at::Tensor checkpoint_max_pool2d_with_indices_backward(const at::Tensor & grad_o
       return {at::max_pool2d_with_indices_backward(vec.at(0), vec.at(1), kernel_size_, stride_, padding_, dilation_, ceil_mode, vec.at(2))};
     };
   return CheckpointTensorImpl::make("aten::max_pool2d_with_indices_backward", rt, {grad_output, self, indices})[0];
+}
+
+/// ['aten::_index_put_impl_', 'at::Tensor &', '_index_put_impl_', '(at::Tensor & self, const c10::List<c10::optional<at::Tensor>> & indices, const at::Tensor & values, bool accumulate=false, bool unsafe=false)']
+at::Tensor & checkpoint__index_put_impl_(at::Tensor & self, const c10::List<c10::optional<at::Tensor>> & indices, const at::Tensor & values, bool accumulate, bool unsafe) {
+  mutate_function_t mt =
+    [=](const Tensors& vec) {
+      Tensor self = vec.at(0);
+      c10::List<c10::optional<at::Tensor>> inds;
+      for(int i=2; i<indices.size(); i++){
+        c10::optional<at::Tensor> t_(vec.at(i));
+        inds.push_back(t_);
+      }
+      at::_index_put_impl_(self, inds, vec.at(1), accumulate, unsafe);
+    };
+  std::vector<Tensor> inputs = {self, values};
+  for (auto i : c10::irange(indices.size())) {
+    auto t = indices.get(i);
+    c10::MaybeOwned<Tensor> t_maybe_owned = at::borrow_from_optional_tensor(t);
+    const Tensor& t_ = *t_maybe_owned;
+    inputs.push_back(t_);
+  }
+  CheckpointTensorImpl::mutate("_index_put_impl_", mt, inputs, {0});
+  return {self};
+}
+
+/// ['aten::_foreach_lerp_', 'void', '_foreach_lerp_', '(at::TensorList self, at::TensorList tensors1, const at::Scalar & weight)']
+void checkpoint__foreach_lerp_(at::TensorList self, at::TensorList tensors1, const at::Scalar & weight) {
+  Tensors self_, tensors1_;
+  for (const auto i : c10::irange(self.size())){
+    self_.push_back(self[i].decheckpoint());
+  }
+  for (const auto i : c10::irange(tensors1.size())){
+    tensors1_.push_back(tensors1[i].decheckpoint());
+  }
+  at::_foreach_lerp_(at::TensorList(self_), at::TensorList(tensors1_), weight);
+}
+
+/// ['aten::_foreach_addcmul_', 'void', '_foreach_addcmul_', '(at::TensorList self, at::TensorList tensor1, at::TensorList tensor2, const at::Scalar & value=1)']
+void checkpoint__foreach_addcmul_(at::TensorList self, at::TensorList tensor1, at::TensorList tensor2, const at::Scalar & value) {
+  Tensors self_;
+  for (const auto i : c10::irange(self.size())) {
+    self_.push_back(self[i].decheckpoint());
+  }
+  Tensors tensor1_;
+  for (const auto i : c10::irange(tensor1.size())) {
+    tensor1_.push_back(tensor1[i].decheckpoint());
+  }
+  Tensors tensor2_;
+  for (const auto i : c10::irange(tensor2.size())) {
+    tensor2_.push_back(tensor2[i].decheckpoint());
+  }
+  at::_foreach_addcmul_(at::TensorList(self_), at::TensorList(tensor1_), at::TensorList(tensor2_), value);
+}
+
+/// ['aten::native_layer_norm', 'std::tuple<at::Tensor,at::Tensor,at::Tensor>', 'native_layer_norm', '(const at::Tensor & input, at::IntArrayRef normalized_shape, const c10::optional<at::Tensor> & weight, const c10::optional<at::Tensor> & bias, double eps)']
+std::tuple<at::Tensor,at::Tensor,at::Tensor> checkpoint_native_layer_norm(const at::Tensor & input, at::IntArrayRef normalized_shape, const c10::optional<at::Tensor> & weight, const c10::optional<at::Tensor> & bias, double eps) {
+  auto normalized_shape_ = normalized_shape.vec();
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      auto ret = at::native_layer_norm(vec.at(0), normalized_shape_, vec.at(1), vec.at(2), eps);
+      return {std::get<0>(ret), std::get<1>(ret), std::get<2>(ret)};
+    };
+  c10::MaybeOwned<Tensor> weight_maybe_owned = at::borrow_from_optional_tensor(weight);
+  const Tensor& weight_ = *weight_maybe_owned;
+  c10::MaybeOwned<Tensor> bias_maybe_owned = at::borrow_from_optional_tensor(bias);
+  const Tensor& bias_ = *bias_maybe_owned;
+  auto ret = CheckpointTensorImpl::make("aten::native_layer_norm", rt, {input, weight_, bias_});
+  return {ret[0], ret[1], ret[2]};
+}
+
+/// ['aten::where.self', 'at::Tensor', 'where', '(const at::Tensor & condition, const at::Tensor & self, const at::Tensor & other)']
+at::Tensor checkpoint_where(const at::Tensor & condition, const at::Tensor & self, const at::Tensor & other) {
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      return {at::where(vec.at(0), vec.at(1), vec.at(2))};
+    };
+  return CheckpointTensorImpl::make("aten::where", rt, {condition, self, other})[0];
 }
 
 ////////////////////////////////// auto generate part //////////////////////////////////////

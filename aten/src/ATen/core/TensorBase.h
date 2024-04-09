@@ -37,6 +37,7 @@ namespace at {
 
 class Tensor;
 class TensorBase;
+// struct CheckpointTensorImpl;
 
 // Convert Tensor to TensorBase without any need to include Tensor.h
 TORCH_API const TensorBase& get_tensor_base(const Tensor& t);
@@ -184,6 +185,7 @@ class TORCH_API TensorBase {
   }
 
   TensorImpl * unsafeGetTensorImpl() const {
+    // if(key_set().has(DispatchKey::Checkpoint)) return dynamic_cast<at::CheckpointTensorImpl*>(impl_.get());
     return impl_.get();
   }
   TensorImpl * unsafeReleaseTensorImpl() {

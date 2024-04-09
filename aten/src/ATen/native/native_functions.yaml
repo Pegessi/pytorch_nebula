@@ -2753,6 +2753,7 @@
     CPU, CUDA, MPS: _index_put_impl_
     QuantizedCPU: _index_put_impl_quantized_cpu_
     QuantizedCUDA: _index_put_impl_quantized_cuda_
+    Checkpoint: checkpoint__index_put_impl_
   autogen: _index_put_impl, _index_put_impl.out
 - func: instance_norm(Tensor input, Tensor? weight, Tensor? bias, Tensor? running_mean,
     Tensor? running_var, bool use_input_stats, float momentum, float eps, bool cudnn_enabled)
@@ -2882,6 +2883,7 @@
     CPU: layer_norm_cpu
     CUDA: layer_norm_cuda
     MPS: layer_norm_mps
+    Checkpoint: checkpoint_native_layer_norm
     CompositeExplicitAutograd: math_native_layer_norm
     NestedTensorCPU, NestedTensorCUDA: nested_layer_norm
   autogen: native_layer_norm.out
@@ -2893,6 +2895,7 @@
     CPU: layer_norm_backward_cpu
     CUDA: layer_norm_backward_cuda
     MPS: layer_norm_backward_mps
+    Checkpoint: checkpoint_native_layer_norm_backward
     NestedTensorCPU, NestedTensorCUDA: layer_norm_backward_nested
   autogen: native_layer_norm_backward.out
   tags: core
@@ -5269,6 +5272,7 @@
   dispatch:
     QuantizedCPU: tanh_quantized_cpu
     MkldnnCPU: mkldnn_tanh
+    Checkpoint: checkpoint_tanh
     SparseCPU, SparseCUDA: tanh_sparse
     SparseCsrCPU, SparseCsrCUDA: tanh_sparse_csr
     NestedTensorCPU, NestedTensorCUDA: NestedTensor_tanh
@@ -5655,6 +5659,7 @@
   dispatch:
     CPU, CUDA: where
     MPS: where_mps
+    Checkpoint: checkpoint_where
   tags:
   - core
   - pointwise
@@ -8346,6 +8351,7 @@
   structured_delegate: sign.out
   variants: function, method
   dispatch:
+    Checkpoint: checkpoint_sign
     SparseCPU, SparseCUDA: sign_sparse
     SparseCsrCPU, SparseCsrCUDA: sign_sparse_csr
   tags:
@@ -9157,6 +9163,7 @@
   dispatch:
     CPU: foreach_tensor_mul_scalar_kernel_slow_
     CUDA: foreach_tensor_mul_scalar_kernel_cuda_
+    Checkpoint: checkpoint__foreach_mul_
   autogen: _foreach_mul.Scalar_out
 - func: _foreach_mul.List(Tensor[] self, Tensor[] other) -> Tensor[]
   device_check: NoCheck
@@ -9466,6 +9473,7 @@
   dispatch:
     CPU: foreach_tensor_addcmul_scalar_slow_
     CUDA: foreach_tensor_addcmul_scalar_cuda_
+    Checkpoint: checkpoint__foreach_addcmul_
   autogen: _foreach_addcmul.Scalar_out
 - func: _foreach_addcmul_.ScalarList(Tensor(a!)[] self, Tensor[] tensor1, Tensor[]
     tensor2, Scalar[] scalars) -> ()
@@ -9682,6 +9690,7 @@
   dispatch:
     CPU: foreach_tensor_lerp_list_kernel_slow_
     CUDA: foreach_tensor_lerp_list_cuda_
+    Checkpoint: checkpoint__foreach_lerp_
   autogen: _foreach_lerp.Scalar_out
 - func: _foreach_lgamma(Tensor[] self) -> Tensor[]
   device_check: NoCheck
@@ -11419,10 +11428,13 @@
   dispatch:
     CPU, CUDA: tanh_backward_out
     MPS: tanh_backward_out_mps
+    Checkpoint: checkpoint_tanh_backward_out
   tags: pointwise
 - func: tanh_backward(Tensor grad_output, Tensor output) -> Tensor
   python_module: nn
   structured_delegate: tanh_backward.grad_input
+  dispatch:
+    Checkpoint: checkpoint_tanh_backward
   tags: pointwise
 - func: slow_conv_transpose2d.out(Tensor self, Tensor weight, int[2] kernel_size,
     Tensor? bias=None, int[2] stride=1, SymInt[2] padding=0, SymInt[2] output_padding=0,

@@ -4,6 +4,7 @@
 #pragma once
 
 #include <ATen/CheckpointTensorImpl.h>
+// #include <c10/core/CheckpointTensorImpl.h>
 #include <ATen/Logger.h>
 #include <c10/cuda/CUDACachingAllocator.h>
 #include <cuda_runtime_api.h>
@@ -1878,6 +1879,8 @@ void CheckpointTensorImpl::shallow_copy_from(const c10::intrusive_ptr<TensorImpl
   auto* cpti = dynamic_cast<CheckpointTensorImpl*>(impl.get());
   TORCH_CHECK(cpti != nullptr);
   ref->value = cpti->ref->value;
+  if(unsafeGetTensorCell()->get().defined())
+    set_sizes_and_strides(unsafeGetTensorCell()->get().sizes(), unsafeGetTensorCell()->get().strides());
 #ifdef DEBUG_MODE
   if (use_log_) {
     DTRLogCopyFrom(counter_name(), cpti->counter_name());
@@ -2464,7 +2467,7 @@ void CheckpointTensorImpl::mutate(const std::string& name,
 #endif
 
   const auto& modified = ret.outputs;
-  for (size_t idx: mutate_idx) {                              /// 可能存在inputs中不为cpti的tensor，但受限于语法无法直接修改
+  for (size_t idx: mutate_idx) {                              /// TODO: 可能存在inputs中不为cpti的tensor，但受限于语法无法直接修改
     // if(C10_UNLIKELY(!native::is_checkpoint(inputs[idx])))
     //   inputs[idx] = native::checkpoint(inputs[idx]);
     if(!inputs[idx].is_checkpoint()){
@@ -2529,9 +2532,14 @@ void CheckpointTensorImpl::mutate(const std::string& name,
 #endif
 
   const auto& modified = ret.outputs;
-  for (size_t idx: mutate_idx) {                              /// 可能存在inputs中不为cpti的tensor，但受限于语法无法直接修改
-    // if(C10_UNLIKELY(!native::is_checkpoint(inputs[idx])))
-    //   inputs[idx] = native::checkpoint(inputs[idx]);
+  /**
+   * 需要说明的是，这里不论是传入右值引用还是左值引用，都无法对原本的Tensor进行修改
+   * 这里的处理只是让程序执行时不存在bug，并不能达到真正的目的——让非cpti的Tensor变为cpti
+   * 在checkpoint.cpp中封装的函数，传入值存在const
+  */
+  for (size_t idx: mutate_idx) {                              /// TODO: 可能存在inputs中不为cpti的tensor，但受限于语法无法直接修改
+    if(C10_UNLIKELY(!native::is_checkpoint(inputs[idx])))
+      inputs[idx] = native::checkpoint(inputs[idx]);
     cell_from_tensor(inputs[idx])->value = modified[idx];
   }
 #ifdef DEBUG_MODE
