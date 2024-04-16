@@ -9,7 +9,7 @@
 #include <c10/util/flat_hash_map.h>
 #include <c10/util/irange.h>
 #include <c10/util/llvmMathExtras.h>
-// #define GMLAKE_ENABLE
+#define GMLAKE_ENABLE
 #ifdef GMLAKE_ENABLE
 #include <c10/util/Backtrace.h>
 #include <unordered_map>
@@ -139,6 +139,9 @@ using StatTypes = std::array<bool, static_cast<size_t>(StatType::NUM_TYPES)>;
 void update_stat(Stat& stat, int64_t amount) {
   stat.current += amount;
 
+  if(stat.current<0){
+    printf("error\n");
+  }
   TORCH_INTERNAL_ASSERT_DEBUG_ONLY(
       stat.current >= 0,
       "Negative tracked stat in CUDA allocator (likely logic error).");
@@ -2122,6 +2125,9 @@ class DeviceCachingAllocator {
 
     block->allocated = true;
     block->requested_size = orig_size;
+#ifdef GMLAKE_ENABLE
+    block->actual_size = size;
+#endif
     if (record_history) {
 #ifdef GMLAKE_ENABLE
       trimHistoryBefore(block, (char*)block->ptr + size);
@@ -2141,21 +2147,40 @@ class DeviceCachingAllocator {
           block->context_when_allocated);
     }
 
+#ifdef GMLAKE_ENABLE
+    bool inserted = false;
+    if(block->vmm_segment && block->vmm_segment->fused) {
+        active_fused_blocks.insert(block);
+    } else {
+        inserted = active_blocks.insert(block).second;
+        TORCH_INTERNAL_ASSERT_DEBUG_ONLY(inserted);
+    }
+#else
     bool inserted = active_blocks.insert(block).second;
     TORCH_INTERNAL_ASSERT_DEBUG_ONLY(inserted);
+#endif
 
     for_each_selected_stat_type(params.stat_types, [&](size_t stat_type) {
       update_stat(stats.allocation[stat_type], 1);
       update_stat(
           stats.allocated_bytes[stat_type],
           static_cast<std::int64_t>(block->size));
+#ifndef GMLAKE_ENABLE // TAG: Maybe wrong
       update_stat(stats.active[stat_type], 1);
       update_stat(
           stats.active_bytes[stat_type],
           static_cast<std::int64_t>(block->size));
+#endif
       update_stat(
           stats.requested_bytes[stat_type],
           static_cast<std::int64_t>(block->requested_size));
+#ifdef GMLAKE_ENABLE
+      // if (inserted)
+      // {
+          update_stat(stats.active[stat_type], 1);
+          update_stat(stats.active_bytes[stat_type], block->size);
+      // }
+#endif
     });
     if (block->size >= CachingAllocatorConfig::max_split_size())
       update_stat(stats.oversize_allocations, 1);
@@ -2211,7 +2236,12 @@ class DeviceCachingAllocator {
         insert_events(block);
       }
     } else {
+#ifndef GMLAKE_ENABLE
       free_block(block, context);
+#else
+      insert_free_event_into_alloc_stream(block);   
+      update_block(block, context);
+#endif
     }
 
     c10::reportMemoryUsageToProfiler(
@@ -2330,14 +2360,14 @@ class DeviceCachingAllocator {
         }
       }
     } else {
-      free_block(block, context);
+      free_block(block, context, flag);
     }
       
       
     for(auto& block2free : blocks2free) {
           
       block2free->allocated = false;
-      free_block(block2free, context);
+      free_block(block2free, context, flag);
     }
       
   }
@@ -3124,7 +3154,7 @@ class DeviceCachingAllocator {
   /** moves a block into a pool of cached free blocks */
   void free_block(
       Block* block,
-      const std::shared_ptr<GatheredContext>& context) {
+      const std::shared_ptr<GatheredContext>& context, bool flag=false) {
     TORCH_INTERNAL_ASSERT(
         !block->allocated && block->event_count == 0 &&
         block->stream_uses.empty());
@@ -3201,9 +3231,12 @@ class DeviceCachingAllocator {
       update_stat(
           stats.active_bytes[stat_type],
           -static_cast<std::int64_t>(original_block_size));
-      update_stat(
-          stats.requested_bytes[stat_type],
-          -static_cast<std::int64_t>(requested_size));
+// TAG: Maybe wrong
+      if (!flag) {
+        update_stat(
+            stats.requested_bytes[stat_type],
+            -static_cast<std::int64_t>(requested_size));
+      }
     });
   }
 
@@ -3370,19 +3403,15 @@ class DeviceCachingAllocator {
 
   bool get_free_block(AllocParams& p) {
 #ifdef GMLAKE_ENABLE
-    static const int vmmDefragment = ([]()->int{
+    static const int vmmDefragment = []() {
         const char* env = getenv("vmmDefragment");
-        if(env) return atoi(env);
-        else return 1;
-    })();
+        return env ? atoi(env) : 1;
+    }();
 
-    static const double reuseLimit = ([]()->double{
+    static const double reuseLimit = []() {
         const char* env = getenv("reuseLimit");
-        if(env) return atof(env);
-        else return 10.0f;
-    })();
-
-    
+        return env ? atof(env) : 10.0;
+    }();
     
     int64_t net_change_inactive_split_blocks = 0;
     int64_t net_change_inactive_split_size = 0;  
