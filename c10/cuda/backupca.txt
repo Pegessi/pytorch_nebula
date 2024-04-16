@@ -9,7 +9,6 @@
 #include <c10/util/flat_hash_map.h>
 #include <c10/util/irange.h>
 #include <c10/util/llvmMathExtras.h>
-// #define GMLAKE_ENABLE
 #ifdef GMLAKE_ENABLE
 #include <c10/util/Backtrace.h>
 #include <unordered_map>
@@ -983,13 +982,13 @@ struct PrivatePool {
   PrivatePool()
       : use_count(1),
         cudaMalloc_count(0),
-// #ifdef GMLAKE_ENABLE
-//       large_blocks(BlockComparator, /*is_small=*/false, this),
-//       small_blocks(BlockComparator, /*is_small=*/true, this) {}
-// #else
+#ifdef GMLAKE_ENABLE
+      large_blocks(BlockComparator, /*is_small=*/false, this),
+      small_blocks(BlockComparator, /*is_small=*/true, this) {}
+#else
       large_blocks(/*small=*/false, this),
       small_blocks(/*small=*/true, this) {}
-// #endif
+#endif
   PrivatePool(const PrivatePool&) = delete;
   PrivatePool(PrivatePool&&) = delete;
   PrivatePool& operator=(const PrivatePool&) = delete;
@@ -1462,7 +1461,6 @@ class DeviceCachingAllocator {
   // unallocated cached blocks larger than 1 MB
   BlockPool large_blocks;
 
-
 #ifdef GMLAKE_ENABLE
 // unallocated cached blocks larger than 64 MB
   //BlockPool huge_blocks;
@@ -1546,7 +1544,7 @@ class DeviceCachingAllocator {
 #ifdef GMLAKE_ENABLE
   // Maps a capturing stream to its assigned private pool,
   // in case we want multiple captures to share the same pool
-  // ska::flat_hash_map<CaptureId_t, MempoolId_t> capture_to_pool_map; // replaced by stream_to_pool_map
+  ska::flat_hash_map<CaptureId_t, MempoolId_t> capture_to_pool_map;
 #endif
 
   // XXX - maybe we should generalize and have multiple events
@@ -1558,9 +1556,9 @@ class DeviceCachingAllocator {
       : large_blocks(/*small=*/false),
         small_blocks(/*small=*/true),
 #else
-      : large_blocks(/*is_small=*/false),
-        free_fused_blocks(/*is_small=*/false),
-        small_blocks(/*is_small=*/true),
+      : large_blocks(BlockComparator, /*is_small=*/false),
+        free_fused_blocks(BlockComparator, /*is_small=*/false),
+        small_blocks(BlockComparator, /*is_small=*/true),
 #endif
         alloc_trace(new std::vector<TraceEntry>()) {
     stats.max_split_size = CachingAllocatorConfig::max_split_size();
@@ -1629,13 +1627,13 @@ class DeviceCachingAllocator {
   Block* malloc(int device, size_t orig_size, cudaStream_t stream) {
     // done outside the lock because we don't know what locks the recorder needs
     // to have...
-// #ifndef GMLAKE_ENABLE
+#ifndef GMLAKE_ENABLE
     auto context = maybeGatherContext(RecordContext::STATE);
-// #else
-//     CreateContextFn context_recorder = context_recorder_.load();
-//     std::shared_ptr<Context> context =
-//         context_recorder ? context_recorder() : nullptr;
-// #endif
+#else
+    CreateContextFn context_recorder = context_recorder_.load();
+    std::shared_ptr<Context> context =
+        context_recorder ? context_recorder() : nullptr;
+#endif
 
     std::unique_lock<std::recursive_mutex> lock(mutex);
 
@@ -1657,10 +1655,10 @@ class DeviceCachingAllocator {
     const size_t alloc_size = get_allocation_size(size);
     AllocParams params(device, size, stream, &pool, alloc_size, stats);
     params.stat_types = get_stat_types_for_pool(pool);
-// #ifdef GMLAKE_ENABLE
-//     params.stat_types[static_cast<size_t>(StatType::AGGREGATE)] = true;
-//     params.stat_types[static_cast<size_t>(get_stat_type_for_pool(pool))] = true;
-// #endif
+#ifdef GMLAKE_ENABLE
+    params.stat_types[static_cast<size_t>(StatType::AGGREGATE)] = true;
+    params.stat_types[static_cast<size_t>(get_stat_type_for_pool(pool))] = true;
+#endif
 
     // First, try to get a block from the existing pool.
     bool block_found =
@@ -1702,18 +1700,9 @@ class DeviceCachingAllocator {
               realloc_block(params, false))
           || get_fused_fragmented_blocks(params, 1)
           // Free all non-split cached blocks and retry alloc.
-          || (C10_LIKELY(captures_underway == 0) && release_cached_blocks(context) &&
+          || (C10_LIKELY(captures_underway == 0) && release_cached_blocks() &&
               realloc_block(params, true))
           || get_fused_fragmented_blocks(params, 2);
-
-      if (record_history && block_found) {
-        record_trace(
-            TraceEntry::SEGMENT_ALLOC,
-            int64_t(params.block->ptr),
-            params.block->size,
-            params.stream(),
-            context);
-      }
 #endif
     }
 
@@ -1850,7 +1839,7 @@ class DeviceCachingAllocator {
     const bool already_split = block->is_split();
     if (split_remainder) {
 #ifdef GMLAKE_ENABLE
-    if(pool->is_small || vmmDefragment <= 0 || (block->vmm_segment && !block->vmm_segment->fused)) {
+    if(pool.is_small || vmmDefragment <= 0 || (block->vmm_segment && !block->vmm_segment->fused)) {
 #endif
       remaining = block;
 
@@ -1948,7 +1937,7 @@ class DeviceCachingAllocator {
       }
 ////////////
 #ifdef GMLAKE_ENABLE
-    } /// Line:1844
+    } /// Line:1837
       else if(vmmDefragment > 0 && block->vmm_segment) {
         size_t keep_blocks = size/kGranularity;
           
@@ -2035,7 +2024,7 @@ class DeviceCachingAllocator {
                 size_t block_size = (i - last_offset)*kGranularity;
                           
                 char* block_ptr = (char*)block2split->ptr + last_offset*kGranularity;
-                Block* split_block = new Block(device, stream, block_size, pool, block_ptr);
+                Block* split_block = new Block(device, stream, block_size, &pool, block_ptr);
                           
                           
                 split_block->prev = prev_block;
@@ -2223,7 +2212,7 @@ class DeviceCachingAllocator {
   }
 
 #ifdef GMLAKE_ENABLE
-  void update_block(Block* block, const std::shared_ptr<GatheredContext>& context) {
+  void update_block(Block* block) {
     std::lock_guard<std::recursive_mutex> lock(mutex);
     bool flag = false;
       
@@ -2303,7 +2292,9 @@ class DeviceCachingAllocator {
         active_fused_blocks.erase(block);
         flag = true;
         size_t requested_size = block->requested_size;
-        StatTypes stat_types = get_stat_types_for_pool(*block->pool);
+        StatTypes stat_types = {false};
+        stat_types[static_cast<size_t>(StatType::AGGREGATE)] = true;
+        stat_types[static_cast<size_t>(get_stat_type_for_pool(large_blocks))] = true;
         for_each_selected_stat_type(stat_types, [&](size_t stat_type) {
           update_stat(
             stats.requested_bytes[stat_type],
@@ -2330,14 +2321,14 @@ class DeviceCachingAllocator {
         }
       }
     } else {
-      free_block(block, context);
+      free_block(block, flag);
     }
       
       
     for(auto& block2free : blocks2free) {
           
       block2free->allocated = false;
-      free_block(block2free, context);
+      free_block(block2free, flag);
     }
       
   }
@@ -2745,13 +2736,13 @@ class DeviceCachingAllocator {
         }
         block_info.context_when_allocated = block->context_when_allocated;
         
-// #ifdef GMLAKE_ENABLE
-//         HistoryChain* h = block->history.get();
-//         while (h) {
-//           block_info.history.push_back(h->h);
-//           h = h->next.get();
-//         }
-// #endif
+#ifdef GMLAKE_ENABLE
+        HistoryChain* h = block->history.get();
+        while (h) {
+          block_info.history.push_back(h->h);
+          h = h->next.get();
+        }
+#endif
         block = block->next;
       }
       total_active += segment_info.active_size;
@@ -2856,6 +2847,63 @@ class DeviceCachingAllocator {
 
   // See Note [Interaction with CUDA graph capture]
 
+#ifdef GMLAKE_ENABLE
+  void notifyCaptureBegin(CaptureId_t graph_id, MempoolId_t mempool_id) {
+    std::lock_guard<std::recursive_mutex> lock(mutex);
+    captures_underway++;
+    auto it = graph_pools.find(mempool_id);
+    if (it == graph_pools.end()) {
+      // mempool_id does not reference an existing pool. Make a new pool for
+      // this capture.
+      graph_pools.emplace(mempool_id, std::make_unique<PrivatePool>());
+    } else {
+      // mempool_id references an existing pool, which the current capture will
+      // share. Check this pool is live (at least one other capture already
+      // references it).
+      TORCH_INTERNAL_ASSERT(it->second->use_count > 0);
+      it->second->use_count++;
+    }
+    // Maps this graph_id to mempool_id and makes sure this graph_id wasn't
+    // somehow assigned a mempool_id already. Keeps essential effect (insert)
+    // out of macro.
+    bool inserted = capture_to_pool_map.insert({graph_id, mempool_id}).second;
+    TORCH_INTERNAL_ASSERT(inserted);
+  }
+
+  // Called by CUDAGraph::capture_endQ
+  void notifyCaptureAboutToEnd(CaptureId_t graph_id) {
+    std::lock_guard<std::recursive_mutex> lock(mutex);
+    captures_underway--;
+    auto it = capture_to_pool_map.find(graph_id);
+    TORCH_INTERNAL_ASSERT(it != capture_to_pool_map.end());
+    capture_to_pool_map.erase(it);
+  }
+
+  // Called by CUDAGraph::reset
+  void notifyCaptureDestroy(MempoolId_t mempool_id) {
+    std::lock_guard<std::recursive_mutex> lock(mutex);
+    // The instantiated cudaGraphExec_t has been destroyed. We can't blindly
+    // delete and cudaFree the mempool its capture used, because
+    //  1. other graph(s) might share the same pool
+    //  2. the user might still hold references to output tensors allocated
+    //  during capture.
+    // To handle 1 and 2, we track the number of graphs using this particular
+    // mempool. When the count reaches 0, we tell free_cached_blocks it may now
+    // cudaFree blocks from this graph's pool when it discovers they're unused
+    // (unsplit).
+    auto it = graph_pools.find(mempool_id);
+    TORCH_INTERNAL_ASSERT(it != graph_pools.end());
+    auto uc = --(it->second->use_count);
+    TORCH_INTERNAL_ASSERT(uc >= 0);
+    if (uc == 0) {
+      // Allows free_cached_blocks to begin cudaFreeing this pool's memory,
+      // and makes sure this pool wasn't somehow made freeable already.
+      bool inserted =
+          graph_pools_freeable.insert({mempool_id, it->second.get()}).second;
+      TORCH_INTERNAL_ASSERT(inserted);
+    }
+  }
+#else
   // Called by CUDAGraph::capture_begin
   void beginAllocateStreamToPool(cudaStream_t stream, MempoolId_t mempool_id) {
     std::lock_guard<std::recursive_mutex> lock(mutex);
@@ -2889,6 +2937,7 @@ class DeviceCachingAllocator {
     TORCH_INTERNAL_ASSERT(it != stream_to_pool_map.end());
     stream_to_pool_map.erase(it);
   }
+#endif
 
   // Called by CUDAGraph::reset
   void releasePool(MempoolId_t mempool_id) {
@@ -3299,26 +3348,26 @@ class DeviceCachingAllocator {
     // capture, so it's usually 0, and we can short-circuit
     // cudaStreamCaptureStatus (which does a TLS lookup).
     if (C10_UNLIKELY(captures_underway)) {
-// #ifdef GMLAKE_ENABLE
-//       CaptureId_t id;
-//       cudaStreamCaptureStatus status;
-//       C10_CUDA_CHECK(cudaStreamGetCaptureInfo(stream, &status, &id));
-//       if (status != cudaStreamCaptureStatus::cudaStreamCaptureStatusNone) {
-//         TORCH_INTERNAL_ASSERT(
-//             status !=
-//             cudaStreamCaptureStatus::cudaStreamCaptureStatusInvalidated);
-//         // Retrieves the private pool assigned to this capture.
-//         auto it0 = capture_to_pool_map.find(id);
-//         TORCH_INTERNAL_ASSERT(it0 != capture_to_pool_map.end());
-//         auto it1 = graph_pools.find(it0->second);
-//         TORCH_INTERNAL_ASSERT(it1 != graph_pools.end());
-//         if (size <= kSmallSize) {
-//           return it1->second->small_blocks;
-//         } else {
-//           return it1->second->large_blocks;
-//         }
-//       }
-// #else
+#ifdef GMLAKE_ENABLE
+      CaptureId_t id;
+      cudaStreamCaptureStatus status;
+      C10_CUDA_CHECK(cudaStreamGetCaptureInfo(stream, &status, &id));
+      if (status != cudaStreamCaptureStatus::cudaStreamCaptureStatusNone) {
+        TORCH_INTERNAL_ASSERT(
+            status !=
+            cudaStreamCaptureStatus::cudaStreamCaptureStatusInvalidated);
+        // Retrieves the private pool assigned to this capture.
+        auto it0 = capture_to_pool_map.find(id);
+        TORCH_INTERNAL_ASSERT(it0 != capture_to_pool_map.end());
+        auto it1 = graph_pools.find(it0->second);
+        TORCH_INTERNAL_ASSERT(it1 != graph_pools.end());
+        if (size <= kSmallSize) {
+          return it1->second->small_blocks;
+        } else {
+          return it1->second->large_blocks;
+        }
+      }
+#else
       auto it0 = stream_to_pool_map.find(stream);
       if (it0 != stream_to_pool_map.end()) {
         auto it1 = graph_pools.find(it0->second);
@@ -3329,7 +3378,7 @@ class DeviceCachingAllocator {
           return it1->second->large_blocks;
         }
       }
-// #endif
+#endif
     }
 #endif
     if (size <= kSmallSize) {
@@ -3661,7 +3710,6 @@ class DeviceCachingAllocator {
     
     update_stat_array(stats.inactive_split, net_change_inactive_split_blocks, p.stat_types);
     update_stat_array(stats.inactive_split_bytes, net_change_inactive_split_size, p.stat_types);
-    return true;
 #else
     if (it == pool.blocks.end() || (*it)->stream != p.stream())
       return false;
@@ -4155,7 +4203,6 @@ class DeviceCachingAllocator {
     
     return false;
   }
-  
 #endif
 
   bool trigger_free_memory_callbacks(AllocParams& p) {
@@ -4222,210 +4269,6 @@ class DeviceCachingAllocator {
       }
     }
   }
-
-#ifdef GMLAKE_ENABLE
-  bool realloc_block(AllocParams& p, bool isRetry) {
-    // Defensively checks for preexisting CUDA error state.
-    C10_CUDA_CHECK(cudaGetLastError());
-
-    
-    static const int vmmDefragment = ([]()->int{
-        const char* env = getenv("vmmDefragment");
-        if(env) return atoi(env);
-        else return 1;
-    })();
-
-
-    static const int reAlloc = ([]()->int{
-        const char* env = getenv("reAlloc");
-        if(env) return atoi(env);
-        else return 0;
-    })();
-
-
-
-    size_t size = p.alloc_size;
-    size_t free_block_size = 0;
-    void* ptr;
-
-    if (isRetry) {
-      stats.num_alloc_retries += 1;
-    }
-
-    std::shared_ptr<VmmSegment> vmm_segment;
-    if (set_fraction &&
-        total_allocated_memory + size > allowed_memory_maximum) {
-      p.err = cudaErrorMemoryAllocation;
-      return false;
-    } else {
-      if(vmmDefragment <= 0 || p.pool->is_small) {
-        p.err = cudaMallocMaybeCapturing(&ptr, size);
-        if (p.err != cudaSuccess) {
-          if (p.err == cudaErrorMemoryAllocation) {
-            // If this is the first attempt (!isRetry), we can forgive and clear CUDA's
-            //   internal error state.
-            // If this is the second attempt (isRetry), malloc's TORCH_CHECK_WITH will take
-            //   over to throw a helpful exception. The user can choose to catch the exception,
-            //   free some stuff in their script, and attempt their allocation again.
-            //   In this case, we can also forgive and clear CUDA's internal error state.
-            cudaGetLastError();
-          } else {
-            // If the error's unrelated to memory allocation, we should throw immediately.
-            C10_CUDA_CHECK(p.err);
-          }
-          return false;
-        }
-      } else {
-        if(reAlloc > 0) {
-          //Block left_search_key = p.search_key;
-          //Block right_search_key = p.search_key;
-                
-          Block left_search_key(p.search_key.device, p.search_key.stream, p.search_key.size, p.search_key.pool, p.search_key.ptr);
-          Block right_search_key(p.search_key.device, p.search_key.stream, p.search_key.size, p.search_key.pool, p.search_key.ptr);
-      
-          left_search_key.size = 0;
-          right_search_key.size = std::numeric_limits<size_t>::max();
-                      
-          auto it_begin = large_blocks.blocks.lower_bound(&left_search_key);
-          auto it_end = large_blocks.blocks.lower_bound(&right_search_key);
-                
-          if(it_begin != large_blocks.blocks.end() && (*it_begin)->stream == p.stream() &&
-            it_end != large_blocks.blocks.begin() && (*std::prev(it_end))->stream == p.stream()) {
-            auto it = it_begin;
-            while(it != it_end) {
-              free_block_size += (*it)->size;
-              it++;
-            }
-          }
-                
-                
-          size_t request_size = p.search_key.size;
-                
-          if(free_block_size >= request_size) {
-            GMLAKE_INFO(" free_block_size %fMB is larger than allocation size %fMB, something weired happended", 
-                       free_block_size/(1024.f*1024.f), size/(1024.f*1024.f));
-            return false;
-          }
-                
-          if(free_block_size > 0) {
-            request_size -= free_block_size;
-            size = get_allocation_size(request_size);
-          }
-        }
-               
-        using Ms = std::chrono::duration<double, std::milli>;
-        Ms fuse_time = Ms{0};
-            
-        int gc_time = 0;
-        do
-        {
-          auto t0 = std::chrono::steady_clock::now();
-                
-          vmm_segment = std::make_shared<VmmSegment>(size/kGranularity, kGranularity, p.device());
-                
-          auto t1 = std::chrono::steady_clock::now();
-          fuse_time = (t1-t0);
-                
-          if(vmm_segment->status == CUDA_SUCCESS && vmm_segment->segment_ptr) {
-            break;
-          } else {
-            cudaGetLastError();
-                            
-            size_t device_free;
-            size_t device_total;
-            cudaMemGetInfo(&device_free, &device_total);
-                            
-            size_t total_garbage_size = fragmented_free_fused_blocks[p.stream()].pool_size + free_fused_blocks_in_release_order[p.stream()].pool_size;
-                  
-                    
-            if(device_free > size && total_garbage_size >= size) {
-              GMLAKE_INFO(" allocate size %luMB memory by vmm the %dth time failed, try to garbage_collect_fused_blocks", size/(1024*1024), gc_time);
-                        
-              vmm_segment.reset();
-              size_t garbage_size = garbage_collect_fused_blocks(gc_time, p.alloc_size);
-              total_fuse_size -= garbage_size;
-                        
-              gc_time++;
-                       
-              cudaGetLastError();
-            } else {
-              break;
-            }
-          }
-        } while(gc_time < 3);
-            
-        if(!vmm_segment || vmm_segment->status != CUDA_SUCCESS || !vmm_segment->segment_ptr) {           
-          p.err = cudaErrorMemoryAllocation;
-          cudaGetLastError();
-          vmm_segment.reset();
-                
-          GMLAKE_INFO(" allocate size %fMB memory by vmm failed", size/(1024.f*1024.f));
-            
-          return false;
-        }
-            
-            
-        ptr = vmm_segment->segment_ptr;
-      }
-    }
-
-    if (p.pool->owner_PrivatePool) {
-      // The block is for a CUDA graph's PrivatePool.
-      p.pool->owner_PrivatePool->cudaMalloc_count++;
-    }
-
-    total_allocated_memory += size;
-    Block* new_block = new Block(p.device(), p.stream(), size, p.pool, (char*)ptr);
-    new_block->vmm_segment = std::move(vmm_segment);
-    
-    for_each_selected_stat_type(p.stat_types, [&](size_t stat_type) {
-      update_stat(stats.segment[stat_type], 1);
-      update_stat(stats.reserved_bytes[stat_type], size);
-    });
-    if (size >= CachingAllocatorConfig::max_split_size())
-      update_stat(stats.oversize_segments, 1);
-
-    // p.block came from new, not cudaMalloc. It should not be nullptr here.
-    //TORCH_INTERNAL_ASSERT(p.block != nullptr && p.block->ptr != nullptr);
-    TORCH_INTERNAL_ASSERT(new_block != nullptr && new_block->ptr != nullptr);
-    
-    
-    if(new_block->vmm_segment) {
-      if(new_block->size < p.search_key.size) {
-        for(size_t i = 0; i < new_block->vmm_segment->phy_blocks.size(); i++) {
-          new_block->vmm_segment->phy_blocks[i]->mapped_blocks.emplace_back(new_block, i);
-          new_block->vmm_segment->phy_blocks[i]->free = true;
-        }
-            
-        new_block->vmm_segment->free_blocks = new_block->vmm_segment->phy_blocks.size();
-        new_block->vmm_segment->used_blocks = 0;
-
-        large_blocks.blocks.insert(new_block);
-            
-        if(!get_fused_fragmented_blocks(p, 4)) {
-          GMLAKE_INFO(" call get_fused_fragmented_blocks failed");
-          return false;
-        }
-      } else {
-        for(size_t i = 0; i < new_block->vmm_segment->phy_blocks.size(); i++) {
-          new_block->vmm_segment->phy_blocks[i]->mapped_blocks.emplace_back(new_block, i);
-          new_block->vmm_segment->phy_blocks[i]->free = false;
-        }
-            
-        new_block->vmm_segment->free_blocks = 0;
-        new_block->vmm_segment->used_blocks = new_block->vmm_segment->phy_blocks.size();
-            
-        p.block = new_block;
-        p.err = cudaSuccess;
-      }
-    } else {
-      p.block = new_block;
-      p.err = cudaSuccess;
-    }
-    
-    return true;
-  }
-#endif
 
   bool alloc_block(
       AllocParams& p,
@@ -4601,112 +4444,6 @@ class DeviceCachingAllocator {
   }
 
   void release_block(Block* block) {
-#ifdef GMLAKE_ENABLE
-static const int vmmDefragment = ([]()->int{
-        const char* env = getenv("vmmDefragment");
-        if(env) return atoi(env);
-        else return 1;
-    })();
-
-
-
-    if (vmmDefragment > 0 && block->vmm_segment) {
-      for(size_t i=0; i < block->vmm_segment->phy_blocks.size(); i++) {
-        auto& phy_block = block->vmm_segment->phy_blocks[i];
-        if(!phy_block->free) {
-          GMLAKE_INFO(" warning for non fused blocks has non free phy_block: %lu, something wrong happended, block %p, block->ptr %p, block->size %fMB, free_blocks %lu, used_blocks %lu, event_id: %lu",
-                                               i, block, block->ptr, block->size/(1024.f*1024.f), block->vmm_segment->free_blocks, block->vmm_segment->used_blocks, block->self_last_event->event_id);
-        }
-
-        for(auto& block_segment : phy_block->mapped_blocks) {
-          Block* other_block = block_segment.block;
-              
-          if(other_block == block) continue;
-              
-          if(other_block->vmm_segment->fused) {
-            if(active_fused_blocks.count(other_block) && 
-              active_fused_blocks_to_gc.count(other_block) == 0) {
-              {
-                auto tmp1 = std::move(other_block->vmm_segment->vir_blocks[block_segment.offset]);
-                auto tmp2 = std::move(other_block->vmm_segment->phy_blocks[block_segment.offset]);
-              }
-                      
-              //active_fused_blocks.erase(other_block);
-              active_fused_blocks_to_gc.insert(other_block);
-            } else if(free_fused_blocks.blocks.count(other_block) || 
-                          fragmented_free_fused_blocks[other_block->stream].blocks.count(other_block)) {
-              if(free_fused_blocks.blocks.count(other_block)) {
-                free_fused_blocks.blocks.erase(other_block);
-                free_fused_blocks_in_release_order[other_block->stream].erase(other_block);
-              } else if(fragmented_free_fused_blocks[other_block->stream].blocks.count(other_block)) {
-                fragmented_free_fused_blocks[other_block->stream].erase(other_block);
-              }
-       
-              for(auto& phy_block : other_block->vmm_segment->phy_blocks) {
-                int i = 0;
-                for(int j = 0; j < phy_block->mapped_blocks.size(); j++) {
-                  if(phy_block->mapped_blocks[j].block != other_block) {
-                    if(i != j) {
-                      phy_block->mapped_blocks[i] = phy_block->mapped_blocks[j];
-                    }
-                                  
-                    i++;
-                  }
-                }
-                phy_block->mapped_blocks.resize(i);
-              }
-                      
-                      
-              delete other_block;
-            }
-          } else {
-            GMLAKE_INFO(" warning for non fused blocks has phy_block mapped to other non fused blocks");
-            exit(-1);
-          }
-        }
-                        
-      }
-      
-      
-    }
-    
-    
-
-    
-    if(block->vmm_segment){
-      block->vmm_segment.reset();
-    } else {
-      C10_CUDA_CHECK(cudaFree((void*)block->ptr));
-    }
-    total_allocated_memory -= block->size;
-
-    auto* pool = block->pool;
-    if (pool->owner_PrivatePool) {
-      // The cudaFreed block belonged to a CUDA graph's PrivatePool.
-      TORCH_INTERNAL_ASSERT(pool->owner_PrivatePool->cudaMalloc_count > 0);
-      pool->owner_PrivatePool->cudaMalloc_count--;
-    }
-
-    StatTypes stat_types = get_stat_types_for_pool(*block->pool);
-    for_each_selected_stat_type(stat_types, [&](size_t stat_type) {
-      update_stat(stats.segment[stat_type], -1);
-      update_stat(
-          stats.reserved_bytes[stat_type],
-          -static_cast<std::int64_t>(block->size));
-    });
-    if (block->size >= CachingAllocatorConfig::max_split_size())
-      update_stat(stats.oversize_segments, -1);
-    if (block->history) {
-      record_trace(
-          TraceEntry::SEGMENT_FREE,
-          int64_t(block->ptr),
-          block->size,
-          block->stream,
-          block->history->h.context);
-    }
-    pool->blocks.erase(block);
-    delete block;
-#else
     TORCH_INTERNAL_ASSERT(!block->expandable_segment_);
     C10_CUDA_CHECK(cudaFree((void*)block->ptr));
     total_allocated_memory -= block->size;
@@ -4738,7 +4475,6 @@ static const int vmmDefragment = ([]()->int{
     }
     pool->blocks.erase(block);
     delete block;
-#endif
   }
 
   void unmap_block(Block* block) {
@@ -4845,11 +4581,7 @@ static const int vmmDefragment = ([]()->int{
 
         block->event_count--;
         if (block->event_count == 0) {
-#ifdef GMLAKE_ENABLE
-          update_block(block, context);
-#else
           free_block(block, context);
-#endif
         }
       }
     }
@@ -4876,33 +4608,6 @@ static const int vmmDefragment = ([]()->int{
 
     C10_CUDA_CHECK(c10::cuda::MaybeSetDevice(prev_device));
   }
-
-#ifdef GMLAKE_ENABLE
-  void insert_free_event_into_alloc_stream(Block* block)
-  {
-    int prev_device = -1;
-    C10_CUDA_CHECK(cudaGetDevice(&prev_device));
-    if(prev_device != block->device)
-    {
-      C10_CUDA_CHECK(cudaSetDevice(block->device));
-    }
-  
-
-    
-    if( block->self_last_event && 
-        block->self_last_event.unique() && 
-        block->self_last_event->stream == block->stream && 
-        !block->self_last_event->ref_as_sync) {
-      block->self_last_event->record(block->stream);
-    } else {
-      block->self_last_event = std::make_shared<BlockEvent>(block->stream, true);
-    }
-
-    if(prev_device != block->device) {
-      C10_CUDA_CHECK(cudaSetDevice(prev_device));
-    }
-  }
-#endif
 
   void insert_events_deferred_until_no_capture() {
     if (C10_UNLIKELY(!needs_events_deferred_until_no_capture.empty())) {
@@ -4944,11 +4649,7 @@ static const int vmmDefragment = ([]()->int{
 
         block->event_count--;
         if (block->event_count == 0) {
-#ifdef GMLAKE_ENABLE
-          update_block(block, context);
-#else
           free_block(block, context);
-#endif
         }
         it->second.pop_front();
       }
@@ -5043,16 +4744,6 @@ class NativeCachingAllocator : public CUDAAllocator {
 
   void init(int device_count) override {
     const auto size = static_cast<int64_t>(device_allocator.size());
-#ifdef GMLAKE_ENABLE
-    static const int vmmDefragment = ([]()->int{
-        const char* env = getenv("vmmDefragment");
-        if(env) return atoi(env);
-        else return 1;
-    })();
-    if (vmmDefragment) {
-        GMLAKE_INFO(" GMLAKE initialized");
-    }
-#endif
     if (size < device_count) {
       device_allocator.resize(device_count);
       for (const auto i : c10::irange(size, device_count)) {

@@ -28,7 +28,7 @@
 #define TORCH_CHECK(a, ...) // profile mode
 
 // #define ORIGINAL_DTR
-// #define DEBUG_MODE
+#define DEBUG_MODE
 
 // System Description:
 // Every Tensor is managed by a CheckpointTensor,

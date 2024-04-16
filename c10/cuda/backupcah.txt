@@ -101,12 +101,6 @@ struct DeviceStats {
 
 typedef std::shared_ptr<GatheredContext> (*CreateContextFn)(void);
 
-struct History {
-  void* addr;
-  size_t real_size; // unrounded, actually requested size
-  std::shared_ptr<GatheredContext> context; // per-watcher context
-};
-
 // Struct containing info of an allocation block (i.e. a fractional part of a
 // cudaMalloc)..
 struct BlockInfo {

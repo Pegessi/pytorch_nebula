@@ -164,12 +164,13 @@ bool use_profile_ = false;
 #ifdef DEBUG_MODE
 bool record_er_counts = false;        // 驱逐&重物化次数
 bool record_mem_addr = false;         // 是否记录内存地址
-bool record_op_recs = true;          // 是否记录op历史
+bool record_op_recs = false;          // 是否记录op历史
 bool record_fragmentation = false;    // 记录碎片化和内存占用数据
 bool record_lifecycle = false;        // 记录ap生命周期计数分布
 bool record_ap_cost = false;          // 记录ap的cost分布
 bool record_dependcy = false;
 bool record_key_chain = false;
+bool current_if_any_evicted = false;
 
 std::atomic<size_t> evict_counts = 0;
 std::atomic<size_t> tensor_evict_counts = 0;
@@ -312,10 +313,22 @@ namespace dtb {
 
           while (current_memory(device) > pool->memory_budget) {
             if_eviction = true;
+      #ifdef DEBUG_MODE
+            if(record_mem_addr&&!current_if_any_evicted){
+              DTRLogCounts("after computation, need evict.", ++evict_counts);
+              pool_cur_mem_snapshot(device);  // after once computation, and out of budget
+            }
+            current_if_any_evicted = true;
+      #endif
             pool->evict();
           }
 
       #ifdef DEBUG_MODE
+          if(record_mem_addr&&current_if_any_evicted){
+            DTRLogCounts("after eviction.", evict_counts);
+            pool_cur_mem_snapshot(device);  // after eviction
+            current_if_any_evicted = false;
+          }
           ///TODO: 清空依赖
           if(record_dependcy&&if_eviction){
             time_t current_time = std::chrono::system_clock::now();
@@ -333,18 +346,21 @@ namespace dtb {
             }
             DTRLogCounts("once check end", 999);
           }
-          if(if_eviction){
-              // use_log_ = true;
-            if(record_mem_addr && pool->exts.size()>10){
-              /// 单独用这个，记录某次驱逐后的mem snapshot
-              pool_cur_mem_snapshot(device);
-              // if_rec = false;
-              /// 单独用这个，记录每次驱逐后的内存变化
-              // DTRLogMemAlloc(current_memory(), reserved_memory());
-            // }
-            }
-          }
-            record_mem_addr = false;
+
+          // if(if_eviction){
+          //     // use_log_ = true;
+          //   if(record_mem_addr && pool->exts.size()>10){
+          //     /// 单独用这个，记录某次驱逐后的mem snapshot
+          //     pool_cur_mem_snapshot(device);
+          //     // if_rec = false;
+
+          //     /// 单独用这个，记录每次驱逐后的内存变化
+          //     // DTRLogMemAlloc(current_memory(), reserved_memory());
+          //   // }
+          //   }
+          //   record_mem_addr = false;
+          // }
+
       #endif
 
         }
@@ -365,6 +381,9 @@ namespace dtb {
           bool if_clear = false;
           while (current_memory(device) > pool->memory_budget) {
             if_eviction = true;
+      #ifdef DEBUG_MODE
+            current_if_any_evicted = true;
+      #endif
             check_counts++;
             if(check_counts<10)
               pool->mem_first_evict(if_clear);
@@ -385,16 +404,19 @@ namespace dtb {
             DTRLogCounts("search counts", check_counts);
             DTRLogMemAlloc(current_memory(), reserved_memory());
           }
-          if(if_eviction){
-            if(record_mem_addr && pool->exts.size()>10){
-              /// 单独用这个，记录某次驱逐后的mem snapshot
-              pool_cur_mem_snapshot(device);
-              /// 单独用这个，记录每次驱逐后的内存变化
-              // DTRLogMemAlloc(current_memory(), reserved_memory());
-            // }
-            }
-          }
+          // if(if_eviction){
+          //   if(record_mem_addr && pool->exts.size()>10){
+          //     /// 单独用这个，记录某次驱逐后的mem snapshot
+          //     pool_cur_mem_snapshot(device);
+          //     /// 单独用这个，记录每次驱逐后的内存变化
+          //     // DTRLogMemAlloc(current_memory(), reserved_memory());
+          //   // }
+          //   }
+          // }
           //   record_mem_addr = false;
+          if(record_mem_addr&&current_if_any_evicted){
+            pool_cur_mem_snapshot(device);  // before computation
+          }
       #endif
 
         }
@@ -410,15 +432,18 @@ namespace dtb {
           int check_counts = 0;
       #endif
           while ((current_memory(device) + coming_bytes) > pool->memory_budget) {
+
             pool->evict();
+
       #ifdef DEBUG_MODE
-            // check_counts++;
+            check_counts++;
             // if(check_counts>100){
             //   std::cout << "Eviction progress has been trapped in dead loop\n";
             //   throw std::runtime_error("Eviction progress has been trapped in dead loop");
             // }
       #endif
           }
+
         }
       }
 
@@ -586,7 +611,7 @@ namespace dtb {
               size_t degree = 0;
               double cost = 0;
               size_t staleness = 0;
-              if(remat!=nullptr){ /// TODO: 存在没有remat的tensor 无源之水，从内存大小来看是一些用到的常量直接checkpoint了，甚至有的常量读进来不用?
+              if(remat!=nullptr){ /// TODO: 存在没有remat的tensor 无源之水，从内存大小来看是一些用到的常量直接checkpoint
                 degree = (remat->inputs.size()) + (remat->outputs.size());
                 auto ap_strong = ref->value->pool; /// TODO: 这里会触发段错误，访问了野指针？
                 cost = ap_strong->cost(current_time);
@@ -698,7 +723,6 @@ void CheckpointPool::add(const intrusive_ptr<AliasPool>& p) {
 
 #ifdef DEBUG_MODE
 void log_cur_mem_statics(){ /// single mode use
-  if(record_mem_addr){
 #ifdef MULTI_MODE
     auto *pm = getDTBPoolManager();
     pm->pool_cur_mem_snapshot(0);
@@ -723,10 +747,10 @@ void log_cur_mem_statics(){ /// single mode use
     }
     // DTRLogMemAlloc(current_memory(), reserved_memory());
 #endif
-  }
 }
 #endif
 
+// original dtr use this func. now use auto_evict of pm
 void CheckpointPool::auto_evict() {
   STATS.track("CheckpointPool::auto_evict");
   constexpr float evict_mem_scale = 0.05;
