@@ -17,8 +17,8 @@
 #include <unistd.h>
 
 // #define TIME_REC                      /// 方便debug的宏定义
-#define MINIMAL_EVICT                    /// 最小驱逐策略（贪心+随机 DTR）
-// #define MINIMAL_EVICT_COST            /// 最小驱逐策略+cost cache（贪心+随机 DTR） op记录
+// #define MINIMAL_EVICT                    /// 最小驱逐策略（贪心+随机 DTR）
+#define MINIMAL_EVICT_COST            /// 最小驱逐策略+cost cache（贪心+随机 DTR） op记录
 // #define MEM_ORDER_ENABLE              /// 是否启用mem order策略
 // #define DEPENDENCY_CHECK              /// 依赖检查策略
 #define DEGREE_CHAIN                     /// 残差链发现策略
@@ -1655,7 +1655,11 @@ void Rematerializer::remat() {
 #endif
 
 #ifdef MINIMAL_EVICT_COST
+  #ifdef MULTI_MODE
+  pm->auto_evict(device_id, memory_cost_records[rid]);
+  #else
   pool.auto_evict(memory_cost_records[rid]);
+  #endif
 #endif
 
   auto ret = func(ts);
@@ -1718,7 +1722,11 @@ void Rematerializer::remat(int& cumulative_num) {
 #endif
 
 #ifdef MINIMAL_EVICT_COST
+  #ifdef MULTI_MODE
+  pm->auto_evict(device_id, memory_cost_records[rid]);
+  #else
   pool.auto_evict(memory_cost_records[rid]);
+  #endif
 #endif
 
   auto ret = func(ts);

@@ -9,7 +9,7 @@
 #include <c10/util/flat_hash_map.h>
 #include <c10/util/irange.h>
 #include <c10/util/llvmMathExtras.h>
-#define GMLAKE_ENABLE
+#define GMLAKE_ENABLE // GMLAKE history trace is unavailable(wrong history)
 #ifdef GMLAKE_ENABLE
 #include <c10/util/Backtrace.h>
 #include <unordered_map>
@@ -914,6 +914,7 @@ struct AllocParams {
 };
 
 #ifdef GMLAKE_ENABLE
+// deprecated, this is used in torch2.0
 int trimHistoryBefore(Block* block, void* point) {
   int n = 0;
   while (block->history && block->history->h.addr < point) {
@@ -1928,9 +1929,9 @@ class DeviceCachingAllocator {
       TORCH_INTERNAL_ASSERT_DEBUG_ONLY(inserted);
 
 #ifdef GMLAKE_ENABLE
-      if (context) {
-        trimHistoryBefore(remaining, (char*)block->ptr + size);
-      }
+      // if (context) {
+      //   trimHistoryBefore(remaining, (char*)block->ptr + size);
+      // }
 #endif
 
       if (already_split && !block->expandable_segment_) {
@@ -2108,9 +2109,9 @@ class DeviceCachingAllocator {
         }
       }
 
-      if (record_history) {
-        trimHistoryBefore(remaining, (char*)block->ptr + size);
-      }
+      // if (record_history) {
+      //   trimHistoryBefore(remaining, (char*)block->ptr + size);
+      // }
 
 #endif
     } else if (already_split && !block->expandable_segment_) {
@@ -2130,7 +2131,7 @@ class DeviceCachingAllocator {
 #endif
     if (record_history) {
 #ifdef GMLAKE_ENABLE
-      trimHistoryBefore(block, (char*)block->ptr + size);
+      // trimHistoryBefore(block, (char*)block->ptr + size);
       block->history = std::make_unique<HistoryChain>(HistoryChain{
           History{block->ptr, orig_size, std::move(context)},
           std::move(block->history)});
