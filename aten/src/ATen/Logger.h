@@ -196,11 +196,11 @@ void DTRLogCalculativeRematsRecords(const int64_t& rid, const std::string& name,
   }
 }
 
-void DTRLogLifeCycle(const int& pid, const size_t& org, const size_t& lck, const size_t& remat){
+void DTRLogLifeCycle(const std::string& tag, const size_t& org, const size_t& lck, const size_t& remat){
   if (log_json){
     json j;
     j[INSTRUCTION] = "life cycle";
-    j["pid"] = std::to_string(pid);
+    j["tag"] = tag;
     j["external_count"] = std::to_string(org);
     j["lock_count"] = std::to_string(lck);
     j["remat_count"] = std::to_string(remat);

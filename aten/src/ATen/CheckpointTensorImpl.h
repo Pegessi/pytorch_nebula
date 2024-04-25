@@ -155,6 +155,7 @@ intrusive_ptr<EquivalentClassNode<T>> flat(const intrusive_ptr<EquivalentClassNo
 #pragma endregion
 
 size_t memory(const Tensor& t);
+size_t get_addr(const Tensor& t);
 
 template<typename T>
 struct RefCell final : intrusive_ptr_target {
@@ -279,6 +280,7 @@ struct AliasPool : intrusive_ptr_target {
   size_t external_count = 0;      // for original life cycle of pytorch tensor
   size_t remat_count = 0;         // for remat() call, which is used for improving the life cycle during backward
   size_t retain_count = 0;        // for retain long remat, |disabled| performance worse
+  bool if_weight = false;         // flag for mark the tensors transformerd from weights
 
   int dependency = 0;
   std::future<int> dep_future;
@@ -323,6 +325,14 @@ struct AliasPool : intrusive_ptr_target {
     memory(memory),
     addr(addr),
     device_id(device_id),
+    last_used_time(std::chrono::system_clock::now()) {
+  }
+  AliasPool(const Unsafe&, intrusive_ptr<Rematerializer> head_remat, size_t memory, uintptr_t addr, int device_id, bool if_w) :
+    head_remat(head_remat),
+    memory(memory),
+    addr(addr),
+    device_id(device_id),
+    if_weight(if_w),
     last_used_time(std::chrono::system_clock::now()) {
   }
   // if it is evicted, then hold the evicted tensor group.
@@ -395,12 +405,12 @@ struct CheckpointTensorCell : intrusive_ptr_target {
     defined = false;
     t.reset();
   }
-  void fill(const Tensor& t);
+  void fill(Tensor& t);
 
-  explicit CheckpointTensorCell(const Tensor& t, const intrusive_ptr<AliasPool>& pool) : pool(pool) {
+  explicit CheckpointTensorCell(Tensor& t, const intrusive_ptr<AliasPool>& pool) : pool(pool) {
     fill(t);
   }
-  explicit CheckpointTensorCell(const Tensor& t,
+  explicit CheckpointTensorCell(Tensor& t,
                                 const intrusive_ptr<AliasPool>& pool,
                                 const intrusive_ptr<Rematerializer>& remat) :
     pool(pool), remat(remat) {
@@ -439,22 +449,30 @@ struct CheckpointTensorCell : intrusive_ptr_target {
 // When new CheckpointTensorImpl is constructed.
 struct External : intrusive_ptr_target {
   External(const strong& value) : value(value) {
-    value->pool->register_external();                     /// TAG: Aliaspool引用计数的唯一增加入口
+    value->pool->register_external();                       /// TAG: Aliaspool引用计数的唯一增加入口
   }
-  External(const Tensor& value) :
-    External(strong::make(value,
-                          intrusive_ptr<AliasPool>::make(Unsafe(),
-                                                         intrusive_ptr<Rematerializer>(),
-                                                         memory(value),
-                                                         value.defined() ? static_cast<int>(value.device().index()) : -1))) { }
-                                                         /// static_cast<int>(value.device().index()) 存在无device的tensor, probably empty tensor
-  External(const Tensor& value,
+  External(Tensor& value, bool if_weight=false) :
+    External(strong::make(  // const Unsafe&, intrusive_ptr<Rematerializer> head_remat, size_t memory, uintptr_t addr, int device_id, bool if_w
+                          value,
+                          intrusive_ptr<AliasPool>::make(  /// [TAG] AliasPool构造
+                            Unsafe(),                        
+                            intrusive_ptr<Rematerializer>(),
+                            memory(value),
+                            get_addr(value),
+                            value.defined() ? static_cast<int>(value.device().index()) : -1,
+                            if_weight)
+                          )
+            ) {}
+          /// static_cast<int>(value.device().index()) 存在无device的tensor, probably empty tensor
+  External(Tensor& value,
            const intrusive_ptr<AliasPool>& pool,
            const intrusive_ptr<Rematerializer>& remat) :
     External(strong::make(value, pool, remat)) { }
   strong value;
   void release_resources() override{    /// TAG: Aliaspool引用计数的唯一减少入口
+      // printf("%s %d %ld %d ex:%ld\n", value->counter_name().c_str(), ((value->pool->memory > 0 && (!value->pool->ecn) && value->pool->head_remat)||(value->pool->memory > 0&& value->pool->head_remat==nullptr && !value->pool->if_weight)) ? 1 : 0, value->pool->memory, value->pool->if_weight ? 1 : 0, value->pool->external_count);
       value->pool->release_external();
+      // printf("pool of %s release_external finish.\n", value->counter_name().c_str());
       value.reset();
   }
 };
@@ -506,7 +524,7 @@ struct TORCH_API CheckpointTensorImpl : public TensorImpl {
   void release_resources() override;
 
   explicit CheckpointTensorImpl(const Ref<intrusive_ptr<External>>& ref) :
-    TensorImpl(convert_key_set(ref->value->value->key_set()),
+    TensorImpl(convert_key_set(ref->value->value->key_set()),                   // [TAG] 这里添加了checkpoint后端dispatchkey
                ref->value->value->dtype(),
                ref->value->value->optional_device()),
     ref(ref) {
@@ -530,11 +548,15 @@ struct TORCH_API CheckpointTensorImpl : public TensorImpl {
         set_sizes_and_strides(ref->value->value->get().sizes(), ref->value->value->get().strides());
     }
 
-  explicit CheckpointTensorImpl(const Tensor& t);
+  explicit CheckpointTensorImpl(Tensor& t, bool if_weight=false);
 
   static Tensors make(const std::string& name,
                       const rematerialize_function_t& remat,
-                      const Tensors& inputs);
+                      Tensors& inputs);
+
+  static Tensors make(const std::string& name,
+                      const rematerialize_function_t& remat,
+                      Tensors&& inputs);
 
   // mutate_idx indicate which of the inputs will get mutated.
   /// TODO: 左值引用和右值引用都是接收的vector，是原输入的副本，针对副本的修改(register)是不能影响到原输入的

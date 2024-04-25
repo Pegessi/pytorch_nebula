@@ -21,7 +21,7 @@
 #define MINIMAL_EVICT_COST            /// 最小驱逐策略+cost cache（贪心+随机 DTR） op记录
 // #define MEM_ORDER_ENABLE              /// 是否启用mem order策略
 // #define DEPENDENCY_CHECK              /// 依赖检查策略
-#define DEGREE_CHAIN                     /// 残差链发现策略
+// #define DEGREE_CHAIN                     /// 残差链发现策略
 
 int dep_threshold = 50;             /// 重物化链深度阈值
 int threshold_touch_counts = 0;     /// 累积触发次数
@@ -1079,7 +1079,7 @@ void CheckpointPool::exec_first_evict() {
 void CheckpointPool::mem_first_evict(bool &if_cleared) {
   STATS.track("CheckpointPool::mem_first_evict");
   int evict_idx = -1;
-  constexpr int search_box_size = 3;  // 相邻范围
+  constexpr int search_box_size = 20;  // 相邻范围
 
   //   #ifdef DEBUG_MODE
       //   if(record_ap_cost)
@@ -1170,16 +1170,17 @@ namespace native {
 
 /// !TODO: 潜在问题 引入张量t有undefined的情况，此种情况cpti构造出来的tensor却不是undefined的了，可以额外标记tensor是undefined
 /// 需要规避空tensor带来的可能问题，调用empty tensor的成员方法会报错
-Tensor checkpoint(const Tensor& t) {
+/// [TAG] if_weight的标记操作只是保证了生命周期的合理性，即权重不释放，非权重的无源tensor释放，但实际并不会释放，因为autograd机制依然保留着计数
+Tensor checkpoint(Tensor& t, bool if_weight) {
   STATS.track("checkpoint");
   // if(!t.defined())
   //   return Tensor(nullptr);
   // auto cpti = intrusive_ptr<CheckpointTensorImpl>::make(t);   // 调用了Ref<intrusive_ptr<External>> External CheckpointTensorCell的相关构造函数
-  auto cpti = c10::make_intrusive<CheckpointTensorImpl>(t);      // cpti->ref->value->value->t 是包裹的unique_ptr<Tensor> unsafeGetTensorCell()
+  auto cpti = c10::make_intrusive<CheckpointTensorImpl>(t, if_weight);      // cpti->ref->value->value->t 是包裹的unique_ptr<Tensor> unsafeGetTensorCell()
 #ifdef DEBUG_MODE
   if (use_log_) {
     DTRLogConstant(cpti->counter_name());
-    DTRLogMemory(cpti->counter_name(), cpti->unsafeGetTensorCell()->memory());
+    DTRLogMemory(std::to_string(cpti->unsafeGetTensorCell()->pool->if_weight)+"-"+std::to_string(if_weight), cpti->unsafeGetTensorCell()->memory());
   }
 #endif
   auto res = Tensor(cpti);
@@ -1206,7 +1207,18 @@ void pin(Tensor& t) {
 Tensor decheckpoint(const Tensor& t) {
   STATS.track("decheckpoint");
   auto* cpti = dynamic_cast<CheckpointTensorImpl*>(t.unsafeGetTensorImpl());
-  return cpti ? cpti->unsafeGetTensorCell()->get() : t;
+  if(cpti){
+    auto res = cpti->unsafeGetTensorCell()->get();
+    return res.detach();
+  }else
+    return t;
+  // return cpti ? cpti->unsafeGetTensorCell()->get() : t;
+}
+
+void cpti_decrease(const Tensor& t) {
+  STATS.track("decheckpoint");
+  auto* cpti = dynamic_cast<CheckpointTensorImpl*>(t.unsafeGetTensorImpl());
+  if(cpti) cpti->release_resources();
 }
 
 bool is_checkpoint(const Tensor& t) {
@@ -1215,13 +1227,13 @@ bool is_checkpoint(const Tensor& t) {
   return cpti != nullptr;
 }
 
-Tensor try_checkpoint(const Tensor& t) {
+Tensor try_checkpoint(Tensor& t) {
   STATS.track("try_checkpiont");
-  if(t.key_set().has(DispatchKey::Checkpoint)&&!is_checkpoint(t)){   /// 这行代码不一定有用 但debug验证的代价较大
-    // t.key_set() = t.key_set().remove(DispatchKey::Checkpoint);    // 返回值是keyset，但没有set函数 所以是没有用的
-    annotate_log("trigger");
-    return(checkpoint(t.decheckpoint()));
-  }
+  // if(t.key_set().has(DispatchKey::Checkpoint)&&!is_checkpoint(t)){   /// 这行代码不一定有用 但debug验证的代价较大
+  //   // t.key_set() = t.key_set().remove(DispatchKey::Checkpoint);    // 返回值是keyset，但没有set函数 所以是没有用的
+  //   annotate_log("trigger");
+  //   return(checkpoint(t.decheckpoint()));
+  // }
   return is_checkpoint(t) ? t : checkpoint(t);
 }
 
@@ -1414,13 +1426,15 @@ CheckpointInfo merge_cpi(CheckpointInfo l, CheckpointInfo r) {
   return CheckpointInfo(l.compute_cost + r.compute_cost);
 }
 
-void AliasPool::evict(int mode) { // 0 - evict | 1 - deconstruct
+void AliasPool::evict(int mode) { // 0 - evict | 1 - deconstruct | 2 - Irreversible deconstruction
   STATS.track("AliasPool::evict");
   TORCH_CHECK(!ecn);
-  ecn = head_remat->get_ecn();      /// 发生驱逐行为，初始化ecn
-  auto ecns = neighbor_ecn();
-  for (const auto& necn : ecns) {
-    merge<CheckpointInfo>(merge_cpi, ecn, necn);
+  if(mode!=2){
+    ecn = head_remat->get_ecn();      /// 发生驱逐|可恢复释放行为，初始化ecn
+    auto ecns = neighbor_ecn();
+    for (const auto& necn : ecns) {
+      merge<CheckpointInfo>(merge_cpi, ecn, necn);
+    }
   }
   TORCH_CHECK(memory > 0);
   TORCH_CHECK(lock_count == 0);
@@ -1442,7 +1456,7 @@ void AliasPool::evict(int mode) { // 0 - evict | 1 - deconstruct
       cell->evict();
     }
   }
-  if(mode==1){
+  if(mode==1){  /// memory order use
     auto *pm = getDTBPoolManager();
     pm->erase_ap(device_id, addr);
   }
@@ -1456,15 +1470,17 @@ void AliasPool::unlock() {
     if(remat_count>0){
       unlock_remated();
     #ifdef DEBUG_MODE
-      if(record_lifecycle){
-        pid_t pid = getpid();
-        DTRLogLifeCycle(pid, external_count, lock_count, remat_count);
-      }
+      // if(record_lifecycle){ // 这里记录的是重物化过程的情况
+      //   pid_t pid = getpid();
+      //   DTRLogLifeCycle(std::to_string(pid), external_count, lock_count, remat_count);
+      // }
     #endif
       if(remat_count == 0 && external_count == 0 && lock_count == 0 && retain_count == 0){
         if (memory > 0 && (!ecn) && head_remat) {
           evict(1);
-        }
+        } 
+        // else if (memory > 0 && head_remat==nullptr)
+        //   evict(2);
       }
     }
 #endif
@@ -1473,14 +1489,19 @@ void AliasPool::unlock() {
 void AliasPool::release_external() {
   --external_count;
   if (external_count == 0) {          /// TODO: 潜在bug，如果lock_count>0，此后这个aps会成为僵尸内存; 反向内存堆积的原因是否是因为这个？ 还是其他的引用计数
+    if(if_weight) return;
     if (lock_count > 0) {return;}
-    TORCH_CHECK(lock_count == 0);
-    if (memory > 0 && (!ecn) && head_remat) {
+    
+
+    if (memory > 0 && (!ecn) && head_remat) {   /// [TAG] 对于无源之水无本之木，他们在这里就不会被释放了，包括所有模型权重和其他直接checkpoint的结果
 #ifdef DEBUG_MODE
       // DTRLogDestructEvents();
       destruct_counts += 1;
 #endif
       evict(1);
+    } 
+    else if(memory>0 && head_remat==nullptr){
+      evict(2);
     }
   }
 }
@@ -1619,11 +1640,11 @@ Tensors uncheckpoint_with_depth(const strongs& inputs, int& cumulative_num) {
   return ret;
 };
 
-Tensors try_checkpoint(const Tensors& inputs) {
+Tensors try_checkpoint(Tensors& inputs) {
   STATS.track("try_checkpoint");
   Tensors ret;
   ret.reserve(inputs.size());
-  for (const Tensor& input : inputs) {
+  for (auto& input : inputs) {
     ret.push_back(at::native::try_checkpoint(input));
   }
   return ret;
@@ -1784,22 +1805,22 @@ CheckpointInfo Rematerializer::get_cpi() {
 */
 #pragma region CheckpointTensorCellAndImpl
 
-void CheckpointTensorCell::fill(const Tensor& t) {
+void CheckpointTensorCell::fill(Tensor& t) {
   STATS.track("CheckpointTensorCell::fill");
   if (!(this->t)) {
     this->t = std::make_unique<Tensor>(std::move(t));
     pool->set_not_evicted(pool);                          /// TAG: 改变标志位，更新cost
     pool->set_addr(get_addr(t));
-    if (!defined) {
+    if (!defined) {                                       /// 这里是将所有的属性拷贝一遍，虽然看起来毫无意义
       defined = true;
-      is_undefined_tensor = !t.defined();
-      key_set_ = t.key_set();
-      if (t.requires_grad()) {
-        key_set_ = key_set_.add(DispatchKey::Autograd);
-      }
-      dtype_ = t.dtype();
-      if(t.defined())
-        optional_device_ = t.device();
+      is_undefined_tensor = !this->t->defined();
+      key_set_ = this->t->key_set();
+      // if (this->t->requires_grad()) {
+      //   key_set_ = key_set_.add(DispatchKey::Autograd);
+      // }
+      dtype_ = this->t->dtype();
+      if(this->t->defined())
+        optional_device_ = this->t->device();
     }
   }
 }
@@ -1813,11 +1834,11 @@ Tensor CheckpointTensorCell::get(){
 #endif
       remat->remat();
     }
-    defined = true;
-    TORCH_CHECK(t);
-    TORCH_CHECK(!t->key_set().has(DispatchKey::CheckpointTensorId));
-    pool->last_used_time = std::chrono::system_clock::now();
-    return *t;
+  defined = true;
+  TORCH_CHECK(t);
+  TORCH_CHECK(!t->key_set().has(DispatchKey::CheckpointTensorId));
+  pool->last_used_time = std::chrono::system_clock::now();
+  return *t;
 }
 
 Tensor CheckpointTensorCell::get(int& cumulative_num){  
@@ -2147,14 +2168,14 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
   weaks weak_outputs;
   auto remat = intrusive_ptr<Rematerializer>::make(Unsafe(), remat_f, inputs, cur_compute_cost);
 
-  for (const Tensor& t : raw_outputs) {             // prepare checkpoint for raw_outputs
+  for (Tensor& t : raw_outputs) {             // prepare checkpoint for raw_outputs
     intrusive_ptr<AliasPool> alias_pool;
     int alias = get_alias(raw_inputs, t);           // check if t is an alias of tensor in inputs
     if (alias == -1) {
       auto m = memory(t);
       auto addr = get_addr(t);
       // alias_pool = intrusive_ptr<AliasPool>::make(Unsafe(), remat, m, device_id);
-      alias_pool = intrusive_ptr<AliasPool>::make(Unsafe(), remat, m, addr, device_id);
+      alias_pool = intrusive_ptr<AliasPool>::make(Unsafe(), remat, m, addr, device_id);     /// [TAG] AliasPool构造
       // if(reserved_range){     /// TAG: 保留区间内的aps保存
       //   alias_pool->is_retain = true;
       //   alias_pool->lock();    /// 一直保存了，需要主动释放
@@ -2327,13 +2348,13 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
   weaks weak_outputs;
   auto remat = intrusive_ptr<Rematerializer>::make(Unsafe(), remat_f, inputs, rid, cur_compute_cost);
 
-  for (const Tensor& t : raw_outputs) {             // prepare checkpoint for raw_outputs
+  for (Tensor& t : raw_outputs) {             // prepare checkpoint for raw_outputs
     intrusive_ptr<AliasPool> alias_pool;
     int alias = get_alias(raw_inputs, t);           // if t is an alias of tensor in inputs?
     if (alias == -1) {
       auto m = memory(t);
       // alias_pool = intrusive_ptr<AliasPool>::make(Unsafe(), remat, m, device_id);
-      alias_pool = intrusive_ptr<AliasPool>::make(Unsafe(), remat, m, get_addr(t), device_id);
+      alias_pool = intrusive_ptr<AliasPool>::make(Unsafe(), remat, m, get_addr(t), device_id);    /// [TAG] AliasPool构造
 #ifdef MULTI_MODE
       pm->add_ap(device_id, alias_pool);
 #else
@@ -2387,7 +2408,7 @@ std::string from_time(duration_t t) {
 */
 Tensors CheckpointTensorImpl::make(const std::string& name,
                                    const rematerialize_function_t& remat,
-                                   const Tensors& inputs) {
+                                   Tensors& inputs) {
   STATS.track("CheckPointTensorImpl::make");
   Tensors checkpointed_inputs = try_checkpoint(inputs); // make intrusive_ptr for inputs
   auto input_size = checkpointed_inputs.size();
@@ -2403,6 +2424,96 @@ Tensors CheckpointTensorImpl::make(const std::string& name,
     TORCH_CHECK(cpti);
     input_values.push_back(cpti->unsafeGetTensorCell());
 #ifdef DEBUG_MODE
+    if(cpti->unsafeGetTensorCell()->pool->external_count>1){
+      if(record_lifecycle){ // 记录关注的tensor
+        DTRLogLifeCycle(name, cpti->unsafeGetTensorCell()->pool->external_count, cpti->unsafeGetTensorCell()->pool->lock_count, cpti->unsafeGetTensorCell()->pool->remat_count);
+      }
+    }
+    
+    if (use_log_) {
+      args.push_back(cpti->counter_name());
+    }
+#endif
+  }
+
+#ifdef MINIMAL_EVICT
+  auto ret = make_raw(remat, input_values);
+#endif
+#ifdef MINIMAL_EVICT_COST
+  auto ret = make_raw(remat, input_values, name);
+#endif
+
+  Tensors tensors;
+  tensors.reserve(ret.outputs.size());
+
+  for (const auto& t: ret.outputs) {
+    auto cp = Tensor(intrusive_ptr<CheckpointTensorImpl>::make(t));
+    tensors.push_back(cp);
+  }
+
+#ifdef DEBUG_MODE
+  if(record_op_recs){
+    std::vector<string> input_ids;
+    std::vector<string> output_ids;
+    for (const auto& t: checkpointed_inputs) {  // bind External for inputs intrusive_ptr
+      auto* cpti = dynamic_cast<CheckpointTensorImpl*>(t.unsafeGetTensorImpl());
+      input_ids.push_back(cpti->unsafeGetTensorCell()->counter_name());
+    }
+    for (const auto& t: tensors) {
+      auto* cpti = dynamic_cast<CheckpointTensorImpl*>(t.unsafeGetTensorImpl());
+      output_ids.push_back(cpti->unsafeGetTensorCell()->counter_name());
+    }
+    ret.rec.inputs = std::move(input_ids);
+    ret.rec.outputs = std::move(output_ids);
+    DTRLogOPRecords(ret.rec.rid, ret.rec.name, static_cast<int64_t>(std::chrono::duration_cast<std::chrono::microseconds>(ret.rec.time).count()),
+                    ret.rec.mem, ret.rec.inputs, ret.rec.outputs, ret.rec.device);
+  }
+  // if (use_log_) {
+  //   std::vector<std::string> res;
+  //   res.reserve(ret.outputs.size());
+
+  //   for (const auto& tensor : tensors) {
+  //     res.push_back(get_cpti(tensor)->counter_name());
+  //   }
+
+  //   DTRLogCall(res, name, args, from_time(ret.time));
+  //   for (size_t i = 0; i < tensors.size(); ++i) {
+  //     Tensor t = tensors[i];
+  //     auto cpti = get_cpti(t);
+  //     DTRLogMemory(cpti->counter_name(), cpti->unsafeGetTensorCell()->memory());
+  //     DTRLogAlias(cpti->counter_name(), ret.aliases[i]);
+  //     // DTRLogAlias(cpti->counter_name(), ret.aliases[i], cpti->unsafeGetTensorCell()->pool->tensors.size());
+  //   }
+  // }
+#endif
+
+  return tensors;
+}
+
+Tensors CheckpointTensorImpl::make(const std::string& name,
+                                   const rematerialize_function_t& remat,
+                                   Tensors&& inputs) {
+  STATS.track("CheckPointTensorImpl::make");
+  Tensors checkpointed_inputs = try_checkpoint(inputs); // make intrusive_ptr for inputs
+  auto input_size = checkpointed_inputs.size();
+
+  strongs input_values;
+  input_values.reserve(input_size);
+
+  std::vector<std::string> args;
+  args.reserve(input_size);
+
+  for (const Tensor& t: checkpointed_inputs) {  // bind External for inputs intrusive_ptr
+    auto* cpti = dynamic_cast<CheckpointTensorImpl*>(t.unsafeGetTensorImpl());
+    TORCH_CHECK(cpti);
+    input_values.push_back(cpti->unsafeGetTensorCell());
+#ifdef DEBUG_MODE
+    if(cpti->unsafeGetTensorCell()->pool->external_count>1){
+      if(record_lifecycle){ // 记录关注的tensor
+        DTRLogLifeCycle(name, cpti->unsafeGetTensorCell()->pool->external_count, cpti->unsafeGetTensorCell()->pool->lock_count, cpti->unsafeGetTensorCell()->pool->remat_count);
+      }
+    }
+    
     if (use_log_) {
       args.push_back(cpti->counter_name());
     }
@@ -2605,7 +2716,7 @@ void CheckpointTensorImpl::release_resources() {
   ref.reset();
 }
 
-CheckpointTensorImpl::CheckpointTensorImpl(const Tensor& t) : CheckpointTensorImpl(c10::make_intrusive<External>(t)) {
+CheckpointTensorImpl::CheckpointTensorImpl(Tensor& t, bool if_weight) : CheckpointTensorImpl(c10::make_intrusive<External>(t, if_weight)) {
   // set_custom_sizes_strides(SizesStridesPolicy::CustomStrides);
   // set_custom_sizes_strides(SizesStridesPolicy::CustomSizes);
   if(unsafeGetTensorCell()->get().defined())

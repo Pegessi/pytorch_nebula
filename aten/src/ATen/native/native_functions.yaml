@@ -1,12 +1,14 @@
-- func: checkpoint(Tensor self) -> Tensor
+- func: checkpoint(Tensor(a!) self, bool if_weight=False) -> Tensor
   variants: method
-- func: try_checkpoint(Tensor self) -> Tensor
+- func: try_checkpoint(Tensor(a!) self) -> Tensor
   variants: method
 - func: is_checkpoint(Tensor self) -> bool
   variants: method
 - func: uncheckpoint(Tensor self) -> Tensor
   variants: method
 - func: decheckpoint(Tensor self) -> Tensor
+  variants: method
+- func: cpti_decrease(Tensor self) -> ()
   variants: method
 - func: pin(Tensor(a!) self) -> ()
   variants: method
@@ -870,6 +872,7 @@
     CPU: baddbmm_out_cpu
     CUDA: baddbmm_out_cuda
     MPS: baddbmm_out_mps
+    Checkpoint: checkpoint_baddbmm_outf
     SparseCsrCUDA: baddbmm_out_sparse_csr_cuda
 - func: bartlett_window(int window_length, *, ScalarType? dtype=None, Layout? layout=None,
     Device? device=None, bool? pin_memory=None) -> Tensor
@@ -1877,6 +1880,7 @@
   structured_delegate: div.out
   dispatch:
     SparseCPU, SparseCUDA: div_sparse_
+    Checkpoint: checkpoint_div_
   tags: pointwise
 - func: div.out(Tensor self, Tensor other, *, Tensor(a!) out) -> Tensor(a!)
   device_check: NoCheck
@@ -2272,6 +2276,7 @@
   dispatch:
     CPU, CUDA: exp_out
     MPS: exp_out_mps
+    Checkpoint: checkpoint_exp_outf
   tags: pointwise
 - func: exp2(Tensor self) -> Tensor
   structured_delegate: exp2.out
@@ -3018,6 +3023,7 @@
   dispatch:
     CPU, CUDA: log_out
     MPS: log_out_mps
+    Checkpoint: checkpoint_log_outf
   tags: pointwise
 - func: log10(Tensor self) -> Tensor
   device_check: NoCheck
@@ -9083,6 +9089,7 @@
   dispatch:
     CPU: foreach_tensor_add_scalar_kernel_slow_
     CUDA: foreach_tensor_add_scalar_kernel_cuda_
+    Checkpoint: checkpoint__foreach_add_
   autogen: _foreach_add.Scalar_out
 - func: _foreach_add.List(Tensor[] self, Tensor[] other, *, Scalar alpha=1) -> Tensor[]
   device_check: NoCheck
@@ -9243,6 +9250,7 @@
   dispatch:
     CPU: foreach_tensor_div_scalarlist_kernel_slow_
     CUDA: foreach_tensor_div_scalarlist_kernel_cuda_
+    Checkpoint: checkpoint__foreach_div_
   autogen: _foreach_div.ScalarList_out
 - func: _foreach_clamp_max.Scalar(Tensor[] self, Scalar scalar) -> Tensor[]
   device_check: NoCheck
@@ -9436,6 +9444,7 @@
   dispatch:
     CPU: foreach_tensor_addcdiv_scalarlist_slow_
     CUDA: foreach_tensor_addcdiv_scalarlist_cuda_
+    Checkpoint: checkpoint__foreach_addcdiv_
   autogen: _foreach_addcdiv.ScalarList_out
 - func: _foreach_addcdiv_.Tensor(Tensor(a!)[] self, Tensor[] tensor1, Tensor[] tensor2,
     Tensor scalars) -> ()
@@ -9907,6 +9916,7 @@
   dispatch:
     CPU: foreach_tensor_sqrt_slow
     CUDA: foreach_tensor_sqrt_cuda
+    Checkpoint: checkpoint__foreach_sqrt
 - func: _foreach_sqrt_(Tensor(a!)[] self) -> ()
   device_check: NoCheck
   variants: function

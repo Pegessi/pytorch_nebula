@@ -2506,6 +2506,84 @@ at::Tensor checkpoint_where(const at::Tensor & condition, const at::Tensor & sel
   return CheckpointTensorImpl::make("aten::where", rt, {condition, self, other})[0];
 }
 
+/// ['aten::exp_outf', 'at::Tensor &', 'exp_outf', '(const at::Tensor & self, at::Tensor & out)']
+at::Tensor & checkpoint_exp_outf(const at::Tensor & self, at::Tensor & out) {
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      Tensor out = vec.at(1);
+      return {at::exp_outf(vec.at(0), out)};
+    };
+  return CheckpointTensorImpl::make("aten::exp_outf", rt, {self, out})[0];
+}
+
+/// ['aten::log_outf', 'at::Tensor &', 'log_outf', '(const at::Tensor & self, at::Tensor & out)']
+at::Tensor & checkpoint_log_outf(const at::Tensor & self, at::Tensor & out) {
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      Tensor out = vec.at(1);
+      return {at::log_outf(vec.at(0), out)};
+    };
+  return CheckpointTensorImpl::make("aten::log_outf", rt, {self, out})[0];
+}
+
+/// ['aten::_foreach_sqrt', 'std::vector<at::Tensor>', '_foreach_sqrt', '(at::TensorList self)']
+std::vector<at::Tensor> checkpoint__foreach_sqrt(at::TensorList self) {
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      return {at::_foreach_sqrt(at::TensorList(vec))};
+    };
+  Tensors inputs;
+  for (const auto i : c10::irange(self.size())){
+    inputs.push_back(self[i]);
+  }
+  return CheckpointTensorImpl::make("aten::_foreach_sqrt", rt, {inputs});
+}
+
+/// ['aten::_foreach_div_', 'void', '_foreach_div_', '(at::TensorList self, at::ArrayRef<at::Scalar> scalars)']
+void checkpoint__foreach_div_(at::TensorList self, at::ArrayRef<at::Scalar> scalars) {
+  Tensors self_;
+  for (const auto i : c10::irange(self.size())) {
+    self_.push_back(self[i].decheckpoint());
+  }
+  at::_foreach_div_(at::TensorList(self_), scalars);
+}
+
+/// ['aten::_foreach_add_', 'void', '_foreach_add_', '(at::TensorList self, const at::Scalar & scalar)']
+void checkpoint__foreach_add_(at::TensorList self, const at::Scalar & scalar) {
+  Tensors self_;
+  for (const auto i : c10::irange(self.size())) {
+    self_.push_back(self[i].decheckpoint());
+  }
+  at::_foreach_add_(at::TensorList(self_), scalar);
+}
+
+/// ['aten::_foreach_addcdiv_', 'void', '_foreach_addcdiv_', '(at::TensorList self, at::TensorList tensor1, at::TensorList tensor2, at::ArrayRef<at::Scalar> scalars)']
+void checkpoint__foreach_addcdiv_(at::TensorList self, at::TensorList tensor1, at::TensorList tensor2, at::ArrayRef<at::Scalar> scalars) {
+  Tensors self_;
+  for (const auto i : c10::irange(self.size())) {
+    self_.push_back(self[i].decheckpoint());
+  }
+  Tensors tensor1_;
+  for (const auto i : c10::irange(tensor1.size())) {
+    tensor1_.push_back(tensor1[i].decheckpoint());
+  }
+  Tensors tensor2_;
+  for (const auto i : c10::irange(tensor2.size())) {
+    tensor2_.push_back(tensor2[i].decheckpoint());
+  }
+  at::_foreach_addcdiv_(at::TensorList(self_), at::TensorList(tensor1_), at::TensorList(tensor2_), scalars);
+}
+
+/// ['aten::baddbmm_outf', 'at::Tensor &', 'baddbmm_outf', '(const at::Tensor & self, const at::Tensor & batch1, const at::Tensor & batch2, const at::Scalar & beta, const at::Scalar & alpha, at::Tensor & out)']
+at::Tensor & checkpoint_baddbmm_outf(const at::Tensor & self, const at::Tensor & batch1, const at::Tensor & batch2, const at::Scalar & beta, const at::Scalar & alpha, at::Tensor & out) {
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      Tensor out = vec.at(3);
+      return {at::baddbmm_outf(vec.at(0), vec.at(1), vec.at(2), beta, alpha, out)};
+    };
+  return CheckpointTensorImpl::make("aten::baddbmm_outf", rt, {self, batch1, batch2, out})[0];
+}
+
 ////////////////////////////////// auto generate part //////////////////////////////////////
 
 /// ['aten::uniform.out', 'at::Tensor &', 'uniform_out', '(at::Tensor & out, const at::Tensor & self, double from=0, double to=1, c10::optional<at::Generator> generator=c10::nullopt)']
@@ -3967,7 +4045,7 @@ at::Tensor & checkpoint__unsafe_view_symint_outf(const at::Tensor & self, c10::S
 at::Tensor checkpoint_detach(const at::Tensor & self) {
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
-      return {at::detach(vec.at(0))};
+      return {vec.at(0).detach()};
     };
   return CheckpointTensorImpl::make("aten::detach", rt, {self})[0];
 }

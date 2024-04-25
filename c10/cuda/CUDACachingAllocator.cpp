@@ -9,7 +9,7 @@
 #include <c10/util/flat_hash_map.h>
 #include <c10/util/irange.h>
 #include <c10/util/llvmMathExtras.h>
-#define GMLAKE_ENABLE // GMLAKE history trace is unavailable(wrong history)
+// #define GMLAKE_ENABLE // GMLAKE history trace is unavailable(wrong history)
 #ifdef GMLAKE_ENABLE
 #include <c10/util/Backtrace.h>
 #include <unordered_map>
@@ -3393,11 +3393,11 @@ class DeviceCachingAllocator {
   }
 
   static size_t get_allocation_size(size_t size) {
-    if (size <= kSmallSize) {
+    if (size <= kSmallSize) {                                           // 1MB以下padding到2MB
       return kSmallBuffer;
-    } else if (size < kMinLargeAlloc) {
+    } else if (size < kMinLargeAlloc) {                                 // 1-10MB内padding到20MB
       return kLargeBuffer;
-    } else {
+    } else {                                                            // 否则按2MB的倍数分配
       return kRoundLarge * ((size + kRoundLarge - 1) / kRoundLarge);
     }
   }
