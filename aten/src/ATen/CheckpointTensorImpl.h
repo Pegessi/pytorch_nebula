@@ -428,7 +428,7 @@ struct CheckpointTensorCell : intrusive_ptr_target {
   //   return get().sizes().vec();
   // }
   void pin() {
-    get();
+    // get();         // [TAG] this is for debug to find out tensors unreleased
     pool->head_remat.reset();
     remat.reset();
   }
@@ -673,6 +673,8 @@ struct ChainNode : intrusive_ptr_target {
   }
 };
 
+constexpr const int CHAIN_LENGTH_LOCK_THRESHOLD = 16;
+constexpr const int CHAIN_LOCK_STRIDE = 2;
 
 // TODO: weak并不能作为键
 struct ResidualChain : intrusive_ptr_target {
@@ -692,9 +694,9 @@ struct ResidualChain : intrusive_ptr_target {
     n->parent = root;
     members.push_back(n);
 
-    if(size()>8) {  // 认为该链是要找的链
+    if(size()>CHAIN_LENGTH_LOCK_THRESHOLD) {  // 认为该链是要找的链
       for(int i = last_check_idx; i<size(); i++){
-        if(i%2==0)
+        if(i%CHAIN_LOCK_STRIDE==0)
           members[i]->lock_value();
       }
       last_check_idx = size() - 1;

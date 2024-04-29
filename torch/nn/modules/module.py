@@ -2394,6 +2394,7 @@ class Module:
         if not isinstance(mode, bool):
             raise ValueError("training mode is expected to be boolean")
         self.training = mode
+        torch.mark_train(mode)
         for module in self.children():
             module.train(mode)
         return self

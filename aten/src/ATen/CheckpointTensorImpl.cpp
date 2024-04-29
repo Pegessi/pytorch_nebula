@@ -17,11 +17,13 @@
 #include <unistd.h>
 
 // #define TIME_REC                      /// 方便debug的宏定义
-// #define MINIMAL_EVICT                    /// 最小驱逐策略（贪心+随机 DTR）
-#define MINIMAL_EVICT_COST            /// 最小驱逐策略+cost cache（贪心+随机 DTR） op记录
+#define MINIMAL_EVICT                    /// 最小驱逐策略（贪心+随机 DTR）
+// #define MINIMAL_EVICT_COST            /// 最小驱逐策略+cost cache（贪心+随机 DTR） op记录
 // #define MEM_ORDER_ENABLE              /// 是否启用mem order策略
 // #define DEPENDENCY_CHECK              /// 依赖检查策略
-// #define DEGREE_CHAIN                     /// 残差链发现策略
+#define DEGREE_CHAIN                     /// 残差链发现策略
+
+constexpr const int RESIDUAL_DEGREE = 6;  /// 残差链度设置  4-Llama2-7b-hf 6-GPT_simp
 
 int dep_threshold = 50;             /// 重物化链深度阈值
 int threshold_touch_counts = 0;     /// 累积触发次数
@@ -153,7 +155,6 @@ size_t memory_sum = 0;
 size_t memory_max = 0;
 size_t memory_count = 0;
 
-constexpr const int RESIDUAL_DEGREE = 4;
 
 long base_compute_time_ = 0;
 long remat_compute_time_ = 0;
@@ -182,6 +183,7 @@ std::atomic<size_t> tensor_destruct_counts = 0;
 
 bool reserved_range = false;
 bool during_backward = false;
+bool if_train_mode = false;
 
 void reset_memory_stat() {
   memory_sum = 0;
@@ -292,8 +294,9 @@ namespace dtb {
       #endif
         auto pool = device_dtbpool[device].get();
         if (pool->has_memory_budget) {
-          int check_counts = 0;
+          int check_counts[8] = {0};
           bool if_eviction = false;
+          size_t last_mem = current_memory(device);
 
           ///TODO: 更新当前依赖
       #ifdef DEBUG_MODE
@@ -318,9 +321,19 @@ namespace dtb {
               DTRLogCounts("after computation, need evict.", ++evict_counts);
               pool_cur_mem_snapshot(device);  // after once computation, and out of budget
             }
-            current_if_any_evicted = true;
+            // current_if_any_evicted = true;
       #endif
             pool->evict();
+            check_counts[device]++;
+
+            if(last_mem!=current_memory(device)){
+              check_counts[device] = 0;
+              last_mem = current_memory(device);
+            }
+
+            if(check_counts[device]>1000){
+              throw std::runtime_error("Eviction progress has been trapped in dead loop, please check if any tensors ralated to operators(jit.fuse or custom kernel) isn't dealed with.");
+            }
           }
 
       #ifdef DEBUG_MODE
@@ -437,10 +450,10 @@ namespace dtb {
 
       #ifdef DEBUG_MODE
             check_counts++;
-            // if(check_counts>100){
-            //   std::cout << "Eviction progress has been trapped in dead loop\n";
-            //   throw std::runtime_error("Eviction progress has been trapped in dead loop");
-            // }
+            if(check_counts>1000){
+              // std::cout << "Eviction progress has been trapped in dead loop\n";
+              throw std::runtime_error("Eviction progress has been trapped in dead loop");
+            }
       #endif
           }
 
@@ -1168,9 +1181,22 @@ CheckpointPool::CheckpointPool() { }
 
 namespace native {
 
-/// !TODO: 潜在问题 引入张量t有undefined的情况，此种情况cpti构造出来的tensor却不是undefined的了，可以额外标记tensor是undefined
-/// 需要规避空tensor带来的可能问题，调用empty tensor的成员方法会报错
-/// [TAG] if_weight的标记操作只是保证了生命周期的合理性，即权重不释放，非权重的无源tensor释放，但实际并不会释放，因为autograd机制依然保留着计数
+/**
+ * This function is used to transfer the original tensor created by torch
+ * and attain the ability to manage their lifecyle.
+ * 
+ * @param t: original tensor
+ * @param if_weight: if this tensor is a weight tensor or you do not wish it to be destroyed
+ * 
+ * @return res: tensor returned is a "empty" tensor without storage, which is moved into cpti
+ * 
+ * 
+ * @skip
+ * ---------------------------------------some debug notes-------------------------------------
+ * !TODO: 潜在问题 引入张量t有undefined的情况，此种情况cpti构造出来的tensor却不是undefined的了，可以额外标记tensor是undefined
+ * 需要规避空tensor带来的可能问题，调用empty tensor的成员方法会报错
+ * [TAG] if_weight的标记操作只是保证了生命周期的合理性，即权重不释放，非权重的无源tensor释放
+*/
 Tensor checkpoint(Tensor& t, bool if_weight) {
   STATS.track("checkpoint");
   // if(!t.defined())
@@ -1307,10 +1333,17 @@ void unset_reserved(){
 
 void set_backward_flag(){
   during_backward = true;
+  // printf("SET_BACKWARD_FALG TRIGGER\n");
 }
 
 void unset_backward_flag(){
   during_backward = false;
+  // printf("UNSET_BACKWARD_FALG TRIGGER\n");
+}
+
+void mark_train(bool flag){
+  if_train_mode = flag;
+  // printf("SET_BACKWARD_FALG TRIGGER\n");
 }
 
 /// TODO: use dtb, useless here
@@ -1805,6 +1838,15 @@ CheckpointInfo Rematerializer::get_cpi() {
 */
 #pragma region CheckpointTensorCellAndImpl
 
+/**
+ * original version of DTR use `const Tensor& t` as the argument type
+ * and use it to construct a unique_ptr for manage the tensor storage.
+ * However, const means cannot really implement the `move` of t, which is really
+ * copy a Tensor to make a unique_ptr and do not affect the orignial tensor's storage.
+ * 
+ * But when using the `Tensor& t` as the argument type, which really `move` the t,
+ * and manage t uniquely(almost manually), which may cause potential wild tensor and memory leak.
+*/
 void CheckpointTensorCell::fill(Tensor& t) {
   STATS.track("CheckpointTensorCell::fill");
   if (!(this->t)) {
@@ -2124,13 +2166,19 @@ void if_tensor_add_key_chain(const strong& cell, at::dtb::DTBCheckpointPool *pm,
   }
 }
 
+inline void release_external_of_nosource_tensor(const strong& s, const std::string& name){
+  if(!s->pool->if_weight && s->pool->head_remat==nullptr && during_backward && name != "copy_"){    // [BUG]: copy_ is a complex bug for DTR runtime{
+    s->pool->release_external();
+  }
+}
+
 // remat take a single vector of tensors,
 // while there are two vector, one storing nonconstants and one storing constants.
 // the constants are small and they will not be considered for eviction.
 // however, we have to stitch the two vectors together to pass it in remat.
 // the size_t in constants decide the location to stitch them in, while input_values fill in the rest.
 MakeRawResult make_raw(const rematerialize_function_t& remat_f,
-                       const strongs& inputs) {
+                       const strongs& inputs, const std::string& name) {
   STATS.track("make_raw");
   for (const strong& s : inputs) {                  // lock for unevictable
     s->pool->lock();
@@ -2200,7 +2248,7 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
     pool.exts.push_back(weak_intrusive_ptr<External>(e));
 #endif
 #ifdef DEGREE_CHAIN
-    if(!during_backward){ /// change degree for outputs
+    if(!during_backward&&if_train_mode){ /// change degree for outputs
       e->value->add_degree(inputs.size());
       // if_tensor_add_key_chain(weak(e->value), pm, device_id);  // output check cannot find residual
     }
@@ -2215,7 +2263,7 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
   // make each pair of tensor which are not alias relation to be neighbor
   for (size_t i = 0; i < inputs.size(); ++i) {
 #ifdef DEGREE_CHAIN
-    if(!during_backward){   /// change degree for inputs
+    if(!during_backward&&if_train_mode){   /// change degree for inputs
       inputs[i]->add_degree(outputs.size());
       if_tensor_add_key_chain(inputs[i], pm, device_id);
     }
@@ -2228,6 +2276,7 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
   }
   for (const strong& s : inputs) {
     s->pool->unlock();
+    // release_external_of_nosource_tensor(s, name);
   }
 
 #ifdef DEBUG_MODE
@@ -2282,7 +2331,7 @@ inline int64_t generateUniqueHash(const std::string& functionName, const Tensors
 
 
 // func name and size for cost model
-MakeRawResult make_raw(const rematerialize_function_t& remat_f,
+MakeRawResult make_raw_rec(const rematerialize_function_t& remat_f,
                        const strongs& inputs, const std::string& name) {
   STATS.track("make_raw with hash");
 
@@ -2390,6 +2439,12 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
   }
   for (const strong& s : inputs) {
     s->pool->unlock();
+    // if(!s->pool->if_weight && s->pool->head_remat==nullptr && during_backward && name != "copy_"){    // [BUG]: copy_ is a complex bug for DTR runtime
+    //   // printf("[UNLOCK] %s %ld %ld %ld %s %s\n", s->counter_name().c_str(), s->pool->external_count, s->pool->tensors.size(),
+    //   //       s->pool->memory, during_backward ? "in backward" : "in forward", name.c_str());
+    //   s->pool->release_external();
+    // }
+    // release_external_of_nosource_tensor(s, name);
   }
 #ifdef DEBUG_MODE
   OperationRecord rec = {rid, name, cur_compute_cost, cur_mem_cost, {}, {}, device_id};
@@ -2437,10 +2492,10 @@ Tensors CheckpointTensorImpl::make(const std::string& name,
   }
 
 #ifdef MINIMAL_EVICT
-  auto ret = make_raw(remat, input_values);
+  auto ret = make_raw(remat, input_values, name);
 #endif
 #ifdef MINIMAL_EVICT_COST
-  auto ret = make_raw(remat, input_values, name);
+  auto ret = make_raw_rec(remat, input_values, name);
 #endif
 
   Tensors tensors;
@@ -2521,10 +2576,10 @@ Tensors CheckpointTensorImpl::make(const std::string& name,
   }
 
 #ifdef MINIMAL_EVICT
-  auto ret = make_raw(remat, input_values);
+  auto ret = make_raw(remat, input_values, name);
 #endif
 #ifdef MINIMAL_EVICT_COST
-  auto ret = make_raw(remat, input_values, name);
+  auto ret = make_raw_rec(remat, input_values, name);
 #endif
 
   Tensors tensors;
@@ -2603,10 +2658,10 @@ void CheckpointTensorImpl::mutate(const std::string& name,
 #endif
   }
 #ifdef MINIMAL_EVICT
-  auto ret = make_raw(remat, input_values);
+  auto ret = make_raw(remat, input_values, name);
 #endif
 #ifdef MINIMAL_EVICT_COST
-  auto ret = make_raw(remat, input_values, name);
+  auto ret = make_raw_rec(remat, input_values, name);
 #endif
 
   const auto& modified = ret.outputs;
@@ -2668,10 +2723,10 @@ void CheckpointTensorImpl::mutate(const std::string& name,
 #endif
   }
 #ifdef MINIMAL_EVICT
-  auto ret = make_raw(remat, input_values);
+  auto ret = make_raw(remat, input_values, name);
 #endif
 #ifdef MINIMAL_EVICT_COST
-  auto ret = make_raw(remat, input_values, name);
+  auto ret = make_raw_rec(remat, input_values, name);
 #endif
 
   const auto& modified = ret.outputs;
@@ -2720,7 +2775,12 @@ CheckpointTensorImpl::CheckpointTensorImpl(Tensor& t, bool if_weight) : Checkpoi
   // set_custom_sizes_strides(SizesStridesPolicy::CustomStrides);
   // set_custom_sizes_strides(SizesStridesPolicy::CustomSizes);
   if(unsafeGetTensorCell()->get().defined())
+  {
     set_sizes_and_strides(unsafeGetTensorCell()->get().sizes(), unsafeGetTensorCell()->get().strides());
+    /// original DTR do not add directly transfered tensor into it's pool
+    /// this is for the Fine grained memory management
+    // unsafeGetTensorCell()->pool->tensors.push_back(weak(unsafeGetTensorCell()));         /// TODO: this should distinguish if outer tensor or inner tensor, otherwise double free
+  }
 #ifdef MULTI_MODE
   auto device_id = C10_LIKELY(t.defined()) ? static_cast<int>(t.device().index()) : -1;      /// CPU data possible or undefiend tensor
   auto *pm = getDTBPoolManager();

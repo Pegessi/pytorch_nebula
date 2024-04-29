@@ -30,6 +30,8 @@
   variants: function
 - func: unset_backward_flag() -> ()
   variants: function
+- func: mark_train(bool mode) -> ()
+  variants: function
 - func: force_evict(int mode) -> ()
   variants: function
 - func: log_dtr_statics() -> ()
@@ -6897,6 +6899,7 @@
     QuantizedCPU: masked_fill__quantized_cpu
     QuantizedCUDA: masked_fill__quantized_cuda
     MPS: masked_fill__mps
+    Checkpoint: checkpoint_masked_fill_
   autogen: masked_fill.Scalar_out
 - func: masked_fill.Scalar(Tensor self, Tensor mask, Scalar value) -> Tensor
   device_check: NoCheck

@@ -1387,15 +1387,15 @@ checkpoint_topk_values(Tensor& values, Tensor& indices, const Tensor& self, long
   return {values, indices};
 }
 
-Tensor& checkpoint_masked_fill_(Tensor& self, const Tensor& mask, Scalar value) {
-  mutate_function_t mt =
-    [=](const Tensors& vec) {
-    Tensor self_ = vec.at(0);
-    self_.masked_fill_(vec.at(1), value);
-  };
-  CheckpointTensorImpl::mutate("masked_fill_Scalar", mt, {self, mask}, {0});
-  return {self};
-}
+// Tensor& checkpoint_masked_fill_(Tensor& self, const Tensor& mask, const at::Scalar& value) {
+//   mutate_function_t mt =
+//     [=](const Tensors& vec) {
+//     Tensor self_ = vec.at(0);
+//     self_.masked_fill_(vec.at(1), value);
+//   };
+//   CheckpointTensorImpl::mutate("masked_fill_Scalar", mt, {self, mask}, {0});
+//   return {self};
+// }
 
 Tensor& checkpoint_masked_fill_(Tensor& self, const Tensor& mask, const Tensor& value) {
   mutate_function_t mt =
@@ -2579,9 +2579,22 @@ at::Tensor & checkpoint_baddbmm_outf(const at::Tensor & self, const at::Tensor &
   rematerialize_function_t rt =
     [=](const Tensors& vec) -> Tensors {
       Tensor out = vec.at(3);
-      return {at::baddbmm_outf(vec.at(0), vec.at(1), vec.at(2), beta, alpha, out)};
+      return {at::baddbmm_out(out, vec.at(0), vec.at(1), vec.at(2), beta, alpha)};
     };
   return CheckpointTensorImpl::make("aten::baddbmm_outf", rt, {self, batch1, batch2, out})[0];
+}
+
+/// ['aten::masked_fill_', 'at::Tensor &', 'masked_fill_', '(Tensor& self, const Tensor & mask, const Scalar& value)']
+at::Tensor & checkpoint_masked_fill_(Tensor& self, const Tensor & mask, const Scalar& value) {
+  mutate_function_t mt =
+    [=](const Tensors& vec) {
+      Tensor self = vec.at(0);
+      // at::masked_fill_(self, vec.at(1), value);
+      // at::masked_fill_out(self, mask, value);
+      self.masked_fill_(vec.at(1), value);
+    };
+  CheckpointTensorImpl::mutate("masked_fill_", mt, {self, mask}, {0});
+  return {self};
 }
 
 ////////////////////////////////// auto generate part //////////////////////////////////////
