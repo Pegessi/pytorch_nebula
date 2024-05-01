@@ -1111,6 +1111,7 @@
   variants: function, method
   dispatch:
     CompositeExplicitAutograd: logical_or
+    Checkpoint: checkpoint_logical_or
   tags:
   - core
   - pointwise
@@ -1125,6 +1126,7 @@
   dispatch:
     CPU, CUDA: logical_or_out
     MPS: logical_or_out_mps
+    Checkpoint: checkpoint_logical_or_outf
   tags: pointwise
 - func: blackman_window(int window_length, *, ScalarType? dtype=None, Layout? layout=None,
     Device? device=None, bool? pin_memory=None) -> Tensor
@@ -1229,6 +1231,7 @@
     MPS: ceil_out_mps
     SparseCPU, SparseCUDA: ceil_sparse_out
     SparseCsrCPU, SparseCsrCUDA: ceil_sparse_csr_out
+    Checkpoint: checkpoint_ceil_outf
   tags: pointwise
 - func: chain_matmul(Tensor[] matrices) -> Tensor
   variants: function
@@ -3009,6 +3012,8 @@
 - func: log(Tensor self) -> Tensor
   device_check: NoCheck
   structured_delegate: log.out
+  dispatch:
+    Checkpoint: checkpoint_log
   variants: function, method
   tags:
   - core
@@ -7235,6 +7240,7 @@
   dispatch:
     CPU, CUDA: bitwise_or_out
     MPS: bitwise_or_out_mps
+    Checkpoint: checkpoint_bitwise_or_outf
   tags: pointwise
 - func: bitwise_or.Scalar_out(Tensor self, Scalar other, *, Tensor(a!) out) -> Tensor(a!)
   device_check: NoCheck
@@ -7259,6 +7265,8 @@
   device_check: NoCheck
   variants: method, function
   structured_delegate: bitwise_or.Tensor_out
+  dispatch:
+    Checkpoint: checkpoint_bitwise_or
   tags:
   - core
   - pointwise
@@ -8024,6 +8032,7 @@
     CPU: masked_select_cpu
     CUDA: masked_select_cuda
     MPS: masked_select_mps
+    Checkpoint: checkpoint_masked_select
   tags: dynamic_output_shape
 - func: masked_select_backward(Tensor grad, Tensor input, Tensor mask) -> Tensor
   variants: function

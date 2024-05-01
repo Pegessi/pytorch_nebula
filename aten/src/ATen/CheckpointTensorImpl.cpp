@@ -16,6 +16,11 @@
 #include <unordered_map>
 #include <unistd.h>
 
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <execinfo.h>
+
 // #define TIME_REC                      /// 方便debug的宏定义
 #define MINIMAL_EVICT                    /// 最小驱逐策略（贪心+随机 DTR）
 // #define MINIMAL_EVICT_COST            /// 最小驱逐策略+cost cache（贪心+随机 DTR） op记录
@@ -23,7 +28,12 @@
 // #define DEPENDENCY_CHECK              /// 依赖检查策略
 #define DEGREE_CHAIN                     /// 残差链发现策略
 
-constexpr const int RESIDUAL_DEGREE = 6;  /// 残差链度设置  4-Llama2-7b-hf 6-GPT_simp
+static const int RESIDUAL_DEGREE = ([]()->int{    /// 残差链度设置  4-Llama2-7b-hf 6-GPT_simp
+    const char* env = getenv("RESIDUAL_DEGREE");
+    if(env) return atoi(env);
+    else return 99;
+})();
+// constexpr const int RESIDUAL_DEGREE = 6;  /// 残差链度设置  4-Llama2-7b-hf 6-GPT_simp
 
 int dep_threshold = 50;             /// 重物化链深度阈值
 int threshold_touch_counts = 0;     /// 累积触发次数
@@ -167,7 +177,7 @@ bool record_er_counts = false;        // 驱逐&重物化次数
 bool record_mem_addr = false;         // 是否记录内存地址
 bool record_op_recs = false;          // 是否记录op历史
 bool record_fragmentation = false;    // 记录碎片化和内存占用数据
-bool record_lifecycle = false;        // 记录ap生命周期计数分布
+bool record_lifecycle = true;        // 记录ap生命周期计数分布
 bool record_ap_cost = false;          // 记录ap的cost分布
 bool record_dependcy = false;
 bool record_key_chain = false;
@@ -179,6 +189,27 @@ std::atomic<size_t> remat_counts = 0;
 std::atomic<size_t> cannot_evict_counts = 0;
 std::atomic<size_t> destruct_counts = 0;
 std::atomic<size_t> tensor_destruct_counts = 0;
+
+void signal_handler(int sig) {
+  constexpr const int REC_DEPTH = 50;
+  void *array[REC_DEPTH];
+  size_t size;
+  char **strings;
+  size_t i;
+
+  // 获取当前的调用栈
+  size = backtrace(array, REC_DEPTH);
+  strings = backtrace_symbols(array, size);
+
+  fprintf(stderr, "Error: signal %d:\n", sig);
+  for (i = 0; i < size; i++) {
+      fprintf(stderr, "%s\n", strings[i]);
+  }
+
+  free(strings);
+  exit(1);
+}
+
 #endif
 
 bool reserved_range = false;
@@ -706,6 +737,9 @@ static c10::once_flag dtb_init;
 void dtbPoolInitEntry() {
   const auto num_devices = c10::cuda::device_count_ensure_non_zero();
   dtb::init(num_devices);
+#ifdef DEBUG_MODE
+  signal(SIGSEGV, signal_handler);
+#endif
 }
 
 void lazyInitDTB() {
@@ -1503,10 +1537,10 @@ void AliasPool::unlock() {
     if(remat_count>0){
       unlock_remated();
     #ifdef DEBUG_MODE
-      // if(record_lifecycle){ // 这里记录的是重物化过程的情况
-      //   pid_t pid = getpid();
-      //   DTRLogLifeCycle(std::to_string(pid), external_count, lock_count, remat_count);
-      // }
+      if(record_lifecycle){ // 这里记录的是重物化过程的情况
+        pid_t pid = getpid();
+        DTRLogLifeCycle(std::to_string(pid), external_count, lock_count, remat_count);
+      }
     #endif
       if(remat_count == 0 && external_count == 0 && lock_count == 0 && retain_count == 0){
         if (memory > 0 && (!ecn) && head_remat) {
@@ -2167,8 +2201,8 @@ void if_tensor_add_key_chain(const strong& cell, at::dtb::DTBCheckpointPool *pm,
 }
 
 inline void release_external_of_nosource_tensor(const strong& s, const std::string& name){
-  if(!s->pool->if_weight && s->pool->head_remat==nullptr && during_backward && name != "copy_"){    // [BUG]: copy_ is a complex bug for DTR runtime{
-    s->pool->release_external();
+  if(!s->pool->if_weight && s->pool->head_remat==nullptr && during_backward && name != "copy_"){    // [BUG]: copy_ is a complex bug for DTR runtime, cannot change orginal tensor easily
+    // s->pool->release_external();                         /// BUG: this way will cause segmentation fault, probably related to free tensor needed
   }
 }
 
@@ -2276,7 +2310,7 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
   }
   for (const strong& s : inputs) {
     s->pool->unlock();
-    // release_external_of_nosource_tensor(s, name);
+    release_external_of_nosource_tensor(s, name);
   }
 
 #ifdef DEBUG_MODE
@@ -2444,7 +2478,7 @@ MakeRawResult make_raw_rec(const rematerialize_function_t& remat_f,
     //   //       s->pool->memory, during_backward ? "in backward" : "in forward", name.c_str());
     //   s->pool->release_external();
     // }
-    // release_external_of_nosource_tensor(s, name);
+    release_external_of_nosource_tensor(s, name);
   }
 #ifdef DEBUG_MODE
   OperationRecord rec = {rid, name, cur_compute_cost, cur_mem_cost, {}, {}, device_id};
@@ -2479,11 +2513,11 @@ Tensors CheckpointTensorImpl::make(const std::string& name,
     TORCH_CHECK(cpti);
     input_values.push_back(cpti->unsafeGetTensorCell());
 #ifdef DEBUG_MODE
-    if(cpti->unsafeGetTensorCell()->pool->external_count>1){
-      if(record_lifecycle){ // 记录关注的tensor
-        DTRLogLifeCycle(name, cpti->unsafeGetTensorCell()->pool->external_count, cpti->unsafeGetTensorCell()->pool->lock_count, cpti->unsafeGetTensorCell()->pool->remat_count);
-      }
-    }
+    // if(cpti->unsafeGetTensorCell()->pool->external_count>1){
+    //   if(record_lifecycle){ // 记录关注的tensor
+    //     DTRLogLifeCycle(name, cpti->unsafeGetTensorCell()->pool->external_count, cpti->unsafeGetTensorCell()->pool->lock_count, cpti->unsafeGetTensorCell()->pool->remat_count);
+    //   }
+    // }
     
     if (use_log_) {
       args.push_back(cpti->counter_name());
@@ -2563,11 +2597,11 @@ Tensors CheckpointTensorImpl::make(const std::string& name,
     TORCH_CHECK(cpti);
     input_values.push_back(cpti->unsafeGetTensorCell());
 #ifdef DEBUG_MODE
-    if(cpti->unsafeGetTensorCell()->pool->external_count>1){
-      if(record_lifecycle){ // 记录关注的tensor
-        DTRLogLifeCycle(name, cpti->unsafeGetTensorCell()->pool->external_count, cpti->unsafeGetTensorCell()->pool->lock_count, cpti->unsafeGetTensorCell()->pool->remat_count);
-      }
-    }
+    // if(cpti->unsafeGetTensorCell()->pool->external_count>1){
+    //   if(record_lifecycle){ // 记录关注的tensor
+    //     DTRLogLifeCycle(name, cpti->unsafeGetTensorCell()->pool->external_count, cpti->unsafeGetTensorCell()->pool->lock_count, cpti->unsafeGetTensorCell()->pool->remat_count);
+    //   }
+    // }
     
     if (use_log_) {
       args.push_back(cpti->counter_name());

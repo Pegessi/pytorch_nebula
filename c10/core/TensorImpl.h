@@ -1593,6 +1593,7 @@ private:
         [this] { return static_cast<const char*>(storage_.data()); });
   }
 
+  // std::function<void*()> mutable_data_func;
   /**
    * Return a void* data pointer to the actual data which this tensor refers to.
    *
@@ -1606,6 +1607,7 @@ private:
   inline void* mutable_data() {
     return data_impl<void>(
         [this] { return static_cast<char*>(storage_.mutable_data()); });
+    // return mutable_data_func();
   }
 
  private:
@@ -1632,6 +1634,11 @@ private:
       return nullptr;
     }
     return data + data_type_.itemsize() * storage_offset_;
+  }
+
+  void* mutable_data_default() {
+    return data_impl<void>(
+        [this] { return static_cast<char*>(storage_.mutable_data()); });
   }
 
  public:
@@ -3259,7 +3266,7 @@ class C10_TensorImpl_Size_Check_Dummy_Class : private TensorImpl {
 #else
   // This is a 64-bit system
   static constexpr bool check_sizes() {
-    constexpr size_t tsize = 26 * sizeof(int64_t);
+    constexpr size_t tsize = 26 * sizeof(int64_t);  // add std::function, 16B
 
     // clang-format off
     are_equal<sizeof(storage_),            8,  FieldNameEnum::storage_>();
@@ -3276,6 +3283,7 @@ class C10_TensorImpl_Size_Check_Dummy_Class : private TensorImpl {
     are_equal<sizeof(data_type_),          2,  FieldNameEnum::data_type_>();
     are_equal<sizeof(device_opt_),         3,  FieldNameEnum::device_opt_>();
     are_equal<sizeof(key_set_),            8,  FieldNameEnum::key_set_>();
+    // TODO: should check std::function
     is_le<sizeof(TensorImpl),          tsize,  FieldNameEnum::TOTAL_SIZE>();
     // clang-format on
 

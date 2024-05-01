@@ -79,6 +79,14 @@ inline variable_list CopySlices::apply_impl(
     variable_list&& inputs,
     const T& call_fn) {
   check_input_variables("CopySlices", inputs, 1, -1, true);
+  static const int DTR_ENABLE = ([]()->int{{
+    const char* env = getenv("DTR_ENABLE");
+    if(env) return 1;
+    else return 0;
+  }})();
+  // at::Tensor& grad_ = inputs[0];
+  // if(DTR_ENABLE) grad_ = grad_.try_checkpoint();
+  // auto& grad = grad_;
   auto& grad = inputs[0];
   if (!grad.defined()) {
     return variable_list(num_outputs());

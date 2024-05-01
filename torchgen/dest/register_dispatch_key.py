@@ -106,7 +106,43 @@ def gen_create_out_helper(backend_index: BackendIndex) -> List[str]:
     empty_impl, empty_strided_impl = gen_empty_impl_names(backend_index)
     if empty_impl is None:
         return []
+    """
+    Here is a hacky func generation for checkpoint all tensor produced by create_out
+    during backward or other process in code that produce a new tensor(orginial).
+    These original tensor may occur to memory leak because they are outers for DTR runtime.
+    Although these original tensor can be released after a backward progress,
+    but memory occupation of them reduces the search space for DTR eviction and causing memory overhead.
 
+    Below hacky func is a greate func to produce cptc but they will cause TensorImpl checking failed,
+    which is caused by no storage for original tensor.
+    If this can be fixed, this hacky way will work!
+    """
+#     if backend_index.dispatch_key == DispatchKey.CUDA:
+#         return [
+#             f"""
+# Tensor create_out(IntArrayRef sizes, IntArrayRef strides, const TensorOptions &options) {{
+#   static const int DTR_ENABLE = ([]()->int{{
+#     const char* env = getenv("DTR_ENABLE");
+#     if(env) return 1;
+#     else return 0;
+#   }})();
+#   if(DTR_ENABLE){{
+#     if (strides.empty()) {{
+#         return Tensor({empty_impl}(sizes, {empty_options})).checkpoint();
+#     }} else {{
+#         return Tensor({empty_strided_impl}(sizes, strides, {empty_options})).checkpoint();
+#     }}
+#   }}else{{
+#     if (strides.empty()) {{
+#         return {empty_impl}(sizes, {empty_options});
+#     }} else {{
+#         return {empty_strided_impl}(sizes, strides, {empty_options});
+#     }}
+#   }}
+# }}
+#     """
+#         ]
+#     else:
     return [
         f"""
 Tensor create_out(IntArrayRef sizes, IntArrayRef strides, const TensorOptions &options) {{

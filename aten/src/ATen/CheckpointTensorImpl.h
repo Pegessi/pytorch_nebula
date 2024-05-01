@@ -291,9 +291,11 @@ struct AliasPool : intrusive_ptr_target {
   inline void unlock();
   inline void lock_remated(){
     ++remat_count;
+    // remat_count = 1;
   }
   inline void unlock_remated(){
     --remat_count;
+    // remat_count = 0;
   }
   inline void lock_retain(){
     retain_count++;
@@ -513,8 +515,12 @@ struct TORCH_API CheckpointTensorImpl : public TensorImpl {
 
   Ref<intrusive_ptr<External>> ref;
 
-  inline void* mutable_data() {
+  void* mutable_data_cpti() {
     return unsafeGetTensorCell()->t->mutable_data_ptr();
+  }
+
+  const void* data_cpti() {
+    return unsafeGetTensorCell()->t->data_ptr();
   }
 
   strong unsafeGetTensorCell(){
@@ -523,12 +529,15 @@ struct TORCH_API CheckpointTensorImpl : public TensorImpl {
 
   void release_resources() override;
 
+  // All of constructor will call this
   explicit CheckpointTensorImpl(const Ref<intrusive_ptr<External>>& ref) :
     TensorImpl(convert_key_set(ref->value->value->key_set()),                   // [TAG] 这里添加了checkpoint后端dispatchkey
                ref->value->value->dtype(),
                ref->value->value->optional_device()),
     ref(ref) {
       // ref->value->value == CheckpointTensorCell*
+      // mutable_data_func = [this] { return this->mutable_data_cpti(); };      /// [TAG] 注释这里就会让cptc无法被直接访问，这里通过篡改自定义的mutable_data_func实现了子类访问
+      // device_opt_ = unsafeGetTensorCell()->t->device();
       set_storage_access_should_throw();
       if(!ref->value->value->defined){
         ref->value->value->get();

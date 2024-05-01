@@ -1253,13 +1253,13 @@ Tensor& checkpoint_masked_select_out(Tensor& self, const Tensor& mask, const Ten
   return self;
 }
 
-Tensor checkpoint_masked_select(const Tensor& self, const Tensor& mask) {
-  rematerialize_function_t rt =
-    [=](const Tensors& vec) -> Tensors {
-    return {at::masked_select(vec.at(0), vec.at(1))};
-  };
-  return CheckpointTensorImpl::make("masked_select", rt, {self, mask})[0];
-}
+// Tensor checkpoint_masked_select(const Tensor& self, const Tensor& mask) {
+//   rematerialize_function_t rt =
+//     [=](const Tensors& vec) -> Tensors {
+//     return {at::masked_select(vec.at(0), vec.at(1))};
+//   };
+//   return CheckpointTensorImpl::make("masked_select", rt, {self, mask})[0];
+// }
 
 // Tensor checkpoint_index(const Tensor& self, ArrayRef<Tensor> indices) {
 //   rematerialize_function_t rt =
@@ -2589,13 +2589,69 @@ at::Tensor & checkpoint_masked_fill_(Tensor& self, const Tensor & mask, const Sc
   mutate_function_t mt =
     [=](const Tensors& vec) {
       Tensor self = vec.at(0);
-      // at::masked_fill_(self, vec.at(1), value);
-      // at::masked_fill_out(self, mask, value);
       self.masked_fill_(vec.at(1), value);
     };
   CheckpointTensorImpl::mutate("masked_fill_", mt, {self, mask}, {0});
   return {self};
 }
+
+/// ['aten::logical_or', 'at::Tensor', 'logical_or', '(const at::Tensor & self, const at::Tensor & other)']
+at::Tensor checkpoint_logical_or(const at::Tensor & self, const at::Tensor & other) {
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      return {at::logical_or(vec.at(0), vec.at(1))};
+    };
+  return CheckpointTensorImpl::make("aten::logical_or", rt, {self, other})[0];
+}
+
+/// ['aten::logical_or_outf', 'at::Tensor &', 'logical_or_outf', '(const at::Tensor & self, const at::Tensor & other, at::Tensor & out)']
+at::Tensor & checkpoint_logical_or_outf(const at::Tensor & self, const at::Tensor & other, at::Tensor & out) {
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      Tensor out = vec.at(2);
+      return {at::logical_or_outf(vec.at(0), vec.at(1), out)};
+    };
+  return CheckpointTensorImpl::make("aten::logical_or_outf", rt, {self, other, out})[0];
+}
+
+/// ['aten::bitwise_or_outf', 'at::Tensor &', 'bitwise_or_outf', '(const at::Tensor & self, const at::Tensor & other, at::Tensor & out)']
+at::Tensor & checkpoint_bitwise_or_outf(const at::Tensor & self, const at::Tensor & other, at::Tensor & out) {
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      Tensor out = vec.at(2);
+      return {at::bitwise_or_outf(vec.at(0), vec.at(1), out)};
+    };
+  return CheckpointTensorImpl::make("aten::bitwise_or_outf", rt, {self, other, out})[0];
+}
+
+/// ['aten::bitwise_or', 'at::Tensor', 'bitwise_or', '(const at::Tensor & self, const at::Tensor & other)']
+at::Tensor checkpoint_bitwise_or(const at::Tensor & self, const at::Tensor & other) {
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      return {at::bitwise_or(vec.at(0), vec.at(1))};
+    };
+  return CheckpointTensorImpl::make("aten::bitwise_or", rt, {self, other})[0];
+}
+
+/// ['aten::masked_select', 'at::Tensor', 'masked_select', '(const at::Tensor & self, const at::Tensor & mask)']
+at::Tensor checkpoint_masked_select(const at::Tensor & self, const at::Tensor & mask) {
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      return {at::masked_select(vec.at(0), vec.at(1))};
+    };
+  return CheckpointTensorImpl::make("aten::masked_select", rt, {self, mask})[0];
+}
+
+/// ['aten::ceil_outf', 'at::Tensor &', 'ceil_outf', '(const at::Tensor & self, at::Tensor & out)']
+at::Tensor & checkpoint_ceil_outf(const at::Tensor & self, at::Tensor & out) {
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      Tensor out = vec.at(1);
+      return {at::ceil_outf(vec.at(0), out)};
+    };
+  return CheckpointTensorImpl::make("aten::ceil_outf", rt, {self, out})[0];
+}
+
 
 ////////////////////////////////// auto generate part //////////////////////////////////////
 
