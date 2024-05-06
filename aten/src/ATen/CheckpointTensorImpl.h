@@ -28,7 +28,7 @@
 #define TORCH_CHECK(a, ...) // profile mode
 
 // #define ORIGINAL_DTR
-#define DEBUG_MODE
+// #define DEBUG_MODE
 
 // System Description:
 // Every Tensor is managed by a CheckpointTensor,
@@ -660,7 +660,7 @@ enum KeyChainStatus {
 
 struct ChainNode;
 using StrongChainNode = intrusive_ptr<ChainNode>;
-using WeakChainNode = intrusive_ptr<ChainNode>;
+using WeakChainNode = weak_intrusive_ptr<ChainNode>;
 
 struct ChainNode : intrusive_ptr_target {
   weak value;
@@ -783,9 +783,15 @@ struct CheckpointPool {
   void clear_exts(){
     candidates.clear();
     chains.clear();
+    int count = 0;
     while (!exts.empty()) {
       if (auto e = exts.back().lock()) {
         e->value->pin();  /// why pin and remat?
+        // if((e->value->pool->lock_count!=0||e->value->pool->external_count>0||e->value->pool->remat_count>0)&&e->value->defined){
+        //   count++;
+        //   // printf("release meet locked %d\n", count);
+        //   printf("remat_count:%ld, external_count:%ld, lock_count:%ld, counts:%d\n", e->value->pool->remat_count, e->value->pool->external_count, e->value->pool->lock_count, count);
+        // }
       }
       exts.pop_back();
     }

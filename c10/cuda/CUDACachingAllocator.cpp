@@ -122,10 +122,33 @@ constexpr size_t kMinBlockSize =
 constexpr size_t kSmallSize = 1048576; // largest "small" allocation is 1 MiB
 constexpr size_t kSmallBuffer =
     2097152; // "small" allocations are packed in 2 MiB blocks
+
+#ifndef MORE_POOL
 constexpr size_t kLargeBuffer =
     20971520; // "large" allocations may be packed in 20 MiB blocks
 constexpr size_t kMinLargeAlloc =
     10485760; // allocations between 1 and 10 MiB may use kLargeBuffer
+#else
+constexpr size_t kE1Size = 134217728; // largest E1 allocation is 128 MiB
+constexpr size_t kE1Buffer =
+    16777216; // "E1" allocations may be packed in 16 MiB blocks
+constexpr size_t kE2Size = 536870912; // E1 allocation is 512 MiB
+constexpr size_t kE2Buffer =
+    33554432; // "E2" allocations may be packed in 32 MiB blocks
+
+
+constexpr size_t kMinE1Alloc = 
+    16777216; // allocations between 1 and 16 MiB may use kE1Buffer
+constexpr size_t kMinE2Alloc = 
+    33554432; // allocations between 16 and 32 MiB may use kE2Buffer 
+
+// else all use Large blocks
+constexpr size_t kLargeBuffer =
+    67108864; // "large" allocations may be packed in 64 MiB blocks
+constexpr size_t kMinLargeAlloc =
+    67108864; // allocations between 32 and 64 MiB may use kLargeBuffer
+#endif
+
 constexpr size_t kRoundLarge = 2097152; // round up large allocations to 2 MiB
 constexpr size_t kGranularity   =  2097152; // round up large allocations to 2 MiB
 constexpr size_t kRoundUpPowerOfTwoIntervals = 16;
@@ -329,6 +352,8 @@ typedef bool (*Comparison)(const Block*, const Block*);
 static bool BlockComparatorSize(const Block* a, const Block* b);
 static bool BlockComparatorAddress(const Block* a, const Block* b);
 
+#ifndef MORE_POOL
+
 struct BlockPool {
   BlockPool(bool small, PrivatePool* private_pool = nullptr)
       : blocks(BlockComparatorSize),
@@ -340,6 +365,22 @@ struct BlockPool {
   const bool is_small;
   PrivatePool* owner_PrivatePool;
 };
+
+#else
+
+struct BlockPool {
+  BlockPool(StatType bt, PrivatePool* private_pool = nullptr)
+      : blocks(BlockComparatorSize),
+        unmapped(BlockComparatorAddress),
+        pool_type(bt),
+        owner_PrivatePool(private_pool) {}
+  std::set<Block*, Comparison> blocks;
+  std::set<Block*, Comparison> unmapped;
+  const StatType pool_type;
+  PrivatePool* owner_PrivatePool;
+};
+
+#endif
 
 struct ExpandableSegment;
 
@@ -987,13 +1028,14 @@ struct PrivatePool {
   PrivatePool()
       : use_count(1),
         cudaMalloc_count(0),
-// #ifdef GMLAKE_ENABLE
-//       large_blocks(BlockComparator, /*is_small=*/false, this),
-//       small_blocks(BlockComparator, /*is_small=*/true, this) {}
-// #else
+#ifndef MORE_POOL
       large_blocks(/*small=*/false, this),
       small_blocks(/*small=*/true, this) {}
-// #endif
+#else
+      large_blocks(StatType::LARGE_POOL, this),
+      small_blocks(StatType::SMALL_POOL, this) {}
+#endif
+
   PrivatePool(const PrivatePool&) = delete;
   PrivatePool(PrivatePool&&) = delete;
   PrivatePool& operator=(const PrivatePool&) = delete;
@@ -1026,7 +1068,11 @@ BlockState::BlockState(Block* block)
 
 SegmentState::SegmentState(Block* head) {
   TORCH_INTERNAL_ASSERT(head->prev == nullptr && head->pool != nullptr);
+#ifndef MORE_POOL
   is_small = head->pool->is_small;
+#else
+  is_small = head->pool->pool_type==StatType::SMALL_POOL;
+#endif
 
   for (Block* curr = head; curr != nullptr; curr = curr->next) {
     blocks.emplace_back(curr);
@@ -1484,6 +1530,11 @@ class DeviceCachingAllocator {
   // unallocated cached blocks 1 MB or smaller
   BlockPool small_blocks;
 
+#ifdef MORE_POOL
+  BlockPool ex1_blocks;
+  BlockPool ex2_blocks;
+#endif
+
   // allocated or in use by a stream. Holds all active allocations,
   // whether they came from graph_pools or one of the BlockPools above.
   ska::flat_hash_set<Block*> active_blocks;
@@ -1557,19 +1608,31 @@ class DeviceCachingAllocator {
   std::vector<OutOfMemoryObserver> oom_observers_;
 
  public:
+#ifdef MORE_POOL
   DeviceCachingAllocator()
-#ifndef GMLAKE_ENABLE
-      : large_blocks(/*small=*/false),
-        small_blocks(/*small=*/true),
-#else
-      : large_blocks(/*is_small=*/false),
-        free_fused_blocks(/*is_small=*/false),
-        small_blocks(/*is_small=*/true),
-#endif
+      : large_blocks(StatType::LARGE_POOL),
+        small_blocks(StatType::SMALL_POOL),
+        ex1_blocks(StatType::E1_POOL),
+        ex2_blocks(StatType::E2_POOL),
         alloc_trace(new std::vector<TraceEntry>()) {
     stats.max_split_size = CachingAllocatorConfig::max_split_size();
     context_recorder_.store(nullptr);
   }
+#else
+  DeviceCachingAllocator()
+  #ifndef GMLAKE_ENABLE
+      : large_blocks(/*small=*/false),
+        small_blocks(/*small=*/true),
+  #else
+      : large_blocks(/*is_small=*/false),
+        free_fused_blocks(/*is_small=*/false),
+        small_blocks(/*is_small=*/true),
+  #endif
+        alloc_trace(new std::vector<TraceEntry>()) {
+    stats.max_split_size = CachingAllocatorConfig::max_split_size();
+    context_recorder_.store(nullptr);
+  }
+#endif
 
   void recordHistory(
       bool enabled,
@@ -2438,6 +2501,10 @@ class DeviceCachingAllocator {
     }
     cache_info_aux(large_blocks, largest);
     cache_info_aux(small_blocks, largest);
+#ifdef MORE_POOL
+    cache_info_aux(ex1_blocks, largest);
+    cache_info_aux(ex2_blocks, largest);
+#endif
     for (const auto& gp : graph_pools) {
       cache_info_aux(gp.second->large_blocks, largest);
       cache_info_aux(gp.second->small_blocks, largest);
@@ -2734,7 +2801,6 @@ class DeviceCachingAllocator {
     size_t total_active = 0;
     std::vector<SegmentInfo> result;
     const auto all_blocks = get_all_blocks();
-
     for (const Block* const head_block : all_blocks) {
       // For expandable segments, we report one segment for each continguous
       // mapped range of memory
@@ -2746,7 +2812,12 @@ class DeviceCachingAllocator {
       segment_info.device = head_block->device;
       segment_info.address = reinterpret_cast<int64_t>(head_block->ptr);
       segment_info.stream = head_block->stream;
+#ifdef MORE_POOL
+      segment_info.is_large = (head_block->pool->pool_type==StatType::LARGE_POOL);
+      segment_info.segment_type = head_block->pool->pool_type;
+#else
       segment_info.is_large = (!head_block->pool->is_small);
+#endif
       segment_info.is_expandable = head_block->expandable_segment_;
       segment_info.context_when_allocated =
           head_block->context_when_segment_allocated;
@@ -2863,6 +2934,20 @@ class DeviceCachingAllocator {
                                       : round_size_floor + power2_divison;
   }
 
+#ifdef MORE_POOL
+  static size_t round_size(size_t size) {
+    if (size < kMinBlockSize) {
+      return kMinBlockSize;
+    } else {
+      auto divisions = CachingAllocatorConfig::roundup_power2_divisions(size);
+      if (divisions > 0 && size > (kMinBlockSize * divisions)) {
+        return roundup_power2_next_division(size, divisions);
+      } else {
+        return kMinBlockSize * ((size + kMinBlockSize - 1) / kMinBlockSize);
+      }
+    }
+  }
+#else
   static size_t round_size(size_t size) {
     if (size < kMinBlockSize) {
       return kMinBlockSize;
@@ -2884,6 +2969,7 @@ class DeviceCachingAllocator {
       }
     }
   }
+#endif
 
   // See Note [Interaction with CUDA graph capture]
 
@@ -2972,6 +3058,12 @@ class DeviceCachingAllocator {
         blocks.end(), small_blocks.blocks.begin(), small_blocks.blocks.end());
     blocks.insert(
         blocks.end(), large_blocks.blocks.begin(), large_blocks.blocks.end());
+#ifdef MORE_POOL
+    blocks.insert(
+        blocks.end(), ex1_blocks.blocks.begin(), ex1_blocks.blocks.end());
+    blocks.insert(
+        blocks.end(), ex2_blocks.blocks.begin(), ex2_blocks.blocks.end());
+#endif
     for (const auto& gp : graph_pools) {
       blocks.insert(
           blocks.end(),
@@ -3045,7 +3137,15 @@ class DeviceCachingAllocator {
         return c;
       }
     }
+#ifdef MORE_POOL
+    size_t segment_size;
+    if(pool->pool_type==StatType::SMALL_POOL) segment_size = kSmallBuffer;
+    else if(pool->pool_type==StatType::E1_POOL) segment_size = kE1Buffer;
+    else if(pool->pool_type==StatType::E2_POOL) segment_size = kE2Buffer;
+    else segment_size = kLargeBuffer;
+#else
     auto segment_size = pool->is_small ? kSmallBuffer : kLargeBuffer;
+#endif
     expandable_segments_.emplace_back(new ExpandableSegment(
         device, stream, segment_size, devices_with_peer_access_));
 
@@ -3326,6 +3426,7 @@ class DeviceCachingAllocator {
     return subsumed_size;
   }
 
+#ifndef MORE_POOL
   BlockPool& get_pool(size_t size, cudaStream_t stream) {
 #if !defined(USE_ROCM) || ROCM_VERSION >= 50300
     // captures_underway is a conservative guess that the current stream may be
@@ -3372,15 +3473,64 @@ class DeviceCachingAllocator {
       return large_blocks;
     }
   }
+#else
+  BlockPool& get_pool(size_t size, cudaStream_t stream) {
+#if !defined(USE_ROCM) || ROCM_VERSION >= 50300
+    // captures_underway is a conservative guess that the current stream may be
+    // capturing. It's only > 0 if some thread has begun and not yet ended a
+    // capture, so it's usually 0, and we can short-circuit
+    // cudaStreamCaptureStatus (which does a TLS lookup).
+    if (C10_UNLIKELY(captures_underway)) {
+      auto it0 = stream_to_pool_map.find(stream);
+      if (it0 != stream_to_pool_map.end()) {
+        auto it1 = graph_pools.find(it0->second);
+        TORCH_INTERNAL_ASSERT(it1 != graph_pools.end());
+        if (size <= kSmallSize) {
+          return it1->second->small_blocks;
+        } else {
+          return it1->second->large_blocks;
+        }
+      }
+    }
+#endif
+    if (size <= kSmallSize) {
+      return small_blocks;
+    } else if (size <= kE1Size){
+      return ex1_blocks;
+    } else if (size <= kE2Size){
+      return ex2_blocks;
+    } else {
+      return large_blocks;
+    }
+  }
+#endif
+
 
   StatTypes get_stat_types_for_pool(const BlockPool& pool) {
     StatTypes stat_types = {false};
     stat_types[static_cast<size_t>(StatType::AGGREGATE)] = true;
+#ifdef MORE_POOL
+    stat_types[static_cast<size_t>(
+        pool.pool_type)] = true;
+#else
     stat_types[static_cast<size_t>(
         pool.is_small ? StatType::SMALL_POOL : StatType::LARGE_POOL)] = true;
+#endif
     return stat_types;
   }
 
+#ifdef MORE_POOL  /// TODO: 这里是否有必要对拆分大小做限制？
+  bool should_split(const Block* block, size_t size) {
+    size_t remaining = block->size - size;
+    if (block->pool->pool_type==StatType::SMALL_POOL ||
+        CachingAllocatorConfig::expandable_segments()) {
+      return remaining >= kMinBlockSize;
+    } else {
+      return (size < CachingAllocatorConfig::max_split_size()) &&
+          (remaining > kSmallSize);
+    }
+  }
+#else
   bool should_split(const Block* block, size_t size) {
     size_t remaining = block->size - size;
     if (block->pool->is_small ||
@@ -3391,7 +3541,9 @@ class DeviceCachingAllocator {
           (remaining > kSmallSize);
     }
   }
+#endif
 
+#ifndef MORE_POOL
   static size_t get_allocation_size(size_t size) {
     if (size <= kSmallSize) {                                           // 1MB以下padding到2MB
       return kSmallBuffer;
@@ -3401,6 +3553,21 @@ class DeviceCachingAllocator {
       return kRoundLarge * ((size + kRoundLarge - 1) / kRoundLarge);
     }
   }
+#else
+  static size_t get_allocation_size(size_t size) {
+    if (size <= kSmallSize) {                                           // 1MB以下padding到2MB
+      return kSmallBuffer;
+    } else if (size < kMinE1Alloc) {        // 1-16 padding 到 16MiB
+      return kE1Buffer;
+    } else if (size < kMinE2Alloc) {        // 16-32 padding 到 32MiB
+      return kE2Buffer;
+    } else if (size < kMinLargeAlloc) {     // 32-64 padding 到 64MiB
+      return kLargeBuffer;
+    } else {                                                           // 否则按2MB的倍数分配
+      return kRoundLarge * ((size + kRoundLarge - 1) / kRoundLarge);
+    }
+  }
+#endif
 
   bool get_free_block(AllocParams& p) {
 #ifdef GMLAKE_ENABLE
@@ -4595,6 +4762,10 @@ class DeviceCachingAllocator {
     // Free all non-split cached blocks to system allocator
     release_blocks(large_blocks);
     release_blocks(small_blocks);
+#ifdef MORE_POOL
+    release_blocks(ex1_blocks);
+    release_blocks(ex2_blocks);
+#endif
 
     for (auto it = graph_pools_freeable.begin();
          it != graph_pools_freeable.end();) {
@@ -4827,6 +4998,7 @@ static const int vmmDefragment = ([]()->int{
           nullptr);
     }
   }
+  
   void release_blocks(BlockPool& pool) {
     std::vector<Block*> to_unmap;
     // Frees all non-split blocks

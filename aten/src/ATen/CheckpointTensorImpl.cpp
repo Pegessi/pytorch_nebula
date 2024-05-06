@@ -177,7 +177,7 @@ bool record_er_counts = false;        // 驱逐&重物化次数
 bool record_mem_addr = false;         // 是否记录内存地址
 bool record_op_recs = false;          // 是否记录op历史
 bool record_fragmentation = false;    // 记录碎片化和内存占用数据
-bool record_lifecycle = true;        // 记录ap生命周期计数分布
+bool record_lifecycle = false;        // 记录ap生命周期计数分布
 bool record_ap_cost = false;          // 记录ap的cost分布
 bool record_dependcy = false;
 bool record_key_chain = false;
@@ -324,7 +324,7 @@ namespace dtb {
         update_max_meminfo(device);
       #endif
         auto pool = device_dtbpool[device].get();
-        if (pool->has_memory_budget) {
+        if (pool->has_memory_budget&&if_train_mode) {
           int check_counts[8] = {0};
           bool if_eviction = false;
           size_t last_mem = current_memory(device);
@@ -1550,6 +1550,18 @@ void AliasPool::unlock() {
         //   evict(2);
       }
     }
+    /**
+     * 上面的重物化检查相当于提供了一个释放重物化张量的timing
+     * 但实际上由于动态执行中会出现remat_count==0但lock_count>0导致无法回收的情况（错过了这个回收窗口）
+     * 因此在反向过程中额外检查是否有释放的机会
+    */
+    if(during_backward){
+      if(remat_count == 0 && external_count == 0 && lock_count == 0){
+        if (memory > 0 && (!ecn) && head_remat) {
+          evict(1);
+        } 
+      }
+    }
 #endif
   }
 
@@ -1557,7 +1569,9 @@ void AliasPool::release_external() {
   --external_count;
   if (external_count == 0) {          /// TODO: 潜在bug，如果lock_count>0，此后这个aps会成为僵尸内存; 反向内存堆积的原因是否是因为这个？ 还是其他的引用计数
     if(if_weight) return;
-    if (lock_count > 0) {return;}
+    if (lock_count > 0) {
+      return;
+    }
     
 
     if (memory > 0 && (!ecn) && head_remat) {   /// [TAG] 对于无源之水无本之木，他们在这里就不会被释放了，包括所有模型权重和其他直接checkpoint的结果
@@ -1567,7 +1581,7 @@ void AliasPool::release_external() {
 #endif
       evict(1);
     } 
-    else if(memory>0 && head_remat==nullptr){
+    else if(memory > 0 && head_remat == nullptr){   /// 配合release_external_of_nosource_tensor才能释放这些张量
       evict(2);
     }
   }
@@ -1657,7 +1671,7 @@ void AliasPool::set_not_evicted(const intrusive_ptr<AliasPool>& self) {
       update_t(ecn, CheckpointInfo(cpi.compute_cost - head_remat->compute_cost));
       ecn.reset();
     }
-    /// TODO: use dtb
+
 #ifdef MULTI_MODE
     auto *pm = getDTBPoolManager();
     pm->add_ap(device_id, self);

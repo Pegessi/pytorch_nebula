@@ -1352,7 +1352,7 @@ checkpoint_layer_norm(const Tensor& input, c10::ArrayRef<long> normalized_shape,
 std::tuple<at::Tensor,at::Tensor,at::Tensor> checkpoint_native_layer_norm_backward(const at::Tensor & grad_out, const at::Tensor & input, at::IntArrayRef normalized_shape, const at::Tensor & mean, const at::Tensor & rstd, const c10::optional<at::Tensor> & weight, const c10::optional<at::Tensor> & bias, ::std::array<bool,3> output_mask) {
   auto normalized_shape_ = normalized_shape.vec();
   rematerialize_function_t rt =
-    [=](const Tensors& vec) -> Tensors {
+    [normalized_shape_, output_mask](const Tensors& vec) -> Tensors {
       auto ret = at::native_layer_norm_backward(vec.at(0), vec.at(1), normalized_shape_, vec.at(2), vec.at(3), vec.at(4), vec.at(5), output_mask);
       return {std::get<0>(ret), std::get<1>(ret), std::get<2>(ret)};
     };
@@ -1812,7 +1812,7 @@ at::Tensor & checkpoint_addmm_out(const at::Tensor & self, const at::Tensor & ma
 std::tuple<Tensor,Tensor>
 checkpoint_native_dropout(const Tensor& self, double p, c10::optional<bool> train){
   rematerialize_function_t rt =
-    [=](const Tensors& vec) -> Tensors {
+    [p, train](const Tensors& vec) -> Tensors {
       auto ret = at::native_dropout(vec.at(0), p, train);
       return {std::get<0>(ret), std::get<1>(ret)};
     };
@@ -2041,7 +2041,7 @@ at::Tensor checkpoint_slice_backward(const at::Tensor & grad_output, at::IntArra
 /// ['aten::native_dropout_backward', 'at::Tensor', 'native_dropout_backward', '(const at::Tensor & grad_output, const at::Tensor & mask, double scale)']
 at::Tensor checkpoint_native_dropout_backward(const at::Tensor & grad_output, const at::Tensor & mask, double scale) {
   rematerialize_function_t rt =
-    [=](const Tensors& vec) -> Tensors {
+    [scale](const Tensors& vec) -> Tensors {
       return {at::native_dropout_backward(vec.at(0), vec.at(1), scale)};
     };
   return CheckpointTensorImpl::make("aten::native_dropout_backward", rt, {grad_output, mask})[0];
@@ -3365,7 +3365,7 @@ at::Tensor checkpoint_pow(const at::Tensor & self, const at::Scalar & exponent) 
 /// ['aten::add.Tensor', 'at::Tensor', 'add', '(const at::Tensor & self, const at::Tensor & other, const at::Scalar & alpha=1)']
 at::Tensor checkpoint_add(const at::Tensor & self, const at::Tensor & other, const at::Scalar & alpha) {
   rematerialize_function_t rt =
-    [=](const Tensors& vec) -> Tensors {
+    [alpha](const Tensors& vec) -> Tensors {
       return {at::add(vec.at(0), vec.at(1), alpha)};
     };
   return CheckpointTensorImpl::make("aten::add.Tensor", rt, {self, other})[0];
@@ -3394,7 +3394,7 @@ at::Tensor & checkpoint_add_outf(const at::Tensor & self, const at::Tensor & oth
 /// ['aten::add.Scalar', 'at::Tensor', 'add', '(const at::Tensor & self, const at::Scalar & other, const at::Scalar & alpha=1)']
 at::Tensor checkpoint_add(const at::Tensor & self, const at::Scalar & other, const at::Scalar & alpha) {
   rematerialize_function_t rt =
-    [=](const Tensors& vec) -> Tensors {
+    [other, alpha](const Tensors& vec) -> Tensors {
       return {at::add(vec.at(0), other, alpha)};
     };
   return CheckpointTensorImpl::make("aten::add.Scalar", rt, {self})[0];

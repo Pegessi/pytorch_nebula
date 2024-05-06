@@ -12,6 +12,8 @@
 #include <set>
 #include <unordered_set>
 
+// #define MORE_POOL
+
 namespace c10 {
 
 // Caching allocator will execute every registered callback if it unable to find
@@ -50,12 +52,27 @@ struct Stat {
   int64_t freed = 0;
 };
 
+#ifndef MORE_POOL
 enum struct StatType : uint64_t {
   AGGREGATE = 0,
   SMALL_POOL = 1,
   LARGE_POOL = 2,
   NUM_TYPES = 3 // remember to update this whenever a new stat type is added
 };
+#else
+/**
+ * 主要目的是再区分出一个区间用于容纳正常的activation以及与绝大部分activation不同的
+ * 大额memory
+*/
+enum struct StatType : uint64_t {
+  AGGREGATE = 0,
+  SMALL_POOL = 1,
+  E1_POOL = 2,
+  E2_POOL = 3,
+  LARGE_POOL = 4,
+  NUM_TYPES = 5 // remember to update this whenever a new stat type is added
+};
+#endif
 
 typedef std::array<Stat, static_cast<size_t>(StatType::NUM_TYPES)> StatArray;
 
@@ -129,6 +146,9 @@ struct SegmentInfo {
   int64_t active_size = 0;
   cudaStream_t stream = 0;
   bool is_large = false;
+#ifdef MORE_POOL
+  StatType segment_type;
+#endif
   bool is_expandable = false;
   MempoolId_t owner_private_pool_id = {0, 0};
   std::vector<BlockInfo> blocks;
