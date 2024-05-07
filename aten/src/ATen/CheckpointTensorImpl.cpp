@@ -1530,7 +1530,7 @@ void AliasPool::evict(int mode) { // 0 - evict | 1 - deconstruct | 2 - Irreversi
 }
 
 void AliasPool::unlock() {
-    --lock_count;
+    --lock_count;   // external == 0 , lock_count > 0 == 0
     /// improvement for life cycle
     /// because that staleness is harmful to eviction of remated tensor during backward progress, which should be released immediately
 #ifndef ORIGINAL_DTR
@@ -1581,9 +1581,9 @@ void AliasPool::release_external() {
 #endif
       evict(1);
     } 
-    else if(memory > 0 && head_remat == nullptr){   /// 配合release_external_of_nosource_tensor才能释放这些张量
-      evict(2);
-    }
+    // else if(memory > 0 && head_remat == nullptr){   /// 配合release_external_of_nosource_tensor才能释放这些张量
+    //   evict(2);
+    // }
   }
 }
 

@@ -4,6 +4,7 @@
 #include <iostream>
 #include <fstream>
 #include <third_party/kineto/libkineto/third_party/dynolog/third_party/json/single_include/nlohmann/json.hpp>
+#include <unistd.h>
 
 namespace at {
 
@@ -13,13 +14,15 @@ struct DTRLogger {
   static std::string get_time_prefix() {
     std::time_t t = std::time(nullptr);
     std::tm* tm = std::localtime(&t);
+    pid_t pid = getpid();
     return
       std::to_string(1900+tm->tm_year) + "-" +
       std::to_string(1+tm->tm_mon) + "-" +
       std::to_string(tm->tm_mday) + "-" +
       std::to_string(tm->tm_hour) + "-" +
       std::to_string(tm->tm_min) + "-" +
-      std::to_string(tm->tm_sec);
+      std::to_string(tm->tm_sec) + "-" +
+      std::to_string(pid);
   }
   std::string get_filename(const std::string& name) {
     return time_prefix + "-" + name + ".log";

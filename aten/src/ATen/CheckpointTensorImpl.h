@@ -431,6 +431,14 @@ struct CheckpointTensorCell : intrusive_ptr_target {
   // }
   void pin() {
     // get();         // [TAG] this is for debug to find out tensors unreleased
+    /**
+     * using at::strong = c10::intrusive_ptr<at::CheckpointTensorCell>
+     * 这里释放的是重物化函数，然而整个系统中，只有remat中保留了strongs
+     * 意味着释放重物化函数即可减少一定的strong计数
+     * 
+     * 另一处对strong有计数的是External，包裹在cpti里面，每个新的cpti会创建一个新的Externel with strong
+     * cpti会对应着python阶段的tensor，因此当tensor释放时，对应的strong的计数会减一，对应pool的external_count也会减一
+    */
     pool->head_remat.reset();
     remat.reset();
   }
@@ -680,10 +688,20 @@ struct ChainNode : intrusive_ptr_target {
       }
     }
   }
+  void release_resources() override {
+    if(is_lock){
+      if(auto cell = value.lock()){
+        cell->pool->is_retain = false;
+        is_lock = false;
+        cell->pool->unlock();
+      }
+    }
+    value.reset();
+  }
 };
 
-constexpr const int CHAIN_LENGTH_LOCK_THRESHOLD = 16;
-constexpr const int CHAIN_LOCK_STRIDE = 2;
+constexpr const int CHAIN_LENGTH_LOCK_THRESHOLD = 8;  // 16
+constexpr const int CHAIN_LOCK_STRIDE = 4;
 
 // TODO: weak并不能作为键
 struct ResidualChain : intrusive_ptr_target {
@@ -704,6 +722,7 @@ struct ResidualChain : intrusive_ptr_target {
     members.push_back(n);
 
     if(size()>CHAIN_LENGTH_LOCK_THRESHOLD) {  // 认为该链是要找的链
+      // printf("[TAG] with chain len:%ld\n", size());
       for(int i = last_check_idx; i<size(); i++){
         if(i%CHAIN_LOCK_STRIDE==0)
           members[i]->lock_value();
@@ -783,15 +802,35 @@ struct CheckpointPool {
   void clear_exts(){
     candidates.clear();
     chains.clear();
-    int count = 0;
+#ifdef DEBUG_MODE
+    // int count = 0, pool_count = 0;
+    // std::map<uintptr_t, int> pool_rec;
+#endif
     while (!exts.empty()) {
       if (auto e = exts.back().lock()) {
-        e->value->pin();  /// why pin and remat?
-        // if((e->value->pool->lock_count!=0||e->value->pool->external_count>0||e->value->pool->remat_count>0)&&e->value->defined){
-        //   count++;
-        //   // printf("release meet locked %d\n", count);
-        //   printf("remat_count:%ld, external_count:%ld, lock_count:%ld, counts:%d\n", e->value->pool->remat_count, e->value->pool->external_count, e->value->pool->lock_count, count);
-        // }
+        // e->value->pin();  /// why pin and remat?
+        if((e->value->pool->lock_count!=0||e->value->pool->external_count>0||e->value->pool->remat_count>0)&&e->value->defined){
+#ifdef DEBUG_MODE
+          // count++;
+          // auto pool_ptr = reinterpret_cast<uintptr_t>((e->value->pool.get()));
+          // auto it = pool_rec.find(pool_ptr);
+          // int pool_id = 0;
+          // if(it==pool_rec.end()){
+          //   pool_rec[pool_ptr] = ++pool_count;
+          //   pool_id = pool_count;
+          // }else{
+          //   pool_id = pool_rec[pool_ptr];
+          // }
+          // printf("exts size: %ld, size:%ld, external_count:%ld, is_weight:%d, pool_count:%d device_id:%d, have_remat:%d counts:%d\n", 
+          //   exts.size(), e->value->pool->memory, e->value->pool->external_count, e->value->pool->if_weight ? 1 : 0, pool_id,
+          //   e->value->pool->device_id, e->value->pool->head_remat ? 1 : 0, count);
+#endif
+          if(e->value->pool->external_count>1){     /// TODO: 这里仍然不是全明晰的，部分external_count释放后，会出现segmentation fault，目前是没有问题的
+            e->value->pin();
+            // e->release_resources();
+            // e->value->pool->release_external();
+          }
+        }
       }
       exts.pop_back();
     }
