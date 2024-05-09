@@ -304,7 +304,8 @@ struct AliasPool : intrusive_ptr_target {
   intrusive_ptr<Rematerializer> head_remat;
   bool evictable() const {
 #ifndef ORIGINAL_DTR
-    return lock_count == 0 && head_remat && remat_count == 0;   // 存在一些没有head_remat的权重转换，如rope的freqs
+    // return lock_count == 0 && head_remat && remat_count == 0;   // 存在一些没有head_remat的权重转换，如rope的freqs
+    return lock_count == 0 && head_remat && remat_count == 0 && !is_retain && !if_weight;
 #else
     return lock_count == 0 && head_remat;
 #endif
