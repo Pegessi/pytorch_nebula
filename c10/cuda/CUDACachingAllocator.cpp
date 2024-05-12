@@ -9,13 +9,6 @@
 #include <c10/util/flat_hash_map.h>
 #include <c10/util/irange.h>
 #include <c10/util/llvmMathExtras.h>
-// #define GMLAKE_ENABLE // GMLAKE history trace is unavailable(wrong history)
-#ifdef GMLAKE_ENABLE
-#include <c10/util/Backtrace.h>
-#include <unordered_map>
-#include <unordered_set>
-#include <c10/cuda/cuda_vmm_allocator.h>
-#endif
 #include <c10/util/static_tracepoint.h>
 
 #if !defined(USE_ROCM) && defined(PYTORCH_C10_DRIVER_API_SUPPORTED)
@@ -44,9 +37,85 @@
 TORCH_SDT_DEFINE_SEMAPHORE(malloc)
 TORCH_SDT_DEFINE_SEMAPHORE(free)
 
+// #define GMLAKE_ENABLE // GMLAKE history trace is unavailable(wrong history)
+#ifdef GMLAKE_ENABLE
+#include <c10/util/Backtrace.h>
+#include <unordered_map>
+#include <unordered_set>
+#include <c10/cuda/cuda_vmm_allocator.h>
+#endif
+
 namespace c10 {
 
 C10_DEFINE_REGISTRY(FreeCudaMemoryCallbacksRegistry, FreeMemoryCallback);
+
+#ifdef MEM_EVENTS_REC
+#include <cstdio>
+#include <ctime>
+#include <string>
+#include <unistd.h> // for getpid()
+
+struct DTRLogger {
+  std::string time_prefix;
+  FILE *out;
+
+  static std::string get_time_prefix() {
+    std::time_t t = std::time(nullptr);
+    std::tm* tm = std::localtime(&t);
+    pid_t pid = getpid();
+    return
+      std::to_string(1900+tm->tm_year) + "-" +
+      std::to_string(1+tm->tm_mon) + "-" +
+      std::to_string(tm->tm_mday) + "-" +
+      std::to_string(tm->tm_hour) + "-" +
+      std::to_string(tm->tm_min) + "-" +
+      std::to_string(tm->tm_sec) + "-" +
+      std::to_string(pid);
+  }
+
+  std::string get_filename(const std::string& name) {
+    return time_prefix + "-" + name + ".log";
+  }
+
+  DTRLogger() : time_prefix(get_time_prefix()) {
+    std::string filename = get_filename("default");
+    out = fopen(filename.c_str(), "a");  // 'a' for appending to the file
+    if (!out) {
+      perror("Failed to open log file");
+      exit(1);
+    }
+  }
+
+  ~DTRLogger() {
+    if (out) {
+      fclose(out);
+    }
+  }
+
+  void log(const std::string& str) {
+    if (out) {
+      fprintf(out, "%s\n", str.c_str());
+      fflush(out); // Ensure it writes immediately to the file
+    }
+  }
+
+  static DTRLogger& logger() {
+    static DTRLogger ret;
+    return ret;
+  }
+};
+
+
+void DTRLogMemEvents(const std::string& name, size_t size, int64_t addr) {
+  std::string log_msg = "{";
+  log_msg += "\"TYPE\":\"" + name + "\", ";
+  log_msg += "\"SIZE\":" + std::to_string(size) + ", ";
+  log_msg += "\"ADDR\":" + std::to_string(addr);
+  log_msg += "}";
+  DTRLogger::logger().log(log_msg);
+}
+
+#endif
 
 namespace cuda {
 namespace CUDACachingAllocator {
@@ -129,24 +198,30 @@ constexpr size_t kLargeBuffer =
 constexpr size_t kMinLargeAlloc =
     10485760; // allocations between 1 and 10 MiB may use kLargeBuffer
 #else
-constexpr size_t kE1Size = 134217728; // largest E1 allocation is 128 MiB
+constexpr size_t kE1Size =  // used to choose pool
+    20971520; // allocations between 1 and 20 MiB may use kE1Buffer
 constexpr size_t kE1Buffer =
-    16777216; // "E1" allocations may be packed in 16 MiB blocks
-constexpr size_t kE2Size = 536870912; // E1 allocation is 512 MiB
+    20971520; // "E1" allocations may be packed in 20 MiB blocks
+
+constexpr size_t kE2Size =  // used to choose pool 
+    1024*1024*200; // allocations between 20 and 200 MiB may use kE2Buffer 268435456 （256M)
+// constexpr size_t kE2Size =  // used to choose pool 
+//     67108864; // allocations between 20 and 64 MiB may use kE2Buffer
+
 constexpr size_t kE2Buffer =
-    33554432; // "E2" allocations may be packed in 32 MiB blocks
+    2147483648; // "E2" allocations may be packed in 2048(8*256) MiB blocks
 
 
-constexpr size_t kMinE1Alloc = 
-    16777216; // allocations between 1 and 16 MiB may use kE1Buffer
+constexpr size_t kMinE1Alloc =  // used to choose size 
+    20971520; // allocations between 1 and 20 MiB may use kE1Buffer
 constexpr size_t kMinE2Alloc = 
-    33554432; // allocations between 16 and 32 MiB may use kE2Buffer 
+    1024*1024*200; // allocations between 20 and 256 MiB may use kE2Buffer 
 
 // else all use Large blocks
 constexpr size_t kLargeBuffer =
-    67108864; // "large" allocations may be packed in 64 MiB blocks
+    kE1Buffer; // "large" allocations may be packed in 20 MiB blocks
 constexpr size_t kMinLargeAlloc =
-    67108864; // allocations between 32 and 64 MiB may use kLargeBuffer
+    2147483648; // allocations between 32 and 64 MiB may use kLargeBuffer   [not use]
 #endif
 
 constexpr size_t kRoundLarge = 2097152; // round up large allocations to 2 MiB
@@ -3554,16 +3629,21 @@ class DeviceCachingAllocator {
     }
   }
 #else
+  // segment allocation size
   static size_t get_allocation_size(size_t size) {
     if (size <= kSmallSize) {                                           // 1MB以下padding到2MB
       return kSmallBuffer;
-    } else if (size < kMinE1Alloc) {        // 1-16 padding 到 16MiB
+    } else if (size < kE1Size) { // kMinE1Alloc       // small-E1
       return kE1Buffer;
-    } else if (size < kMinE2Alloc) {        // 16-32 padding 到 32MiB
+    } 
+    else if (size < kE2Size) {  // kMinE2Alloc        // E1-E2
+      // return kE2Buffer;
+      return kRoundLarge * ((size + kRoundLarge - 1) / kRoundLarge);
+    } 
+    else if (size < kMinLargeAlloc) {                 // E2-Large
       return kE2Buffer;
-    } else if (size < kMinLargeAlloc) {     // 32-64 padding 到 64MiB
-      return kLargeBuffer;
-    } else {                                                           // 否则按2MB的倍数分配
+    } 
+    else {                                                           // 否则按2MB的倍数分配
       return kRoundLarge * ((size + kRoundLarge - 1) / kRoundLarge);
     }
   }
@@ -5179,6 +5259,9 @@ static const int vmmDefragment = ([]()->int{
       size_t size,
       cudaStream_t stream,
       std::shared_ptr<GatheredContext> context) {
+#ifdef MEM_EVENTS_REC
+    DTRLogMemEvents(std::to_string(action), size, addr);
+#endif
     auto te = TraceEntry(
         action,
         addr,
