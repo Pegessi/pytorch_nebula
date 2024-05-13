@@ -1796,7 +1796,7 @@ class DeviceCachingAllocator {
       process_events(context);
     }
     size_t size = round_size(orig_size);
-    // auto *pm = c10::dtb::get();
+    // auto *pm = c10::dtb::getDTBPoolManager();
     // pm->auto_evict(device, size);
     auto& pool = get_pool(size, stream);
     const size_t alloc_size = get_allocation_size(size);

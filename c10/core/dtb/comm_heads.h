@@ -22,12 +22,56 @@
 #include <c10/core/TensorImpl.h>
 #include <ATen/Tensor.h>
 #include <ATen/ATen.h>
+#include <c10/core/dtb/Logger.h>
 
 #define likely(x)      __builtin_expect(!!(x), 1)
 #define unlikely(x)    __builtin_expect(!!(x), 0)
 
 // #define ORIGINAL_DTR
 // #define DEBUG_MODE
+
+// #define TIME_REC                      /// 方便debug的宏定义
+#define MINIMAL_EVICT                    /// 最小驱逐策略（贪心+随机 DTR）
+// #define MINIMAL_EVICT_COST            /// 最小驱逐策略+cost cache（贪心+随机 DTR） op记录
+// #define MEM_ORDER_ENABLE              /// 是否启用mem order策略
+// #define DEPENDENCY_CHECK              /// 依赖检查策略
+#define DEGREE_CHAIN                     /// 残差链发现策略
+
+static const int RESIDUAL_DEGREE = ([]()->int{    /// 残差链度设置  4-Llama2-7b-hf 6-GPT_simp
+    const char* env = getenv("RESIDUAL_DEGREE");
+    if(env) return atoi(env);
+    else return 99;
+})();
+// constexpr const int RESIDUAL_DEGREE = 6;  /// 残差链度设置  4-Llama2-7b-hf 6-GPT_simp
+
+constexpr const int dep_threshold = 50;             /// 重物化链深度阈值
+constexpr const int threshold_touch_counts = 0;     /// 累积触发次数
+constexpr const int max_dep_threshold = 500;
+
+#define MULTI_MODE                      /// 是否启用多卡管理模式
+
+// #define TIMER_ENABLE                 /// 是否启用计时(debug)
+// #define DEPTH_ENABLE                 /// 记录每次重物化所累计恢复的张量个数
+
+#ifdef TIME_REC
+auto start_time = std::chrono::high_resolution_clock::now();
+auto end_time = std::chrono::high_resolution_clock::now();                                    
+auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
+#endif
+#ifdef TIME_REC
+  #define START_TIMER start_time = std::chrono::high_resolution_clock::now();
+#else
+  #define START_TIMER
+#endif
+#ifdef TIME_REC
+  #define END_TIMER(tag){                                                                       \
+  end_time = std::chrono::high_resolution_clock::now();                                    \
+  duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time); \
+  std::cout << (tag) << duration.count() << " ms" << std::endl;                                 \
+  }
+#else
+  #define END_TIMER(tag) {auto r = {tag};}
+#endif
 
 // System Description:
 // Every Tensor is managed by a CheckpointTensor,
@@ -83,7 +127,9 @@
 
 namespace at
 {
- class Tensor;   
+  class Tensor;
+  extern bool reserved_range;
+  extern bool during_backward;
 }
 
 
@@ -103,6 +149,43 @@ using mutate_function_t = std::function<void(const Tensors&)>;
 
 using time_t = std::chrono::time_point<std::chrono::system_clock>;
 using duration_t = std::chrono::system_clock::duration;
+
+using at::reserved_range;
+using at::during_backward;
+
+// assignment is in aten/src/ATen/CheckpointTensorImpl.cpp
+extern size_t memory_sum;
+extern size_t memory_max;
+extern size_t memory_count;
+
+
+extern long base_compute_time_;
+extern long remat_compute_time_;
+extern long search_time_;
+extern long cost_time_;
+extern bool use_log_;
+extern bool use_profile_;
+#ifdef DEBUG_MODE
+extern bool record_er_counts;        // 驱逐&重物化次数
+extern bool record_mem_addr;         // 是否记录内存地址
+extern bool record_op_recs;          // 是否记录op历史
+extern bool record_fragmentation;    // 记录碎片化和内存占用数据
+extern bool record_lifecycle;        // 记录ap生命周期计数分布
+extern bool record_ap_cost;          // 记录ap的cost分布
+extern bool record_dependcy;
+extern bool record_key_chain;
+extern bool current_if_any_evicted;
+
+extern std::atomic<size_t> evict_counts;
+extern std::atomic<size_t> tensor_evict_counts;
+extern std::atomic<size_t> remat_counts;
+extern std::atomic<size_t> cannot_evict_counts;
+extern std::atomic<size_t> destruct_counts;
+extern std::atomic<size_t> tensor_destruct_counts;
+
+void signal_handler(int sig);
+
+#endif
 
 // TODO: using a pool allocator might make more sense - no need to allocate and delete each pointer individually.
 template<typename T>

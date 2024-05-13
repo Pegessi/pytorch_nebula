@@ -5,7 +5,7 @@
 
 #include <ATen/CheckpointTensorImpl.h>
 // #include <c10/core/CheckpointTensorImpl.h>
-#include <ATen/Logger.h>
+// #include <ATen/Logger.h>
 // #include <c10/cuda/CUDACachingAllocator.h>
 #include <c10/cuda/dtb/DTBManager.h>
 #include <cuda_runtime_api.h>
@@ -22,53 +22,13 @@
 #include <stdlib.h>
 #include <execinfo.h>
 
-// #define TIME_REC                      /// 方便debug的宏定义
-#define MINIMAL_EVICT                    /// 最小驱逐策略（贪心+随机 DTR）
-// #define MINIMAL_EVICT_COST            /// 最小驱逐策略+cost cache（贪心+随机 DTR） op记录
-// #define MEM_ORDER_ENABLE              /// 是否启用mem order策略
-// #define DEPENDENCY_CHECK              /// 依赖检查策略
-#define DEGREE_CHAIN                     /// 残差链发现策略
-
-static const int RESIDUAL_DEGREE = ([]()->int{    /// 残差链度设置  4-Llama2-7b-hf 6-GPT_simp
-    const char* env = getenv("RESIDUAL_DEGREE");
-    if(env) return atoi(env);
-    else return 99;
-})();
-// constexpr const int RESIDUAL_DEGREE = 6;  /// 残差链度设置  4-Llama2-7b-hf 6-GPT_simp
-
-int dep_threshold = 50;             /// 重物化链深度阈值
-int threshold_touch_counts = 0;     /// 累积触发次数
-constexpr const int max_dep_threshold = 500;
-
-#define MULTI_MODE                      /// 是否启用多卡管理模式
-
-// #define TIMER_ENABLE                 /// 是否启用计时(debug)
-// #define DEPTH_ENABLE                 /// 记录每次重物化所累计恢复的张量个数
-
-#ifdef TIME_REC
-auto start_time = std::chrono::high_resolution_clock::now();
-auto end_time = std::chrono::high_resolution_clock::now();                                    
-auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
-#endif
-#ifdef TIME_REC
-  #define START_TIMER start_time = std::chrono::high_resolution_clock::now();
-#else
-  #define START_TIMER
-#endif
-#ifdef TIME_REC
-  #define END_TIMER(tag){                                                                       \
-  end_time = std::chrono::high_resolution_clock::now();                                    \
-  duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time); \
-  std::cout << (tag) << duration.count() << " ms" << std::endl;                                 \
-  }
-#else
-  #define END_TIMER(tag) {auto r = {tag};}
-#endif
 
 namespace at {
   bool reserved_range = false;
   bool during_backward = false;
   // bool if_train_mode = false;
+  // std::string INSTRUCTION = "INSTRUCTION";
+  // std::string ANNOTATION = "ANNOTATION";
 }
 
 namespace c10 {
@@ -97,7 +57,7 @@ bool use_log_ = false;
 bool use_profile_ = false;
 #ifdef DEBUG_MODE
 bool record_er_counts = false;        // 驱逐&重物化次数
-bool record_mem_addr = false;         // 是否记录内存地址
+bool record_mem_addr = true;         // 是否记录内存地址
 bool record_op_recs = false;          // 是否记录op历史
 bool record_fragmentation = false;    // 记录碎片化和内存占用数据
 bool record_lifecycle = false;        // 记录ap生命周期计数分布
@@ -138,8 +98,8 @@ void signal_handler(int sig) {
 // bool reserved_range = false;
 // bool during_backward = false;
 // // bool if_train_mode = false;
-using at::reserved_range;
-using at::during_backward;
+// using at::reserved_range;
+// using at::during_backward;
 
 
 void reset_memory_stat() {
@@ -241,7 +201,7 @@ Timer::~Timer() {
   STATS.timers.push_back(stats);
 }
 
-inline size_t memory(const Tensor& t) {
+size_t memory(const Tensor& t) {
   if (! t.has_storage()) {
     return 0;
   }
@@ -254,7 +214,7 @@ inline size_t memory(const Tensor& t) {
   return res;
 }
 
-inline uintptr_t get_addr(const Tensor& t) {
+uintptr_t get_addr(const Tensor& t) {
   if (!t.has_storage()) {
     return 0;
   }
@@ -262,101 +222,6 @@ inline uintptr_t get_addr(const Tensor& t) {
   auto res = storage.data_ptr().get();
   return reinterpret_cast<uintptr_t>(res);
 }
-
-#pragma region ExternalMethods
-
-External::External(const strong& value) : value(value) {
-  value->pool->register_external();                       /// TAG: Aliaspool引用计数的唯一增加入口
-}
-
-External::External(Tensor& value, bool if_weight) :
-  External(strong::make(  // const Unsafe&, intrusive_ptr<Rematerializer> head_remat, size_t memory, uintptr_t addr, int device_id, bool if_w
-                        value,
-                        intrusive_ptr<AliasPool>::make(  /// [TAG] AliasPool构造
-                          Unsafe(),                        
-                          intrusive_ptr<Rematerializer>(),
-                          memory(value),
-                          get_addr(value),
-                          value.defined() ? static_cast<int>(value.device().index()) : -1,
-                          if_weight)
-                        )
-          ) {} /// static_cast<int>(value.device().index()) 存在无device的tensor, probably empty tensor
-
-External::External(Tensor& value,
-          const intrusive_ptr<AliasPool>& pool,
-          const intrusive_ptr<Rematerializer>& remat) :
-  External(strong::make(value, pool, remat)) { }
-
-void External::release_resources() {    /// TAG: Aliaspool引用计数的唯一减少入口
-    // printf("%s %d %ld %d ex:%ld\n", value->counter_name().c_str(), ((value->pool->memory > 0 && (!value->pool->ecn) && value->pool->head_remat)||(value->pool->memory > 0&& value->pool->head_remat==nullptr && !value->pool->if_weight)) ? 1 : 0, value->pool->memory, value->pool->if_weight ? 1 : 0, value->pool->external_count);
-    value->pool->release_external();
-    // printf("pool of %s release_external finish.\n", value->counter_name().c_str());
-    value.reset();
-}
-
-#pragma endregion
-
-#pragma region ResidualChain
-
-ChainNode::ChainNode(const weak& weak_cell) : value(weak_cell) {}
-
-void ChainNode::lock_value(){
-  if(!is_lock){
-    if(auto cell = value.lock()){
-      cell->get();
-      cell->pool->is_retain = true;
-      cell->pool->lock();
-      is_lock = true;
-    }
-  }
-}
-
-void ChainNode::release_resources() {
-  if(is_lock){
-    if(auto cell = value.lock()){
-      cell->pool->is_retain = false;
-      is_lock = false;
-      cell->pool->unlock();
-    }
-  }
-  value.reset();
-}
-
-ResidualChain::ResidualChain(const StrongChainNode& n) : root(n) {
-  members.push_back(n);
-}
-
-void ResidualChain::insert(const StrongChainNode& n) {
-  n->parent = root;
-  members.push_back(n);
-
-  if(size()>CHAIN_LENGTH_LOCK_THRESHOLD) {  // 认为该链是要找的链
-    // printf("[TAG] with chain len:%ld\n", size());
-    for(int i = last_check_idx; i<size(); i++){
-      if(i%CHAIN_LOCK_STRIDE==0)
-        members[i]->lock_value();
-    }
-    last_check_idx = size() - 1;
-  }
-}
-
-void ResidualChain::erase(const StrongChainNode& n) {
-  auto it = std::find(members.begin(), members.end(), n);
-  if(it!=members.end())
-    members.erase(it);
-}
-
-bool ResidualChain::in_chain(const StrongChainNode& n){
-  const auto& last_node = members.back();
-  return last_node->is_equal(n);
-}
-
-void ResidualChain::release_resources() {
-  members.clear();
-  root.reset();
-}
-
-#pragma endregion
 
 
 /**
@@ -938,7 +803,7 @@ void AliasPool::evict(int mode) { // 0 - evict | 1 - deconstruct | 2 - Irreversi
   }
 }
 
-inline void AliasPool::unlock() {
+void AliasPool::unlock() {
   --lock_count;   // external == 0 , lock_count > 0 == 0
   /// improvement for life cycle
   /// because that staleness is harmful to eviction of remated tensor during backward progress, which should be released immediately
@@ -2332,6 +2197,31 @@ using c10::dtb::search_time_;
 using c10::dtb::cost_time_;
 using c10::dtb::use_profile_;
 
+using c10::dtb::base_compute_time_;
+using c10::dtb::remat_compute_time_;
+using c10::dtb::search_time_;
+using c10::dtb::cost_time_;
+using c10::dtb::use_log_;
+using c10::dtb::use_profile_;
+#ifdef DEBUG_MODE
+using c10::dtb::record_er_counts;        // 驱逐&重物化次数
+using c10::dtb::record_mem_addr;         // 是否记录内存地址
+using c10::dtb::record_op_recs;          // 是否记录op历史
+using c10::dtb::record_fragmentation;    // 记录碎片化和内存占用数据
+using c10::dtb::record_lifecycle;        // 记录ap生命周期计数分布
+using c10::dtb::record_ap_cost;          // 记录ap的cost分布
+using c10::dtb::record_dependcy;
+using c10::dtb::record_key_chain;
+using c10::dtb::current_if_any_evicted;
+
+using c10::dtb::evict_counts;
+using c10::dtb::tensor_evict_counts;
+using c10::dtb::remat_counts;
+using c10::dtb::cannot_evict_counts;
+using c10::dtb::destruct_counts;
+using c10::dtb::tensor_destruct_counts;
+
+#endif
 /**
  * Interface expose to at native
  * Kinds of log methods
@@ -2365,8 +2255,8 @@ Tensor checkpoint(Tensor& t, bool if_weight) {
   auto cpti = c10::make_intrusive<CheckpointTensorImpl>(t, if_weight);      // cpti->ref->value->value->t 是包裹的unique_ptr<Tensor> unsafeGetTensorCell()
 #ifdef DEBUG_MODE
   if (use_log_) {
-    DTRLogConstant(cpti->counter_name());
-    DTRLogMemory(std::to_string(cpti->unsafeGetTensorCell()->pool->if_weight)+"-"+std::to_string(if_weight), cpti->unsafeGetTensorCell()->memory());
+    c10::dtb::DTRLogConstant(cpti->counter_name());
+    c10::dtb::DTRLogMemory(std::to_string(cpti->unsafeGetTensorCell()->pool->if_weight)+"-"+std::to_string(if_weight), cpti->unsafeGetTensorCell()->memory());
   }
 #endif
   auto res = Tensor(cpti);
@@ -2424,20 +2314,20 @@ Tensor try_checkpoint(Tensor& t) {
 }
 
 void new_log(std::string str) {
-  DTRLogger::logger().out = std::ofstream(DTRLogger::logger().get_filename(str));
+  c10::dtb::DTRLogger::logger().out = std::ofstream(c10::dtb::DTRLogger::logger().get_filename(str));
 }
 
 void annotate_log(c10::string_view str_) {
-  auto str = std::string(str_);
-  if (!use_log_) { return; }
-  if (log_json) {
-    json j;
-    j[INSTRUCTION] = "ANNOTATE";
-    j[ANNOTATION] = str;
-    DTRLogger::logger().log(j.dump());
-  } else {
-    DTRLogger::logger().log("# " + str);
-  }
+  // auto str = std::string(str_);
+  // if (!use_log_) { return; }
+  // if (c10::dtb::log_json) {
+  //   c10::dtb::json j;
+  //   j["INSTRUCTION"] = "ANNOTATE";
+  //   j["ANNOTATION"] = str;
+  //   c10::dtb::DTRLogger::logger().log(j.dump());
+  // } else {
+  //   c10::dtb::DTRLogger::logger().log("# " + str);
+  // }
 }
 
 void toggle_log(bool b) {
@@ -2539,25 +2429,25 @@ void log_dtr_statics(){
     for(const auto& mem_info: pm->get_peak_memory()){
       std::stringstream log_str;
       log_str << "device-" << did << " peak allocated memory";
-      DTRLogCounts(log_str.str(), mem_info.first);
+      c10::dtb::DTRLogCounts(log_str.str(), mem_info.first);
       log_str.clear();
       log_str << "device-" << did << " peak reserved memory";
-      DTRLogCounts(log_str.str(), mem_info.second);
+      c10::dtb::DTRLogCounts(log_str.str(), mem_info.second);
       log_str.clear();
       log_str << "device-" << did << " fragmentation ratio";
-      DTRLogCounts(log_str.str(), static_cast<double>(mem_info.first) / static_cast<double>(mem_info.second));
+      c10::dtb::DTRLogCounts(log_str.str(), static_cast<double>(mem_info.first) / static_cast<double>(mem_info.second));
       did++;
     }
   }
 #endif
   if(record_er_counts){
     // DTRLogCounts("memory budget", memo);
-    DTRLogCounts("evict counts", evict_counts);
-    DTRLogCounts("evict tensor counts", tensor_evict_counts);
-    DTRLogCounts("cannot evict counts", cannot_evict_counts);
-    DTRLogCounts("destruct counts", destruct_counts);
-    DTRLogCounts("destruct tensor counts", tensor_destruct_counts);
-    DTRLogCounts("remat counts", remat_counts);
+    c10::dtb::DTRLogCounts("evict counts", evict_counts);
+    c10::dtb::DTRLogCounts("evict tensor counts", tensor_evict_counts);
+    c10::dtb::DTRLogCounts("cannot evict counts", cannot_evict_counts);
+    c10::dtb::DTRLogCounts("destruct counts", destruct_counts);
+    c10::dtb::DTRLogCounts("destruct tensor counts", tensor_destruct_counts);
+    c10::dtb::DTRLogCounts("remat counts", remat_counts);
   }
 #endif
 }

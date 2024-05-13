@@ -3,8 +3,8 @@
 #include <c10/core/dtb/comm_heads.h>
 #include <c10/core/dtb/Rematerializer.h>
 
-namespace c10{
-namespace dtb{
+namespace c10 {
+namespace dtb {
     
 // Track all Tensor that share the same Storage.
 // This is the atomic level of eviction - when evicting, everything here will get evicted.
@@ -33,7 +33,7 @@ struct AliasPool : intrusive_ptr_target {
   inline void lock() {
     ++lock_count;
   }
-  inline void unlock();
+  void unlock();
 
 //   void AliasPool::unlock() {
 //     --lock_count;   // external == 0 , lock_count > 0 == 0

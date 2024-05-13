@@ -142,6 +142,7 @@ file(GLOB native_nested_cuda_cu "native/nested/cuda/*.cu")
 file(GLOB native_nested_cuda_cpp "native/nested/cuda/*.cpp")
 file(GLOB native_checkpoint_cpp "native/checkpoint/*.cpp")
 file(GLOB dtb_manager_cpp "${CMAKE_CURRENT_SOURCE_DIR}/../../../c10/cuda/dtb/DTBManager.cpp")
+file(GLOB dtb_core_cpp "${CMAKE_CURRENT_SOURCE_DIR}/../../../c10/core/dtb/*.cpp")
 
 file(GLOB native_hip_hip "native/hip/*.hip")
 file(GLOB native_hip_cpp "native/hip/*.cpp")
@@ -200,7 +201,7 @@ else()
     all_cpu_cpp ${base_cpp} ${ATen_CORE_SRCS} ${native_cpp}
     ${native_ao_sparse_cpp} ${native_sparse_cpp} ${native_nested_cpp}
     ${native_quantized_cpp} ${native_mkl_cpp} ${native_mkldnn_cpp}
-    ${native_transformers_cpp} ${native_checkpoint_cpp} ${dtb_manager_cpp}
+    ${native_transformers_cpp} ${native_checkpoint_cpp} ${dtb_manager_cpp} ${dtb_core_cpp}
     ${native_utils_cpp} ${native_xnnpack} ${generated_sources} ${core_generated_sources}
     ${ATen_CPU_SRCS} ${ATen_QUANTIZED_SRCS} ${ATen_NNAPI_SRCS} ${cpu_kernel_cpp}
   )
@@ -443,6 +444,7 @@ if(USE_CUDA AND NOT USE_ROCM)
   list(APPEND ATen_CUDA_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/../../../third_party/cutlass/include)
   # list(APPEND ATen_CUDA_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/../../../c10/cuda)    # for auto evict in dtr
   list(APPEND ATen_CUDA_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/../../../c10/cuda/dtb)    # for auto evict in dtr
+  list(APPEND ATen_CUDA_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/../../../c10/core/dtb)    # for auto evict in dtr
   if($ENV{ATEN_STATIC_CUDA})
     list(APPEND ATen_CUDA_DEPENDENCY_LIBS
       ${CUDA_LIBRARIES}
@@ -605,8 +607,6 @@ list(APPEND ATen_MOBILE_BENCHMARK_SRCS
 list(APPEND ATen_MOBILE_BENCHMARK_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/benchmarks/stateful_conv1d.cpp)
 
-# list(APPEND ATen_CUDA_CPP_SRCS
-#   ${CMAKE_CURRENT_SOURCE_DIR}/../../../c10/cuda/dtb/DTBManager.cpp)
 
 # Pass source, includes, and libs to parent
 set(ATen_CORE_SRCS ${ATen_CORE_SRCS} PARENT_SCOPE)
