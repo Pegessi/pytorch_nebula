@@ -371,4 +371,16 @@ void DTRLogCall(const std::vector<std::string>& res,
   }
 }
 
+void DTRLogMemEvents(const std::string& name, size_t size, int64_t addr){
+  if (log_json){
+    json j;
+    j["TYPE"] = name;
+    j["SIZE"] = size;
+    j["ADDR"] = addr;
+    DTRLogger::logger().log(j.dump());
+  } else {
+    DTRLogger::logger().log(CONSTANT + " " + name);
+  }
+}
+
 }

@@ -4,6 +4,7 @@
 #include <c10/cuda/CUDAException.h>
 #include <c10/cuda/CUDAFunctions.h>
 #include <c10/cuda/CUDAGuard.h>
+// #include <c10/cuda/dtb/DTBManager.h>
 #include <c10/util/CallOnce.h>
 #include <c10/util/UniqueVoidPtr.h>
 #include <c10/util/flat_hash_map.h>
@@ -1795,6 +1796,8 @@ class DeviceCachingAllocator {
       process_events(context);
     }
     size_t size = round_size(orig_size);
+    // auto *pm = c10::dtb::get();
+    // pm->auto_evict(device, size);
     auto& pool = get_pool(size, stream);
     const size_t alloc_size = get_allocation_size(size);
     AllocParams params(device, size, stream, &pool, alloc_size, stats);

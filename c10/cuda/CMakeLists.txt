@@ -43,6 +43,7 @@ set(C10_CUDA_HEADERS
     CUDAStream.h
     impl/CUDAGuardImpl.h
     impl/CUDATest.h
+    dtb/DTBManager.h
 )
 set(CUDA_LINK_LIBRARIES_KEYWORD PRIVATE)
 torch_cuda_based_add_library(c10_cuda ${C10_CUDA_SRCS} ${C10_CUDA_HEADERS})

@@ -12,7 +12,7 @@
 #include <set>
 #include <unordered_set>
 
-#define MORE_POOL
+// #define MORE_POOL
 #define MEM_EVENTS_REC
 
 namespace c10 {
