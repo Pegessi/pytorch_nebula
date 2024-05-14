@@ -68,7 +68,7 @@ static const bool USE_DTR = ([]() -> bool {    /// init if use dtr by check env 
 
       void auto_evict(int device);
 
-      void auto_evict(int device, size_t coming_bytes);
+      bool auto_evict(int device, size_t coming_bytes);
 
       void force_evict(int device, int mode);
 

@@ -84,7 +84,9 @@ void DTBCheckpointPool::auto_evict(int device) {                 /// TAG: multi 
       }
 
       if(check_counts[device]>1000){
-        throw std::runtime_error("Eviction progress has been trapped in dead loop, please check if any tensors ralated to operators(jit.fuse or custom kernel) isn't dealed with.");
+        // throw std::runtime_error("Eviction progress has been trapped in dead loop, please check if any tensors ralated to operators(jit.fuse or custom kernel) isn't dealed with.");
+        c10::cuda::CUDACachingAllocator::emptyCache();
+        return;
       }
     }
 
@@ -188,8 +190,8 @@ void DTBCheckpointPool::auto_evict(int device) {                 /// TAG: multi 
 }
 #endif
 
-void DTBCheckpointPool::auto_evict(int device, size_t coming_bytes) {
-  if(!device_id_check(device)) return;
+bool DTBCheckpointPool::auto_evict(int device, size_t coming_bytes) {
+  if(!device_id_check(device)) return false;
   init_check();
   auto pool = device_dtbpool[device].get();
   if (pool->has_memory_budget&&if_train_mode[device]) {
@@ -204,13 +206,16 @@ void DTBCheckpointPool::auto_evict(int device, size_t coming_bytes) {
       if(last_mem!=current_memory(device)){
         check_counts[device] = 0;
         last_mem = current_memory(device);
+        if_eviction = true;
       }
       if(check_counts[device]>1000){
-        throw std::runtime_error("Eviction progress has been trapped in dead loop, please check if any tensors ralated to operators(jit.fuse or custom kernel) isn't dealed with.");
+        // throw std::runtime_error("Eviction progress has been trapped in dead loop, please check if any tensors ralated to operators(jit.fuse or custom kernel) isn't dealed with.");
+        c10::cuda::CUDACachingAllocator::emptyCache();
+        return false;
       }
     }
-
-  }
+    return if_eviction;
+  }else return false;
 }
 
 void DTBCheckpointPool::force_evict(int device, int mode) {

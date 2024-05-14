@@ -205,7 +205,7 @@ constexpr size_t kE1Buffer =
     20971520; // "E1" allocations may be packed in 20 MiB blocks
 
 constexpr size_t kE2Size =  // used to choose pool 
-    1024*1024*200; // allocations between 20 and 200 MiB may use kE2Buffer 268435456 （256M)
+    1024*1024*64; // allocations between 20 and 200 MiB may use kE2Buffer 268435456 （256M)
 // constexpr size_t kE2Size =  // used to choose pool 
 //     67108864; // allocations between 20 and 64 MiB may use kE2Buffer
 
@@ -1796,14 +1796,21 @@ class DeviceCachingAllocator {
       process_events(context);
     }
     size_t size = round_size(orig_size);
-    if(c10::dtb::USE_DTR){
-      auto *pm = c10::dtb::getDTBPoolManager();
-      pm->auto_evict(device, size);
-    }
     auto& pool = get_pool(size, stream);
     const size_t alloc_size = get_allocation_size(size);
     AllocParams params(device, size, stream, &pool, alloc_size, stats);
     params.stat_types = get_stat_types_for_pool(pool);
+    if(c10::dtb::USE_DTR){
+      auto *pm = c10::dtb::getDTBPoolManager();
+      auto if_evict = pm->auto_evict(device, size);
+      #ifdef MORE_POOL
+      if(if_evict){
+        // release_blocks(ex1_blocks);
+        release_blocks(ex2_blocks);
+        release_blocks(large_blocks);
+      }
+      #endif
+    }
 // #ifdef GMLAKE_ENABLE
 //     params.stat_types[static_cast<size_t>(StatType::AGGREGATE)] = true;
 //     params.stat_types[static_cast<size_t>(get_stat_type_for_pool(pool))] = true;
@@ -3641,13 +3648,13 @@ class DeviceCachingAllocator {
     } else if (size < kE1Size) { // kMinE1Alloc       // small-E1
       return kE1Buffer;
     } 
-    else if (size < kE2Size) {  // kMinE2Alloc        // E1-E2
-      // return kE2Buffer;
-      return kRoundLarge * ((size + kRoundLarge - 1) / kRoundLarge);
-    } 
-    else if (size < kMinLargeAlloc) {                 // E2-Large
-      return kE2Buffer;
-    } 
+    // else if (size < kE2Size) {  // kMinE2Alloc        // E1-E2
+    //   // return kE2Buffer;
+    //   return kRoundLarge * ((size + kRoundLarge - 1) / kRoundLarge);
+    // } 
+    // else if (size < kMinLargeAlloc) {                 // E2-Large
+    //   return kE2Buffer;
+    // } 
     else {                                                           // 否则按2MB的倍数分配
       return kRoundLarge * ((size + kRoundLarge - 1) / kRoundLarge);
     }

@@ -231,9 +231,9 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
 
 #ifdef MULTI_MODE
   auto* pm = getDTBPoolManager();
-  pm->auto_evict(device_id);
+  // pm->auto_evict(device_id);
 #else
-  pool.auto_evict();
+  // pool.auto_evict();
 #endif
 
 #ifdef ORIGINAL_DTR
@@ -399,11 +399,11 @@ MakeRawResult make_raw_rec(const rematerialize_function_t& remat_f,
 #endif
   if(have_record){
     cur_mem_cost = memory_cost_records[rid];
-#ifdef MULTI_MODE
-    pm->auto_evict(device_id, cur_mem_cost);
-#else
-    pool.auto_evict(cur_mem_cost);
-#endif
+// #ifdef MULTI_MODE
+//     pm->auto_evict(device_id, cur_mem_cost);
+// #else
+//     pool.auto_evict(cur_mem_cost);
+// #endif
     cur_compute_cost = compute_cost_records[rid];
     raw_outputs = remat_f(raw_inputs);
   }else{
@@ -417,11 +417,11 @@ MakeRawResult make_raw_rec(const rematerialize_function_t& remat_f,
     compute_cost_records[rid] = cur_compute_cost;
     cur_mem_cost = post_mem - pre_mem;
     memory_cost_records[rid] = cur_mem_cost;
-#ifdef MULTI_MODE
-    pm->auto_evict(device_id);
-#else
-    pool.auto_evict();
-#endif
+// #ifdef MULTI_MODE
+//     pm->auto_evict(device_id);
+// #else
+//     pool.auto_evict();
+// #endif
   }
   
   std::vector<intrusive_ptr<External>> outputs;

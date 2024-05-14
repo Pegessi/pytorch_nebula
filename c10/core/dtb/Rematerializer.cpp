@@ -66,23 +66,23 @@ void Rematerializer::remat() {
   auto *pm = getDTBPoolManager();
 #endif
 
-#ifdef MINIMAL_EVICT_COST
-  #ifdef MULTI_MODE
-  pm->auto_evict(device_id, memory_cost_records[rid]);
-  #else
-  pool.auto_evict(memory_cost_records[rid]);
-  #endif
-#endif
+// #ifdef MINIMAL_EVICT_COST
+//   #ifdef MULTI_MODE
+//   pm->auto_evict(device_id, memory_cost_records[rid]);
+//   #else
+//   pool.auto_evict(memory_cost_records[rid]);
+//   #endif
+// #endif
 
   auto ret = func(ts);
 
-#ifdef MINIMAL_EVICT
-  #ifdef MULTI_MODE
-  pm->auto_evict(device_id);
-  #else
-  pool.auto_evict();
-  #endif
-#endif
+// #ifdef MINIMAL_EVICT
+//   #ifdef MULTI_MODE
+//   pm->auto_evict(device_id);
+//   #else
+//   pool.auto_evict();
+//   #endif
+// #endif
 
 #ifdef ORIGINAL_DTR
   time_t post = std::chrono::system_clock::now();
