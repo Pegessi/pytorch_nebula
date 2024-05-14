@@ -562,23 +562,18 @@ PyObject* THCPModule_memoryStats(PyObject* _unused, PyObject* arg) {
   };
 
   const auto statArrayToDict = [=](const StatArray& statArray) {
-    if(statArray.size()==3){
-      const std::array<const char*, static_cast<size_t>(StatType::NUM_TYPES)>
-        statTypeNames = {"all", "small_pool", "large_pool"};
-      py::dict dict;
-      for (const auto i : c10::irange(statTypeNames.size())) {
-        dict[statTypeNames[i]] = statToDict(statArray[i]);
-      }
-      return dict;
-    }else{
-      const std::array<const char*, static_cast<size_t>(StatType::NUM_TYPES)>
-          statTypeNames = {"all", "small_pool", "e1_pool", "e2_pool", "large_pool"};
-      py::dict dict;
-      for (const auto i : c10::irange(statTypeNames.size())) {
-        dict[statTypeNames[i]] = statToDict(statArray[i]);
-      }
-      return dict;
+  #ifndef MORE_POOL
+    const std::array<const char*, static_cast<size_t>(StatType::NUM_TYPES)>
+      statTypeNames = {"all", "small_pool", "large_pool"};
+  #else
+    const std::array<const char*, static_cast<size_t>(StatType::NUM_TYPES)>
+      statTypeNames = {"all", "small_pool", "e1_pool", "e2_pool", "large_pool"};
+  #endif
+    py::dict dict;
+    for (const auto i : c10::irange(statTypeNames.size())) {
+      dict[statTypeNames[i]] = statToDict(statArray[i]);
     }
+    return dict;
   };
 
   const DeviceStats stats =
