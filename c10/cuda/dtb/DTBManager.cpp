@@ -19,6 +19,7 @@ size_t reserved_memory(int device){
 }
 
 void DTBCheckpointPool::init(int device_count) {
+  printf("[TAG] init with %d\n", device_count);
   const auto size = static_cast<int64_t>(device_dtbpool.size());
   if (size < device_count) {
     device_dtbpool.resize(device_count);
@@ -69,7 +70,7 @@ void DTBCheckpointPool::auto_evict(int device) {                 /// TAG: multi 
       if_eviction = true;
 #ifdef DEBUG_MODE
       if(record_mem_addr&&!current_if_any_evicted){
-        at::DTRLogCounts("after computation, need evict.", ++evict_counts);
+        DTRLogCounts("after computation, need evict.", ++evict_counts);
         pool_cur_mem_snapshot(device);  // after once computation, and out of budget
       }
       // current_if_any_evicted = true;
@@ -89,7 +90,7 @@ void DTBCheckpointPool::auto_evict(int device) {                 /// TAG: multi 
 
 #ifdef DEBUG_MODE
     if(record_mem_addr&&current_if_any_evicted){
-      at::DTRLogCounts("after eviction.", evict_counts);
+      DTRLogCounts("after eviction.", evict_counts);
       pool_cur_mem_snapshot(device);  // after eviction
       current_if_any_evicted = false;
     }
@@ -103,12 +104,12 @@ void DTBCheckpointPool::auto_evict(int device) {                 /// TAG: multi 
         } else {
           if (ap_strong->evictable()) {
             auto dep = ap_strong->get_dependency();
-            // at::DTRLogCounts("ap dep", dep);
-            at::DTRLogDepAndCost("ap dep", dep, ap_strong->cost(current_time));
+            // DTRLogCounts("ap dep", dep);
+            DTRLogDepAndCost("ap dep", dep, ap_strong->cost(current_time));
           }
         }
       }
-      at::DTRLogCounts("once check end", 999);
+      DTRLogCounts("once check end", 999);
     }
 
     // if(if_eviction){
@@ -119,7 +120,7 @@ void DTBCheckpointPool::auto_evict(int device) {                 /// TAG: multi 
     //     // if_rec = false;
 
     //     /// 单独用这个，记录每次驱逐后的内存变化
-    //     // at::DTRLogMemAlloc(current_memory(), reserved_memory());
+    //     // DTRLogMemAlloc(current_memory(), reserved_memory());
     //   // }
     //   }
     //   record_mem_addr = false;
@@ -165,15 +166,15 @@ void DTBCheckpointPool::auto_evict(int device) {                 /// TAG: multi 
 
 #ifdef DEBUG_MODE
     if(check_counts>0){
-      at::DTRLogCounts("search counts", check_counts);
-      at::DTRLogMemAlloc(current_memory(), reserved_memory());
+      DTRLogCounts("search counts", check_counts);
+      DTRLogMemAlloc(current_memory(), reserved_memory());
     }
     // if(if_eviction){
     //   if(record_mem_addr && pool->exts.size()>10){
     //     /// 单独用这个，记录某次驱逐后的mem snapshot
     //     pool_cur_mem_snapshot(device);
     //     /// 单独用这个，记录每次驱逐后的内存变化
-    //     // at::DTRLogMemAlloc(current_memory(), reserved_memory());
+    //     // DTRLogMemAlloc(current_memory(), reserved_memory());
     //   // }
     //   }
     // }
@@ -292,7 +293,7 @@ void DTBCheckpointPool::add_into_keychain(int device, const weak& new_key, const
         auto name = first_weak->counter_name();
       for(const auto& wc: pool->candidates){
         if(auto cell = wc.lock()){
-          // at::DTRLogTensorInfo(cell->counter_name(), cell->pool->addr, cell->pool->memory, cell->get_degree(), 0, 0);
+          // DTRLogTensorInfo(cell->counter_name(), cell->pool->addr, cell->pool->memory, cell->get_degree(), 0, 0);
         }
       }
     }
@@ -362,13 +363,13 @@ void DTBCheckpointPool::clear_checkpointpool(int device){
     //     continue;
     //   } else {
     //     if (ap_strong->is_retain) {
-    //       at::DTRLogCounts("ap tensors size", ap_strong->tensors.size());
+    //       DTRLogCounts("ap tensors size", ap_strong->tensors.size());
     //       auto t = ap_strong->tensors.back().lock();
-    //       at::DTRLogTensorInfo(t->counter_name(), ap_strong->addr, ap_strong->memory, 0, 0, 0);
+    //       DTRLogTensorInfo(t->counter_name(), ap_strong->addr, ap_strong->memory, 0, 0, 0);
     //       // for(const auto&t: ap_strong->tensors){
     //       //   auto cell = t.lock();
     //       //   if(cell->defined)
-    //       //     at::DTRLogTensorInfo(cell->counter_name(), ap_strong->addr, ap_strong->memory, cell->get_degree(), 0, 0);
+    //       //     DTRLogTensorInfo(cell->counter_name(), ap_strong->addr, ap_strong->memory, cell->get_degree(), 0, 0);
     //       // }
     //       ap_strong->unlock();
     //     }
@@ -396,7 +397,7 @@ void DTBCheckpointPool::pool_cur_mem_snapshot(int device){
 //         }
 //         // if(ref->value->pool->memory!=0)
 // #ifdef DEBUG_MODE
-//         at::DTRLogTensorInfo(ref->value->counter_name(), ref->value->pool->addr, ref->value->pool->memory, degree, cost, staleness);
+//         DTRLogTensorInfo(ref->value->counter_name(), ref->value->pool->addr, ref->value->pool->memory, degree, cost, staleness);
 // #endif
 //       }
 //     }
@@ -411,6 +412,11 @@ std::vector<std::pair<size_t, size_t>> DTBCheckpointPool::get_peak_memory(){
   return res;
 }
 
+/**
+ * if dtb_pool is stated like `extern DTBCheckpointPool dtb_pool;` in DTBManager.h,
+ * it will create multiple obj and init_once will do not work.
+ * Here keep it's unique obj.
+*/
 DTBCheckpointPool dtb_pool;
 
 struct BackendStaticInitializer{

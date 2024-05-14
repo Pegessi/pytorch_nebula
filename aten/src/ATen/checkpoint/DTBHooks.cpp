@@ -1,61 +1,38 @@
-#include <ATen/cuda/detail/CUDAHooks.h>
+#include <ATen/checkpoint/DTBHooks.h>
 
-#include <ATen/cuda/CUDAGeneratorImpl.h>
-#include <ATen/Context.h>
-#include <ATen/DeviceGuard.h>
-#include <ATen/DynamicLibrary.h>
-#include <ATen/core/Vitals.h>
-#include <ATen/cuda/CUDAConfig.h>
-#include <ATen/cuda/CUDADevice.h>
-#include <ATen/cuda/Exceptions.h>
-#include <ATen/cuda/PeerToPeerAccess.h>
-#include <ATen/cuda/PinnedMemoryAllocator.h>
-#include <ATen/cuda/nvrtc_stub/ATenNVRTC.h>
-#include <ATen/detail/CUDAHooksInterface.h>
-#include <ATen/native/cuda/CuFFTPlanCache.h>
+// #include <ATen/cuda/CUDAGeneratorImpl.h>
+// #include <ATen/Context.h>
+// #include <ATen/DeviceGuard.h>
+// #include <ATen/DynamicLibrary.h>
+// #include <ATen/core/Vitals.h>
+// #include <ATen/cuda/CUDAConfig.h>
+// #include <ATen/cuda/CUDADevice.h>
+// #include <ATen/cuda/Exceptions.h>
+// #include <ATen/cuda/PeerToPeerAccess.h>
+// #include <ATen/cuda/PinnedMemoryAllocator.h>
+// #include <ATen/cuda/nvrtc_stub/ATenNVRTC.h>
+// #include <ATen/detail/CUDAHooksInterface.h>
+// #include <ATen/native/cuda/CuFFTPlanCache.h>
 #include <c10/util/Exception.h>
-// #include <c10/cuda/dtb/DTBManager.h>
+#include <c10/cuda/dtb/DTBManager.h>
 #include <c10/cuda/CUDACachingAllocator.h>
 #include <c10/cuda/CUDAFunctions.h>
 #include <c10/util/irange.h>
 
-#if AT_CUDNN_ENABLED()
-#include <ATen/cudnn/cudnn-wrapper.h>
-#endif
-
-#if AT_MAGMA_ENABLED()
-#include <magma_v2.h>
-#endif
-
-#if defined(USE_ROCM)
-#include <miopen/version.h>
-#endif
-
-#ifndef USE_ROCM
-#include <ATen/cuda/detail/LazyNVRTC.h>
-#endif
-
-#include <cuda.h>
 
 #include <sstream>
 #include <cstddef>
 #include <functional>
 #include <memory>
 
-namespace c10::cuda::_internal {
-void setHasPrimaryContext(bool (*func)(DeviceIndex));
-}
+// namespace c10::cuda::_internal {
+// void setHasPrimaryContext(bool (*func)(DeviceIndex));
+// }
 
-namespace at::cuda::detail {
+namespace at::dtb::detail {
 
-const at::cuda::NVRTC& nvrtc();
 DeviceIndex current_device();
 
-static void (*magma_init_fn)() = nullptr;
-
-void set_magma_init_fn(void (*fn)()) {
-  magma_init_fn = fn;
-}
 
 namespace {
 bool _hasPrimaryContext(DeviceIndex device_index) {
@@ -80,25 +57,11 @@ struct _Initializer {
 } initializer;
 } // anonymous namespace
 
-// Sets the CUDA_MODULE_LOADING environment variable
-// if it's not set by the user.
-void maybe_set_cuda_module_loading(const std::string &def_value) {
-  auto value = std::getenv("CUDA_MODULE_LOADING");
-  if (!value) {
-#ifdef _WIN32
-    auto env_var = "CUDA_MODULE_LOADING=" + def_value;
-    _putenv(env_var.c_str());
-#else
-    setenv("CUDA_MODULE_LOADING", def_value.c_str(), 1);
-#endif
-  }
-}
-
 // NB: deleter is dynamic, because we need it to live in a separate
 // compilation unit (alt is to have another method in hooks, but
 // let's not if we don't need to!)
-void CUDAHooks::initCUDA() const {
-  C10_LOG_API_USAGE_ONCE("aten.init.cuda");
+void DTBHooks::initDTB() const {
+  C10_LOG_API_USAGE_ONCE("aten.init.dtb");
   // Force the update to enable unit testing. This code get executed before unit tests
   // have a chance to enable vitals.
   at::vitals::VitalsAPI.setVital("CUDA", "used", "true", /* force = */ true);
@@ -107,12 +70,10 @@ void CUDAHooks::initCUDA() const {
   const auto num_devices = c10::cuda::device_count_ensure_non_zero();
   c10::cuda::CUDACachingAllocator::init(num_devices);
   at::cuda::detail::init_p2p_access_cache(num_devices);
-  // c10::dtb::init(num_devices);   // seems like no need to init here, although this way is more elegant
 
-#if AT_MAGMA_ENABLED()
-  TORCH_INTERNAL_ASSERT(magma_init_fn != nullptr, "Cannot initialize magma, init routine not set");
-  magma_init_fn();
-#endif
+  c10::dtb::init(num_devices);
+
+
 }
 
 const Generator& CUDAHooks::getDefaultCUDAGenerator(DeviceIndex device_index) const {

@@ -141,6 +141,7 @@ file(GLOB native_quantized_cudnn_cpp "native/quantized/cudnn/*.cpp")
 file(GLOB native_nested_cuda_cu "native/nested/cuda/*.cu")
 file(GLOB native_nested_cuda_cpp "native/nested/cuda/*.cpp")
 file(GLOB native_checkpoint_cpp "native/checkpoint/*.cpp")
+file(GLOB dtb_manager_h "${CMAKE_CURRENT_SOURCE_DIR}/../../../c10/cuda/dtb/DTBManager.h")
 file(GLOB dtb_manager_cpp "${CMAKE_CURRENT_SOURCE_DIR}/../../../c10/cuda/dtb/DTBManager.cpp")
 file(GLOB dtb_core_cpp "${CMAKE_CURRENT_SOURCE_DIR}/../../../c10/core/dtb/*.cpp")
 

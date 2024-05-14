@@ -20,6 +20,12 @@
 namespace c10 {
 namespace dtb {
 
+static const bool USE_DTR = ([]() -> bool {    /// init if use dtr by check env DTR_ENABLE
+    const char* env = getenv("DTR_ENABLE");
+    if(env) return atoi(env)==1;
+    else return false;
+})();
+
   size_t current_memory(int device = 0);
 
   size_t reserved_memory(int device = 0);
@@ -41,7 +47,12 @@ namespace dtb {
 
       inline void init_check(){
         if(!initialized())
+        {
+        #ifdef DEBUG_MODE
+          printStackTrace();
+        #endif
           throw std::runtime_error("DTB manager is not initialized.");
+        }
       }
       
 
@@ -88,8 +99,8 @@ namespace dtb {
       std::vector<std::pair<size_t, size_t>> get_peak_memory();
   };
 
-  extern DTBCheckpointPool dtb_pool;
-  extern std::atomic<DTBCheckpointPool*> PoolManager;
+  // extern DTBCheckpointPool dtb_pool;
+  C10_CUDA_API extern std::atomic<DTBCheckpointPool*> PoolManager;
 
   inline DTBCheckpointPool* get() {
     return PoolManager.load();

@@ -1,4 +1,5 @@
 #include <c10/core/dtb/External.h>
+#include <c10/core/dtb/utils.h>
 
 namespace c10 {
 namespace dtb {

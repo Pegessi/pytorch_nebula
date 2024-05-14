@@ -21,6 +21,7 @@
 #include <c10/util/python_stub.h>
 #include <c10/core/TensorImpl.h>
 
+#include <c10/core/dtb/utils.h>
 #include <c10/core/dtb/AliasPool.h>
 #include <c10/core/dtb/Rematerializer.h>
 #include <c10/core/dtb/CheckpointTensorCell.h>

@@ -6,8 +6,8 @@
 #include <c10/core/dtb/ResidualChain.h>
 
 
-namespace c10{
-namespace dtb{
+namespace c10 {
+namespace dtb {
 
 // CheckpointPool keep a list of AliasPool, and search over them to choose the best one to evict.
 struct CheckpointPool : intrusive_ptr_target {
@@ -62,6 +62,9 @@ struct CheckpointPool : intrusive_ptr_target {
 
 };
 
+// extern CheckpointPool pool;  // cannot be extern
+// extern std::unordered_map<int64_t, duration_t> compute_cost_records;
+// extern std::unordered_map<int64_t, size_t> memory_cost_records;
 
 }
 }

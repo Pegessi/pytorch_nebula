@@ -8,6 +8,8 @@ namespace at{
   class Tensor;
 }
 
+// TODO: change TORCH_CHECK
+
 namespace c10{
 namespace dtb{
 
@@ -32,17 +34,17 @@ struct CheckpointTensorCell : intrusive_ptr_target {
   int get_degree() { return degree; }
   DispatchKeySet key_set_;
   DispatchKeySet key_set() const {
-    TORCH_CHECK(defined);
+    // TORCH_CHECK(defined);
     return key_set_;
   }
   caffe2::TypeMeta dtype_;
   caffe2::TypeMeta dtype() const {
-    TORCH_CHECK(defined);
+    // TORCH_CHECK(defined);
     return dtype_;
   }
   c10::optional<Device> optional_device_;
   c10::optional<Device> optional_device() const {
-    TORCH_CHECK(defined);
+    // TORCH_CHECK(defined);
     return optional_device_;
   }
   // A Tensor is evictable iff it's AliasPool is evictable.
@@ -60,7 +62,7 @@ struct CheckpointTensorCell : intrusive_ptr_target {
                                 const intrusive_ptr<Rematerializer>& remat);
 
   size_t memory() {
-    TORCH_CHECK(defined);
+    // TORCH_CHECK(defined);
     return pool->memory;
   }
   Tensor get();

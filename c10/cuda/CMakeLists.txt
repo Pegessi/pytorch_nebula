@@ -16,6 +16,8 @@ configure_file(
 # check with the core PyTorch developers as the dependency will be
 # transitively passed on to all libraries dependent on PyTorch.
 
+file(GLOB dtb_core_cpp "${CMAKE_CURRENT_SOURCE_DIR}/../core/dtb/*.cpp")
+
 # Note: if you add a new source file/header, you will need to update
 # torch/utils/hipify/cuda_to_hip_mappings.py for new files
 # and headers you add
@@ -30,6 +32,8 @@ set(C10_CUDA_SRCS
     impl/CUDAGuardImpl.cpp
     impl/CUDATest.cpp
     driver_api.cpp
+    dtb/DTBManager.cpp
+    ${dtb_core_cpp}
 )
 set(C10_CUDA_HEADERS
     CUDACachingAllocator.h

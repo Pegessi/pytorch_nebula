@@ -5,6 +5,7 @@
 #include <numeric>
 #include <random>
 #include <future>
+#include <chrono>
 
 #include <c10/core/Backend.h>
 #include <c10/core/MemoryFormat.h>
@@ -150,6 +151,11 @@ using mutate_function_t = std::function<void(const Tensors&)>;
 using time_t = std::chrono::time_point<std::chrono::system_clock>;
 using duration_t = std::chrono::system_clock::duration;
 
+using Clock = std::chrono::high_resolution_clock;
+using Time = Clock::time_point;
+using Duration = Clock::duration;
+using FinalTime = std::chrono::nanoseconds;
+
 using at::reserved_range;
 using at::during_backward;
 
@@ -255,9 +261,6 @@ intrusive_ptr<EquivalentClassNode<T>> flat(const intrusive_ptr<EquivalentClassNo
 
 #pragma endregion
 
-size_t memory(const Tensor& t);
-size_t get_addr(const Tensor& t);
-
 template<typename T>
 struct RefCell final : intrusive_ptr_target {
   mutable T value;
@@ -279,13 +282,13 @@ struct CheckpointInfo {
   duration_t compute_cost;
   // Floating Point instability?
   double cost(size_t memory, size_t staleness) const {
-    TORCH_CHECK(memory > 0);
-    TORCH_CHECK(staleness > 0);
+    // TORCH_CHECK(memory > 0);
+    // TORCH_CHECK(staleness > 0);
     return compute_cost.count() / static_cast<double>(memory * staleness);
   }
   double cost(size_t memory, size_t staleness, uintptr_t addr) const {  /// TODO: 设计一个新的计算指标
-    TORCH_CHECK(memory > 0);
-    TORCH_CHECK(staleness > 0);
+    // TORCH_CHECK(memory > 0);
+    // TORCH_CHECK(staleness > 0);
     return compute_cost.count() / static_cast<double>(memory * staleness);
   }
   CheckpointInfo(duration_t compute_cost) :
