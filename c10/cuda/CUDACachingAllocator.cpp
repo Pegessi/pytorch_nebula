@@ -56,6 +56,8 @@ C10_DEFINE_REGISTRY(FreeCudaMemoryCallbacksRegistry, FreeMemoryCallback);
 #include <string>
 #include <unistd.h> // for getpid()
 
+static bool last_flag = false;
+
 struct DTRLogger {
   std::string time_prefix;
   FILE *out;
@@ -199,13 +201,23 @@ constexpr size_t kLargeBuffer =
 constexpr size_t kMinLargeAlloc =
     10485760; // allocations between 1 and 10 MiB may use kLargeBuffer
 #else
-constexpr size_t kE1Size =  // used to choose pool
-    20971520; // allocations between 1 and 20 MiB may use kE1Buffer
+static const size_t kE1Size = ([]() -> size_t {
+    const char* env = getenv("E1_POOL_MAX");
+    if(env) return static_cast<size_t>(atoi(env));
+    else return 20971520;   // 20MiB
+})();
+static const size_t kE2Size = ([]() -> size_t {
+    const char* env = getenv("E2_POOL_MAX");
+    if(env) return static_cast<size_t>(atoi(env));
+    else return 67108864;   // 64MiB
+})();
+// constexpr size_t kE1Size =  // used to choose pool
+//     20971520; // allocations between 1 and 20 MiB may use kE1Buffer
 constexpr size_t kE1Buffer =
     20971520; // "E1" allocations may be packed in 20 MiB blocks
 
-constexpr size_t kE2Size =  // used to choose pool 
-    1024*1024*64; // allocations between 20 and 200 MiB may use kE2Buffer 268435456 （256M)
+// constexpr size_t kE2Size =  // used to choose pool 
+//     268435456; // allocations between 20 and 200 MiB may use kE2Buffer 268435456 （256M)
 // constexpr size_t kE2Size =  // used to choose pool 
 //     67108864; // allocations between 20 and 64 MiB may use kE2Buffer
 
@@ -220,7 +232,7 @@ constexpr size_t kMinE2Alloc =
 
 // else all use Large blocks
 constexpr size_t kLargeBuffer =
-    kE1Buffer; // "large" allocations may be packed in 20 MiB blocks
+    20971520; // "large" allocations may be packed in 20 MiB blocks
 constexpr size_t kMinLargeAlloc =
     2147483648; // allocations between 32 and 64 MiB may use kLargeBuffer   [not use]
 #endif
@@ -1804,11 +1816,11 @@ class DeviceCachingAllocator {
       auto *pm = c10::dtb::getDTBPoolManager();
       auto if_evict = pm->auto_evict(device, size);
       #ifdef MORE_POOL
-      if(if_evict){
-        // release_blocks(ex1_blocks);
-        release_blocks(ex2_blocks);
-        release_blocks(large_blocks);
-      }
+      // if(if_evict){     // for figure, actually exectution will release these free blocks when close to OOM
+      //   // release_blocks(ex1_blocks);
+      //   // release_blocks(ex2_blocks);
+      //   // release_blocks(large_blocks);
+      // }
       #endif
     }
 // #ifdef GMLAKE_ENABLE
@@ -3645,9 +3657,10 @@ class DeviceCachingAllocator {
   static size_t get_allocation_size(size_t size) {
     if (size <= kSmallSize) {                                           // 1MB以下padding到2MB
       return kSmallBuffer;
-    } else if (size < kE1Size) { // kMinE1Alloc       // small-E1
-      return kE1Buffer;
     } 
+    // else if (size < kE1Size) { // kMinE1Alloc       // small-E1    // TODO: if reserve 20MB pool?
+    //   return kE1Buffer;
+    // } 
     // else if (size < kE2Size) {  // kMinE2Alloc        // E1-E2
     //   // return kE2Buffer;
     //   return kRoundLarge * ((size + kRoundLarge - 1) / kRoundLarge);
@@ -5272,6 +5285,13 @@ static const int vmmDefragment = ([]()->int{
       cudaStream_t stream,
       std::shared_ptr<GatheredContext> context) {
 #ifdef MEM_EVENTS_REC
+    if(last_flag!=c10::dtb::during_backward){
+      if(!last_flag&&c10::dtb::during_backward) // 开始反向
+        DTRLogger::logger().log("{\"TYPE\":\"begin backward\"}");
+      else
+        DTRLogger::logger().log("{\"TYPE\":\"end backward\"}");
+      last_flag = c10::dtb::during_backward;
+    }
     DTRLogMemEvents(std::to_string(action), size, addr);
 #endif
     auto te = TraceEntry(

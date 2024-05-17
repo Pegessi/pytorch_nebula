@@ -16,9 +16,9 @@ namespace dtb{
 */
 #pragma region CheckpointTensorImpl
 
-CheckpointPool pool; 
-std::unordered_map<int64_t, duration_t> compute_cost_records;
-std::unordered_map<int64_t, size_t> memory_cost_records;
+// CheckpointPool pool; 
+// std::unordered_map<int64_t, duration_t> compute_cost_records;
+// std::unordered_map<int64_t, size_t> memory_cost_records;
 
 intrusive_ptr<TensorImpl> CheckpointTensorImpl::shallow_copy_and_detach(const VariableVersion& version_counter,
                                                                         bool allow_tensor_metadata_change) const{

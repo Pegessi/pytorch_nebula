@@ -1,5 +1,7 @@
 #include <c10/core/dtb/ResidualChain.h>
 
+#define TORCH_CHECK(a, ...) 
+
 namespace c10 {
 namespace dtb {
 

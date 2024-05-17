@@ -110,6 +110,7 @@ void AliasPool::unlock() {
    * 上面的重物化检查相当于提供了一个释放重物化张量的timing
    * 但实际上由于动态执行中会出现remat_count==0但lock_count>0导致无法回收的情况（错过了这个回收窗口）
    * 因此在反向过程中额外检查是否有释放的机会
+   * Plus: 这里还将锁定的张量自动释放了
   */
   if(during_backward){
     if(remat_count == 0 && external_count == 0 && lock_count == 0){

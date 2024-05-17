@@ -1,6 +1,8 @@
 #include <c10/core/dtb/External.h>
 #include <c10/core/dtb/utils.h>
 
+#define TORCH_CHECK(a, ...) 
+
 namespace c10 {
 namespace dtb {
 

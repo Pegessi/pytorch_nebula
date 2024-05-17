@@ -32,9 +32,11 @@ long search_time_ = 0;
 long cost_time_ = 0;
 bool use_log_ = false;
 bool use_profile_ = false;
+std::unordered_map<int64_t, duration_t> compute_cost_records;
+std::unordered_map<int64_t, size_t> memory_cost_records;
 #ifdef DEBUG_MODE
 bool record_er_counts = false;        // 驱逐&重物化次数
-bool record_mem_addr = true;         // 是否记录内存地址
+bool record_mem_addr = false;         // 是否记录内存地址
 bool record_op_recs = false;          // 是否记录op历史
 bool record_fragmentation = false;    // 记录碎片化和内存占用数据
 bool record_lifecycle = false;        // 记录ap生命周期计数分布
@@ -49,6 +51,7 @@ std::atomic<size_t> remat_counts = 0;
 std::atomic<size_t> cannot_evict_counts = 0;
 std::atomic<size_t> destruct_counts = 0;
 std::atomic<size_t> tensor_destruct_counts = 0;
+
 
 void signal_handler(int sig) {
   constexpr const int REC_DEPTH = 50;

@@ -1553,6 +1553,8 @@
 - func: cos(Tensor self) -> Tensor
   device_check: NoCheck
   variants: function, method
+  dispatch:
+    Checkpoint: checkpoint_cos
   structured_delegate: cos.out
   tags:
   - core

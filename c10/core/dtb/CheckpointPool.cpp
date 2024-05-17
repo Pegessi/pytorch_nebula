@@ -273,6 +273,11 @@ void CheckpointPool::evict() {
     else {
       if (ap_strong->evictable()) {
         double cost = ap_strong->cost(current_time);
+      // #ifdef BIG_PRE_EVICT
+      //   if(s->pool->memory>OVER_TENSOR_SIZE && s->pool->evictable()){    // 死循环
+      //     s->pool->evict(0);
+      //   }
+      // #endif
       #ifdef DEBUG_MODE
         // if(record_ap_cost)
         //   DTRLogApCost("check cost", cost);
@@ -470,30 +475,31 @@ void CheckpointPool::clear_exts(){
   candidates.clear();
   chains.clear();
 #ifdef DEBUG_MODE
-  // int count = 0, pool_count = 0;
-  // std::map<uintptr_t, int> pool_rec;
+  int count = 0, pool_count = 0;
+  std::map<uintptr_t, int> pool_rec;
 #endif
   while (!exts.empty()) {
     if (auto e = exts.back().lock()) {
       // e->value->pin();  /// why pin and remat?
       if((e->value->pool->lock_count!=0||e->value->pool->external_count>0||e->value->pool->remat_count>0)&&e->value->defined){
 #ifdef DEBUG_MODE
-        // count++;
-        // auto pool_ptr = reinterpret_cast<uintptr_t>((e->value->pool.get()));
-        // auto it = pool_rec.find(pool_ptr);
-        // int pool_id = 0;
-        // if(it==pool_rec.end()){
-        //   pool_rec[pool_ptr] = ++pool_count;
-        //   pool_id = pool_count;
-        // }else{
-        //   pool_id = pool_rec[pool_ptr];
-        // }
+        count++;
+        auto pool_ptr = reinterpret_cast<uintptr_t>((e->value->pool.get()));
+        auto it = pool_rec.find(pool_ptr);
+        int pool_id = 0;
+        if(it==pool_rec.end()){
+          pool_rec[pool_ptr] = ++pool_count;
+          pool_id = pool_count;
+        }else{
+          pool_id = pool_rec[pool_ptr];
+        }
         // printf("exts size: %ld, size:%ld, external_count:%ld, is_weight:%d, pool_count:%d device_id:%d, have_remat:%d counts:%d\n", 
         //   exts.size(), e->value->pool->memory, e->value->pool->external_count, e->value->pool->if_weight ? 1 : 0, pool_id,
         //   e->value->pool->device_id, e->value->pool->head_remat ? 1 : 0, count);
 #endif
         if(e->value->pool->external_count>1){     /// TODO: 这里仍然不是全明晰的，部分external_count释放后，会出现segmentation fault，目前是没有问题的
-          e->value->pin();
+          if(!e->value->pool->if_weight&&e->value->pool->head_remat) // 保留权重与不可恢复张量
+            e->value->pin();
           // e->release_resources();
           // e->value->pool->release_external();
         }

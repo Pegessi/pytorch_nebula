@@ -37,13 +37,20 @@
 // #define MEM_ORDER_ENABLE              /// 是否启用mem order策略
 // #define DEPENDENCY_CHECK              /// 依赖检查策略
 #define DEGREE_CHAIN                     /// 残差链发现策略
+#define BIG_PRE_EVICT                    /// 大块张量驱逐
 
-static const int RESIDUAL_DEGREE = ([]()->int{    /// 残差链度设置  4-Llama2-7b-hf 6-GPT_simp
+static const int RESIDUAL_DEGREE = ([]() -> int {    /// 残差链度设置  4-Llama2-7b-hf 6-GPT_simp
     const char* env = getenv("RESIDUAL_DEGREE");
     if(env) return atoi(env);
     else return 99;
 })();
 // constexpr const int RESIDUAL_DEGREE = 6;  /// 残差链度设置  4-Llama2-7b-hf 6-GPT_simp
+
+static const size_t OVER_TENSOR_SIZE = ([]() -> size_t {    /// 残差链度设置  4-Llama2-7b-hf 6-GPT_simp
+    const char* env = getenv("OVER_TENSOR_SIZE");
+    if(env) return static_cast<size_t>(atoi(env));
+    else    return 21474836480;  // 20GB
+})();
 
 constexpr const int dep_threshold = 50;             /// 重物化链深度阈值
 constexpr const int threshold_touch_counts = 0;     /// 累积触发次数
@@ -171,6 +178,8 @@ extern long search_time_;
 extern long cost_time_;
 extern bool use_log_;
 extern bool use_profile_;
+extern std::unordered_map<int64_t, duration_t> compute_cost_records;
+extern std::unordered_map<int64_t, size_t> memory_cost_records;
 #ifdef DEBUG_MODE
 extern bool record_er_counts;        // 驱逐&重物化次数
 extern bool record_mem_addr;         // 是否记录内存地址
@@ -181,6 +190,7 @@ extern bool record_ap_cost;          // 记录ap的cost分布
 extern bool record_dependcy;
 extern bool record_key_chain;
 extern bool current_if_any_evicted;
+
 
 extern std::atomic<size_t> evict_counts;
 extern std::atomic<size_t> tensor_evict_counts;
