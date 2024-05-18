@@ -57,6 +57,18 @@ C10_DEFINE_REGISTRY(FreeCudaMemoryCallbacksRegistry, FreeMemoryCallback);
 #include <unistd.h> // for getpid()
 
 static bool last_flag = false;
+static const size_t log_cudaAPI = ([]() -> size_t {    /// 残差链度设置  4-Llama2-7b-hf 6-GPT_simp
+    const char* env = getenv("LOG_CUDAAPI");
+    if(env) return (atoi(env))==1;
+    else    return false;
+})();
+static const size_t log_mem_events = ([]() -> size_t {    /// 残差链度设置  4-Llama2-7b-hf 6-GPT_simp
+    const char* env = getenv("LOG_MEM_EVENTS");
+    if(env) return (atoi(env))==1;
+    else    return false;
+})();
+// constexpr bool log_cudaAPI = true;
+// constexpr bool log_mem_events = false;
 
 struct DTRLogger {
   std::string time_prefix;
@@ -77,7 +89,7 @@ struct DTRLogger {
   }
 
   std::string get_filename(const std::string& name) {
-    return time_prefix + "-" + name + ".log";
+    return "/data/wangzehua/Megatron-LM/Megatron-LM/logs/" + time_prefix + "-" + name + ".log";
   }
 
   DTRLogger() : time_prefix(get_time_prefix()) {
@@ -112,6 +124,17 @@ struct DTRLogger {
 void DTRLogMemEvents(const std::string& name, size_t size, int64_t addr) {
   std::string log_msg = "{";
   log_msg += "\"TYPE\":\"" + name + "\", ";
+  log_msg += "\"SIZE\":" + std::to_string(size) + ", ";
+  log_msg += "\"ADDR\":" + std::to_string(addr);
+  log_msg += "}";
+  DTRLogger::logger().log(log_msg);
+}
+
+size_t cudaMalloc_counts = 0, cudaFree_counts = 0;
+void DTRLogcudaAPIEvents(const std::string& name, size_t size, int64_t addr) {
+  std::string log_msg = "{";
+  log_msg += "\"TYPE\":\"" + name + "\", ";
+  log_msg += "\"COUNTS\":\"" + (name=="cudaMalloc" ? std::to_string(++cudaMalloc_counts) : std::to_string(++cudaFree_counts)) + "\", ";
   log_msg += "\"SIZE\":" + std::to_string(size) + ", ";
   log_msg += "\"ADDR\":" + std::to_string(addr);
   log_msg += "}";
@@ -3699,7 +3722,7 @@ class DeviceCachingAllocator {
         ++b->gc_count;
       }
     }
-    auto it = pool.blocks.lower_bound(&p.search_key);
+    auto it = pool.blocks.lower_bound(&p.search_key);     // return first ge search_key container
 #ifdef GMLAKE_ENABLE
     if (it == pool.blocks.end() || (*it)->stream != p.stream()) {
       if(vmmDefragment > 0 && !pool.is_small) {
@@ -4762,6 +4785,9 @@ class DeviceCachingAllocator {
       return bool(p.block);
     } else {
       p.err = cudaMallocMaybeCapturing(&ptr, size);
+      #ifdef MEM_EVENTS_REC
+      if(log_cudaAPI) DTRLogcudaAPIEvents("cudaMalloc", size, reinterpret_cast<uintptr_t>(ptr));
+      #endif
       if (p.err != cudaSuccess) {
         if (p.err == cudaErrorMemoryAllocation) {
           // If this is the first attempt (!isRetry), we can forgive and clear
@@ -5014,6 +5040,9 @@ static const int vmmDefragment = ([]()->int{
     delete block;
 #else
     TORCH_INTERNAL_ASSERT(!block->expandable_segment_);
+#ifdef MEM_EVENTS_REC
+    if(log_cudaAPI) DTRLogcudaAPIEvents("cudaFree", block->size, reinterpret_cast<uintptr_t>(block->ptr));
+#endif
     C10_CUDA_CHECK(cudaFree((void*)block->ptr));
     total_allocated_memory -= block->size;
 
@@ -5285,14 +5314,16 @@ static const int vmmDefragment = ([]()->int{
       cudaStream_t stream,
       std::shared_ptr<GatheredContext> context) {
 #ifdef MEM_EVENTS_REC
-    if(last_flag!=c10::dtb::during_backward){
-      if(!last_flag&&c10::dtb::during_backward) // 开始反向
-        DTRLogger::logger().log("{\"TYPE\":\"begin backward\"}");
-      else
-        DTRLogger::logger().log("{\"TYPE\":\"end backward\"}");
-      last_flag = c10::dtb::during_backward;
+    if(log_mem_events){
+      if(last_flag!=c10::dtb::during_backward){
+        if(!last_flag&&c10::dtb::during_backward) // 开始反向
+          DTRLogger::logger().log("{\"TYPE\":\"begin backward\"}");
+        else
+          DTRLogger::logger().log("{\"TYPE\":\"end backward\"}");
+        last_flag = c10::dtb::during_backward;
+      }
+      DTRLogMemEvents(std::to_string(action), size, addr);
     }
-    DTRLogMemEvents(std::to_string(action), size, addr);
 #endif
     auto te = TraceEntry(
         action,

@@ -309,6 +309,11 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
   for (const strong& s : inputs) {
     s->pool->unlock();
     release_external_of_nosource_tensor(s, name);
+    #ifdef BIG_PRE_EVICT
+      // if(s->pool->memory>=OVER_TENSOR_SIZE&&s->pool->evictable()){
+      //   s->pool->evict(0);
+      // }
+    #endif
   }
 
 #ifdef DEBUG_MODE

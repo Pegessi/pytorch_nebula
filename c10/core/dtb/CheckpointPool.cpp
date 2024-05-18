@@ -273,11 +273,12 @@ void CheckpointPool::evict() {
     else {
       if (ap_strong->evictable()) {
         double cost = ap_strong->cost(current_time);
-      // #ifdef BIG_PRE_EVICT
-      //   if(s->pool->memory>OVER_TENSOR_SIZE && s->pool->evictable()){    // 死循环
-      //     s->pool->evict(0);
-      //   }
-      // #endif
+        // #ifdef BIG_PRE_EVICT
+        //   if(ap_strong->memory>OVER_TENSOR_SIZE){
+        //     evict_idx = i;
+        //     break;
+        //   }
+        // #endif
       #ifdef DEBUG_MODE
         // if(record_ap_cost)
         //   DTRLogApCost("check cost", cost);
