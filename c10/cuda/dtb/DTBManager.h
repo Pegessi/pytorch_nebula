@@ -15,7 +15,7 @@
 #include <c10/core/dtb/External.h>
 #include <c10/core/dtb/CheckpointTensorCell.h>
 #include <c10/core/dtb/ResidualChain.h>
-
+#include <c10/core/dtb/MemGraph.h>
 
 namespace c10 {
 namespace dtb {
@@ -95,6 +95,9 @@ static const bool USE_DTR = ([]() -> bool {    /// init if use dtr by check env 
       void clear_checkpointpool(int device);
 
       void pool_cur_mem_snapshot(int device);
+
+      void insert_block(int device, MemBlockTwin* block);
+      // MemBlockTwin* get_block(int device, uintptr_t ptr);
 
       std::vector<std::pair<size_t, size_t>> get_peak_memory();
   };

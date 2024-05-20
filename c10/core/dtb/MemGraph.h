@@ -7,11 +7,11 @@
 namespace c10 {
 namespace dtb {
 
-// struct MemBlockTwin;
+struct MemBlockTwin;
+struct MemSegmentTwin;
 // using StrongMemBlock = intrusive_ptr<MemBlockTwin>;
 // using WeakMemBlock = weak_intrusive_ptr<MemBlockTwin>;
 
-// struct MemSegmentTwin;
 // using StrongMemSegment = intrusive_ptr<MemSegmentTwin>;
 // using WeakMemSegment = weak_intrusive_ptr<MemSegmentTwin>;
 
@@ -33,7 +33,7 @@ struct MemBlockTwin {
     MemBlockTwin* next{nullptr};
     
     MemBlockTwin(int device, size_t size);
-    MemBlockTwin(int device, size_t size, MemSegmentTwin* segment);
+    MemBlockTwin(int device, size_t size, MemSegmentTwin* segment, MemBlockTwin* pre, MemBlockTwin* next);
 };
 
 /**
@@ -45,25 +45,28 @@ struct MemSegmentTwin {
     uintptr_t head_addr;
 
     bool can_be_evict;
-    time_t last_used_time;
+    // time_t last_used_time;   // time record by ap
     ska::flat_hash_set<MemBlockTwin*> blocks;
     ska::flat_hash_set<WeakAP> own_aps;
 
     // first creat a block and create a segment about it
-    MemSegmentTwin(const MemBlockTwin* block);
+    MemSegmentTwin(MemBlockTwin* block);
 
-    void insert(const MemBlockTwin* block);
+    void insert(MemBlockTwin* block);
+    void erase(MemBlockTwin* block);
+
     void insert(const StrongAP& ap);
-
-    void erase(const MemBlockTwin* block);
     void erase(const StrongAP& ap);
 
     bool evictable();
+
     /**
-     * Release all blocks in this segment.
-     * And reserve this segment.
+     * Release all blocks in this segment when this segment is physically released.
+     * Then should delete this MemSegmentTwin like `delete mst;`
     */
-    bool evict();
+    bool release();
+
+    void display();
 };
 
 
@@ -78,9 +81,9 @@ struct MemGraph
         auto it = allocated_blocks.find(block->addr);
         allocated_blocks.erase(it);
     }
+
+    // MemBlockTwin* get_allocated_block(uintptr_t ptr);        // BUG: 重名
     
-    // Only record blocks being used
-    std::unordered_map<uintptr_t, MemBlockTwin*> active_blocks;
 };
 
 

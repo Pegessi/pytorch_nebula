@@ -248,6 +248,7 @@ class CUDAAllocator : public Allocator {
       MempoolId_t mempool_id) = 0;
   virtual void endAllocateStreamToPool(int device, cudaStream_t stream) = 0;
   virtual void releasePool(int device, MempoolId_t mempool_id) = 0;
+  // virtual void getSegmentsSnapshot(int device) = 0; // BUG: compilation error
   // returns true if the allocated blocks are equal to expected live allocations
   virtual bool checkPoolLiveAllocations(
       int device,
@@ -418,6 +419,10 @@ inline bool checkPoolLiveAllocations(
 inline void attachOutOfMemoryObserver(OutOfMemoryObserver observer) {
   return get()->attachOutOfMemoryObserver(observer);
 }
+
+// inline void getSegmentsSnapshot(int device) { // BUG: compilation error
+//   return get()->getSegmentsSnapshot(device);
+// }
 
 inline void releasePool(int device, MempoolId_t mempool_id) {
   return get()->releasePool(device, mempool_id);

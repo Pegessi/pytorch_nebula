@@ -1,5 +1,12 @@
 #pragma once
 
+// #ifdef BUILDING_COMMON
+// export declaration for visibility out of the .so
+#define COMMON_API __attribute__((visibility("default")))
+// #else
+// #define COMMON_API
+// #endif
+
 #include <atomic>
 #include <memory>
 #include <numeric>
@@ -136,8 +143,8 @@ auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time -
 namespace at
 {
   class Tensor;
-  extern bool reserved_range;
-  extern bool during_backward;
+  extern COMMON_API bool reserved_range;
+  extern COMMON_API bool during_backward;
 }
 
 
@@ -180,6 +187,7 @@ extern bool use_log_;
 extern bool use_profile_;
 extern std::unordered_map<int64_t, duration_t> compute_cost_records;
 extern std::unordered_map<int64_t, size_t> memory_cost_records;
+extern COMMON_API size_t memory_budget;
 #ifdef DEBUG_MODE
 extern bool record_er_counts;        // 驱逐&重物化次数
 extern bool record_mem_addr;         // 是否记录内存地址

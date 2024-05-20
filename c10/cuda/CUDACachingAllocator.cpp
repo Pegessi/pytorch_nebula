@@ -38,6 +38,8 @@
 TORCH_SDT_DEFINE_SEMAPHORE(malloc)
 TORCH_SDT_DEFINE_SEMAPHORE(free)
 
+#define MEM_TWIN_REC
+
 // #define GMLAKE_ENABLE // GMLAKE history trace is unavailable(wrong history)
 #ifdef GMLAKE_ENABLE
 #include <c10/util/Backtrace.h>
@@ -57,12 +59,12 @@ C10_DEFINE_REGISTRY(FreeCudaMemoryCallbacksRegistry, FreeMemoryCallback);
 #include <unistd.h> // for getpid()
 
 static bool last_flag = false;
-static const size_t log_cudaAPI = ([]() -> size_t {    /// 残差链度设置  4-Llama2-7b-hf 6-GPT_simp
+static const bool log_cudaAPI = ([]() -> bool {
     const char* env = getenv("LOG_CUDAAPI");
     if(env) return (atoi(env))==1;
     else    return false;
 })();
-static const size_t log_mem_events = ([]() -> size_t {    /// 残差链度设置  4-Llama2-7b-hf 6-GPT_simp
+static const bool log_mem_events = ([]() -> bool {
     const char* env = getenv("LOG_MEM_EVENTS");
     if(env) return (atoi(env))==1;
     else    return false;
@@ -89,7 +91,7 @@ struct DTRLogger {
   }
 
   std::string get_filename(const std::string& name) {
-    return "/data/wangzehua/Megatron-LM/Megatron-LM/logs/" + time_prefix + "-" + name + ".log";
+    return time_prefix + "-" + name + ".log";
   }
 
   DTRLogger() : time_prefix(get_time_prefix()) {
@@ -137,6 +139,17 @@ void DTRLogcudaAPIEvents(const std::string& name, size_t size, int64_t addr) {
   log_msg += "\"COUNTS\":\"" + (name=="cudaMalloc" ? std::to_string(++cudaMalloc_counts) : std::to_string(++cudaFree_counts)) + "\", ";
   log_msg += "\"SIZE\":" + std::to_string(size) + ", ";
   log_msg += "\"ADDR\":" + std::to_string(addr);
+  log_msg += "}";
+  DTRLogger::logger().log(log_msg);
+}
+
+void DTRLogSegmentsStats(const size_t& size, const size_t& blocks_num, const size_t& timstamp, const uintptr_t& head_addr){
+  std::string log_msg = "{";
+  log_msg += "\"TYPE\":\"SEGMENT INFO\", ";
+  log_msg += "\"SIZE\":" + std::to_string(size) + ", ";
+  log_msg += "\"MEMBERS\":" + std::to_string(blocks_num) + ", ";
+  log_msg += "\"ADDR\":" + std::to_string(head_addr) + ", ";
+  log_msg += "\"TIMESTAMP\":" + std::to_string(timstamp);
   log_msg += "}";
   DTRLogger::logger().log(log_msg);
 }
@@ -886,6 +899,168 @@ struct ExpandableSegment {
   }
   void addPeer(int device) {}
 };
+#endif
+
+#ifdef MEM_TWIN_REC
+using c10::dtb::time_t;
+
+struct SegmentTwin {
+  ska::flat_hash_set<Block*> blocks;
+  bool is_small = false;
+  time_t last_change_time;
+  size_t total_size;
+
+  SegmentTwin* pre{nullptr};
+  SegmentTwin* next{nullptr};
+
+  SegmentTwin(Block* head);
+  void insert(Block* block);
+  void erase(Block* block);
+  bool empty();
+};
+
+SegmentTwin::SegmentTwin(Block* head) {
+  TORCH_INTERNAL_ASSERT(head->prev == nullptr && head->pool != nullptr);
+#ifndef MORE_POOL
+  is_small = head->pool->is_small;
+#else
+  is_small = head->pool->pool_type==StatType::SMALL_POOL;
+#endif
+  last_change_time = std::chrono::system_clock::now();
+  total_size = head->size;
+  for (Block* curr = head; curr != nullptr; curr = curr->next) {
+    // blocks.emplace_back(curr);
+    blocks.insert(curr);
+  }
+}
+
+void SegmentTwin::insert(Block* block) {
+  // blocks.emplace_back(block);
+  blocks.insert(block);
+  last_change_time = std::chrono::system_clock::now();
+}
+
+void SegmentTwin::erase(Block* block) {
+  // int index=0;
+  // bool find_flag = false;
+  // for(; index < blocks.size(); index++){
+  //   if(block==blocks[index]){
+  //     find_flag = true;
+  //     break;
+  //   }
+  // }
+  // if(find_flag) blocks.erase(blocks.begin() + index);
+  blocks.erase(block);
+}
+
+bool SegmentTwin::empty(){
+  return blocks.empty();
+}
+
+struct SegmentTwinInfo {
+
+};
+
+/**
+ * Use flash_hash_map and Bidirectional linked list
+ * to implement a All O(1) datastructure to record the ordered SegmentTwins.
+ * Because last_change_time of SegmentTwin may changed frequently, so a efficient ds is needed.
+*/
+struct SegmentsContanier {
+  // ska::flat_hash_set<SegmentTwin*> stores SegmentTwin with common SegmentTwinInfo
+  // std::list<pair<ska::flat_hash_set<SegmentTwin*>, SegmentTwinInfo>> lst;
+  // ska::flat_hash_map<SegmentTwin*, std::list<pair<unordered_set<SegmentTwin*>, SegmentTwinInfo>>::iterator> nodes;
+private:
+  SegmentTwin* head{nullptr};
+  SegmentTwin* tail{nullptr};
+
+public:
+  ska::flat_hash_map<void*, SegmentTwin*> blocks2segment;
+
+  SegmentsContanier() {}
+
+  bool empty() { return (head==nullptr)&&(tail==nullptr); }
+
+  // 增加对SegmentTwin对象的操作
+  void insert(SegmentTwin* key) {
+    // 暂时用简单的双向链表尾插法
+    if(empty()){
+      head = key;
+      tail = key;
+    }else{
+      tail->next = key;
+      key->pre = tail;
+      tail = key;
+    }
+    // if (nodes.count(key)) {
+    //   auto cur = nodes[key], nxt = next(cur);
+    //   if (nxt == lst.end() || nxt->second > cur->second + 1) {  // TOCHANGE
+    //     ska::flat_hash_set<SegmentTwin*> s({key});
+    //     nodes[key] = lst.emplace(nxt, s, cur->second + 1); // TOCHANGE
+    //   } else {
+    //     nxt->first.emplace(key);
+    //     nodes[key] = nxt;
+    //   }
+    //   cur->first.erase(key);
+    //   if (cur->first.empty()) {
+    //     lst.erase(cur);
+    //   }
+    // } else { // key 不在链表中
+    //   if (lst.empty() || lst.begin()->second > 1) {  // TOCHANGE
+    //       ska::flat_hash_set<SegmentTwin*> s({key});
+    //       lst.emplace_front(s, 1);  // TOCHANGE
+    //   } else {
+    //       lst.begin()->first.emplace(key);
+    //   }
+    //   nodes[key] = lst.begin();
+    // }
+  }
+
+  void erase(SegmentTwin* key) {
+    if(!key) return;
+    if (key->pre) {
+        key->pre->next = key->next;
+    } else {  // key 是头节点
+        head = key->next;
+    }
+    
+    if (key->next) {
+        key->next->pre = key->pre;
+    } else {  // key 是尾节点
+        tail = key->pre;
+    }
+
+  }
+
+  void add_block2segment(Block* block, SegmentTwin* seg) {
+    blocks2segment[block->ptr] = seg;
+    seg->insert(block);
+  }
+
+  SegmentTwin* get_segment_of_block(void* ptr, bool remove = false) {
+    auto it = blocks2segment.find(ptr);
+    if (it == blocks2segment.end()) {
+      return nullptr;
+    }
+    SegmentTwin* seg = it->second;
+    if (remove) {
+      blocks2segment.erase(it);
+    }
+    return seg;
+  }
+
+  SegmentTwin* getMaxSegment() {
+    // 获取最大的Segment，需要定义比较逻辑
+    return tail;
+  }
+
+  SegmentTwin* getMinSegment() {
+    // 获取最小的Segment
+    return head;
+  }
+};
+
+
 #endif
 
 // BlockState, BlockPoolState, and PrivatePoolState contain the information
@@ -1658,6 +1833,10 @@ class DeviceCachingAllocator {
   ska::flat_hash_set<Block*> active_fused_blocks_to_gc;
 #endif
 
+#ifdef MEM_TWIN_REC
+  SegmentsContanier segManager;
+#endif
+
   // captures_underway tracks if a capture might be underway on any stream.
   // Most of the time it's zero, in which case malloc can avoid calling
   // cudaStreamGetCaptureInfo in the hot path.
@@ -1835,9 +2014,11 @@ class DeviceCachingAllocator {
     const size_t alloc_size = get_allocation_size(size);
     AllocParams params(device, size, stream, &pool, alloc_size, stats);
     params.stat_types = get_stat_types_for_pool(pool);
+    // if(c10::dtb::USE_DTR&&(getStats().active_bytes[device].current + size) > c10::dtb::memory_budget){
     if(c10::dtb::USE_DTR){
       auto *pm = c10::dtb::getDTBPoolManager();
       auto if_evict = pm->auto_evict(device, size);
+      if(if_evict) getSegmentTwins();
       #ifdef MORE_POOL
       // if(if_evict){     // for figure, actually exectution will release these free blocks when close to OOM
       //   // release_blocks(ex1_blocks);
@@ -2054,6 +2235,10 @@ class DeviceCachingAllocator {
       remaining->prev = block;
       remaining->ptr = static_cast<char*>(remaining->ptr) + size;   // remaining data pointer offset <size>, remaining means unallocated block
       remaining->size -= size;
+#ifdef MEM_TWIN_REC
+      auto *seg = segManager.get_segment_of_block(block->ptr);   // remaining is orig block, and current block is a new block, but the orig ptr now belong to block
+      segManager.add_block2segment(remaining, seg);              // and remaining->ptr is a new pointer to be added
+#endif
 
 #ifdef GMLAKE_ENABLE
       if(vmmDefragment > 0 && remaining->vmm_segment) {
@@ -3171,6 +3356,32 @@ class DeviceCachingAllocator {
     return !expandable_segments_.empty();
   }
 
+#ifdef MEM_TWIN_REC
+  void getSegmentTwins() {
+    DTRLogger::logger().log("{\"TYPE\": \"TAG\", \"VALUE\": \"BEGIN\"}");
+    // for(auto& ele: segManager.blocks2segment){     // 不能遍历blocks2segment，这个map的个数其实是block的个数
+    SegmentTwin* seg = segManager.getMinSegment();
+    while(seg)
+    {
+      // uintptr_t ptr = reinterpret_cast<uintptr_t>(ele.first);
+      auto it = seg->blocks.begin();
+      uintptr_t ptr;
+      if(it!=seg->blocks.end())
+        ptr = reinterpret_cast<uintptr_t>(it.current->value->ptr);
+      else
+        ptr = 0;
+      size_t segment_size = seg->total_size;
+      size_t blocks_num = seg->blocks.size();
+      auto last_time = seg->last_change_time;
+      auto duration = last_time.time_since_epoch();
+      size_t millis = std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();  // timestamp
+      DTRLogSegmentsStats(segment_size, blocks_num, millis, ptr);
+      seg = seg->next;
+    }
+    DTRLogger::logger().log("{\"TYPE\": \"TAG\", \"VALUE\": \"END\"}");
+  }
+#endif
+
  private:
   // All private methods do not acquire the allocator mutex.
 
@@ -3474,6 +3685,11 @@ class DeviceCachingAllocator {
     AT_ASSERT(dst->is_split() && src->is_split());
 
     if (dst->prev == src) { // [src dst]
+#ifdef MEM_TWIN_REC
+      auto *seg = segManager.get_segment_of_block(dst->ptr, true /* remove */);    // record of current dst->ptr is deleted
+      TORCH_INTERNAL_ASSERT(seg!=nullptr);
+      seg->erase(src);  // release block src
+#endif
       dst->ptr = src->ptr;
       dst->prev = src->prev;
       if (dst->prev) {
@@ -3493,6 +3709,11 @@ class DeviceCachingAllocator {
       src->history_last = nullptr;
 #endif
     } else { // [dest src]
+#ifdef MEM_TWIN_REC
+      auto *seg = segManager.get_segment_of_block(src->ptr, true /* remove */);
+      TORCH_INTERNAL_ASSERT(seg!=nullptr);
+      seg->erase(src);
+#endif
       dst->next = src->next;
       if (dst->next) {
         dst->next->prev = dst;
@@ -4815,6 +5036,11 @@ class DeviceCachingAllocator {
 
     total_allocated_memory += size;
     p.block = new Block(p.device(), p.stream(), size, p.pool, (char*)ptr);
+#ifdef MEM_TWIN_REC
+    SegmentTwin* new_seg = new SegmentTwin(p.block);    // [TAG] only entry for new SegmentTwin creatation
+    segManager.add_block2segment(p.block, new_seg);
+    segManager.insert(new_seg);
+#endif
     for_each_selected_stat_type(p.stat_types, [&](size_t stat_type) {
       update_stat(stats.segment[stat_type], 1);
       update_stat(stats.reserved_bytes[stat_type], size);
@@ -5042,6 +5268,13 @@ static const int vmmDefragment = ([]()->int{
     TORCH_INTERNAL_ASSERT(!block->expandable_segment_);
 #ifdef MEM_EVENTS_REC
     if(log_cudaAPI) DTRLogcudaAPIEvents("cudaFree", block->size, reinterpret_cast<uintptr_t>(block->ptr));
+#endif
+#ifdef MEM_TWIN_REC
+    auto *seg = segManager.get_segment_of_block(block->ptr, true /*remove*/);
+    seg->erase(block);
+    TORCH_INTERNAL_ASSERT(seg->empty());    // a block can be released only when it's no split.
+    segManager.erase(seg);
+    delete seg;                             // [TAG] only entry of segment destroying
 #endif
     C10_CUDA_CHECK(cudaFree((void*)block->ptr));
     total_allocated_memory -= block->size;
@@ -5540,6 +5773,14 @@ class NativeCachingAllocator : public CUDAAllocator {
       override {
     return device_allocator[device]->getCheckpointState(id);
   }
+
+#ifdef MEM_TWIN_REC
+  // TODO: provide some interface for outer access like how `getCheckpointState` do
+  // void getSegmentsSnapshot(int device) {
+  //   device_allocator[device]->getSegmentTwins();
+  // }
+
+#endif
 
   /**
    * @brief Checkpoint the private pool state identified in `as` to its prior

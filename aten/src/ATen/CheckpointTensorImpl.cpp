@@ -200,6 +200,7 @@ Tensor decheckpoint(const Tensor& t) {
   auto* cpti = dynamic_cast<CheckpointTensorImpl*>(t.unsafeGetTensorImpl());
   if(cpti){
     auto res = cpti->unsafeGetTensorCell()->get();
+    // return res;    // BUG: segmentation fault
     return res.detach();
   }else
     return t;
@@ -282,6 +283,7 @@ void set_memory_budget(long budget) {
 #ifdef MULTI_MODE
   auto *pm = getDTBPoolManager();
   pm->set_memory_budget(budget);
+  c10::dtb::set_global_memory_budget(budget);
 #else
   pool.memory_budget = budget;
   pool.has_memory_budget = true;

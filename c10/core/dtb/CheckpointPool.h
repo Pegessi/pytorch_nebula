@@ -4,6 +4,7 @@
 #include <c10/core/dtb/AliasPool.h>
 #include <c10/core/dtb/External.h>
 #include <c10/core/dtb/ResidualChain.h>
+#include <c10/core/dtb/MemGraph.h>
 
 
 namespace c10 {
@@ -17,6 +18,8 @@ struct CheckpointPool : intrusive_ptr_target {
   std::vector<weak_intrusive_ptr<External>> exts;
   std::vector<weak> candidates;           // candidates for end point
   std::vector<ResidualChainRef> chains;
+
+  MemGraph mem_graph; 
 
   std::random_device rd;
   std::mt19937 gen = std::mt19937(rd());

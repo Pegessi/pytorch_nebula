@@ -798,6 +798,11 @@ struct CudaMallocAsyncAllocator : public CUDAAllocator {
     capture_underway = false;
   }
 
+  // void getSegmentsSnapshot() override {  // BUG: compilation error
+  //   ///
+  //   return;
+  // }
+
   void releasePool(int device, MempoolId_t mempool_id) override {
     // Q: Do we need to do anything special here, like clear long-lived
     //    pointers created during the original capture (for example,

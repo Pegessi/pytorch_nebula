@@ -36,6 +36,8 @@ extern PerfStats STATS;
 size_t memory(const Tensor& t);
 size_t get_addr(const Tensor& t);
 
+void set_global_memory_budget(size_t budget);
+
 
 Tensor uncheckpoint(const strong& input);
 

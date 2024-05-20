@@ -34,6 +34,8 @@ bool use_log_ = false;
 bool use_profile_ = false;
 std::unordered_map<int64_t, duration_t> compute_cost_records;
 std::unordered_map<int64_t, size_t> memory_cost_records;
+size_t memory_budget = 85899345920;  
+
 #ifdef DEBUG_MODE
 bool record_er_counts = false;        // 驱逐&重物化次数
 bool record_mem_addr = false;         // 是否记录内存地址
@@ -169,6 +171,10 @@ uintptr_t get_addr(const Tensor& t) {
   auto& storage = t.storage();
   auto res = storage.data_ptr().get();
   return reinterpret_cast<uintptr_t>(res);
+}
+
+void set_global_memory_budget(size_t budget){
+  memory_budget = budget;
 }
 
 Tensor uncheckpoint(const strong& input) {

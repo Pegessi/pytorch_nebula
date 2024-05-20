@@ -409,6 +409,16 @@ void DTBCheckpointPool::pool_cur_mem_snapshot(int device){
 //   }
 }
 
+void DTBCheckpointPool::insert_block(int device, MemBlockTwin* block) {
+  auto pool = device_dtbpool[device].get();
+  pool->mem_graph.add_allocated_block(block);
+}
+
+// MemBlockTwin* DTBCheckpointPool::get_block(int device, uintptr_t ptr) {
+//   auto pool = device_dtbpool[device].get();
+//   return pool->mem_graph.get_allocated_block(ptr);
+// }
+
 std::vector<std::pair<size_t, size_t>> DTBCheckpointPool::get_peak_memory(){
   std::vector<std::pair<size_t, size_t>> res;
   for (int i = 0; i<device_dtbpool.size(); i++) {
