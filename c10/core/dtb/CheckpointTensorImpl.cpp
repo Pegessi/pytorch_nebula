@@ -229,11 +229,13 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
   auto cur_compute_cost = post - pre;
   // auto cur_compute_cost = test_time_post - test_time_cur;
 
-#ifdef MULTI_MODE
   auto* pm = getDTBPoolManager();
-  // pm->auto_evict(device_id);
-#else
-  // pool.auto_evict();
+#ifdef ORIG_EVICT
+  #ifdef MULTI_MODE
+  pm->auto_evict(device_id);
+  #else
+  pool.auto_evict();
+  #endif
 #endif
 
 #ifdef ORIGINAL_DTR
@@ -309,11 +311,6 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
   for (const strong& s : inputs) {
     s->pool->unlock();
     release_external_of_nosource_tensor(s, name);
-    #ifdef BIG_PRE_EVICT
-      // if(s->pool->memory>=OVER_TENSOR_SIZE&&s->pool->evictable()){
-      //   s->pool->evict(0);
-      // }
-    #endif
   }
 
 #ifdef DEBUG_MODE
@@ -404,11 +401,13 @@ MakeRawResult make_raw_rec(const rematerialize_function_t& remat_f,
 #endif
   if(have_record){
     cur_mem_cost = memory_cost_records[rid];
-// #ifdef MULTI_MODE
-//     pm->auto_evict(device_id, cur_mem_cost);
-// #else
-//     pool.auto_evict(cur_mem_cost);
-// #endif
+#ifdef ORIG_EVICT
+  #ifdef MULTI_MODE
+    pm->auto_evict(device_id, cur_mem_cost);
+  #else
+    pool.auto_evict(cur_mem_cost);
+  #endif
+#endif
     cur_compute_cost = compute_cost_records[rid];
     raw_outputs = remat_f(raw_inputs);
   }else{
@@ -422,11 +421,13 @@ MakeRawResult make_raw_rec(const rematerialize_function_t& remat_f,
     compute_cost_records[rid] = cur_compute_cost;
     cur_mem_cost = post_mem - pre_mem;
     memory_cost_records[rid] = cur_mem_cost;
-// #ifdef MULTI_MODE
-//     pm->auto_evict(device_id);
-// #else
-//     pool.auto_evict();
-// #endif
+#ifdef ORIG_EVICT
+  #ifdef MULTI_MODE
+    pm->auto_evict(device_id);
+  #else
+    pool.auto_evict();
+  #endif
+#endif
   }
   
   std::vector<intrusive_ptr<External>> outputs;
@@ -476,11 +477,6 @@ MakeRawResult make_raw_rec(const rematerialize_function_t& remat_f,
   }
   for (const strong& s : inputs) {
     s->pool->unlock();
-    // if(!s->pool->if_weight && s->pool->head_remat==nullptr && during_backward && name != "copy_"){    // [BUG]: copy_ is a complex bug for DTR runtime
-    //   // printf("[UNLOCK] %s %ld %ld %ld %s %s\n", s->counter_name().c_str(), s->pool->external_count, s->pool->tensors.size(),
-    //   //       s->pool->memory, during_backward ? "in backward" : "in forward", name.c_str());
-    //   s->pool->release_external();
-    // }
     release_external_of_nosource_tensor(s, name);
   }
 #ifdef DEBUG_MODE
@@ -825,6 +821,16 @@ CheckpointTensorImpl::CheckpointTensorImpl(Tensor& t, bool if_weight) : Checkpoi
 #else
   pool.exts.push_back(weak_intrusive_ptr<External>(ref->value));
 #endif
+}
+
+/**
+ * In pytorch2.1, TensorImpl is not used with intrusive_ptr as a member of Tensor,
+ * although TensorImpl is still inherited from intrusive_target_ptr.
+ * So it has to use deconstructor to call reset.(Just more clear, ref will be reset even without this)
+*/
+CheckpointTensorImpl::~CheckpointTensorImpl() {
+  // printf("cpti deconstruct trigger ");
+  ref.reset();
 }
 
 #pragma endregion

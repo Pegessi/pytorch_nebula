@@ -32,8 +32,8 @@ External::External(Tensor& value,
 
 void External::release_resources() {    /// TAG: Aliaspool引用计数的唯一减少入口
     // printf("%s %d %ld %d ex:%ld\n", value->counter_name().c_str(), ((value->pool->memory > 0 && (!value->pool->ecn) && value->pool->head_remat)||(value->pool->memory > 0&& value->pool->head_remat==nullptr && !value->pool->if_weight)) ? 1 : 0, value->pool->memory, value->pool->if_weight ? 1 : 0, value->pool->external_count);
-    value->pool->release_external();
     // printf("pool of %s release_external finish.\n", value->counter_name().c_str());
+    value->pool->release_external();
     value.reset();
 }
 

@@ -28,6 +28,8 @@ struct ChainNode : intrusive_ptr_target {
 
   void lock_value();
 
+  void unlock_value();
+
   void release_resources() override;
 
 };
@@ -52,6 +54,8 @@ struct ResidualChain : intrusive_ptr_target {
   void erase(const StrongChainNode& n);
 
   bool in_chain(const StrongChainNode& n);
+
+  void clear_members();
 
   void release_resources() override;
 

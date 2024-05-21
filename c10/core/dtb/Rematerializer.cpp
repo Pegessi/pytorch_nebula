@@ -38,6 +38,7 @@ void Rematerializer::release_resources() {
   func = rematerialize_function_t();
   inputs.clear();
   outputs.clear();
+  ecn.reset();
 }
 
 
@@ -61,28 +62,32 @@ void Rematerializer::remat() {
   time_t pre = std::chrono::system_clock::now();
 #endif
 
-#ifdef MULTI_MODE
-  auto device_id = static_cast<int>(ts[0].device().index());
-  auto *pm = getDTBPoolManager();
-#endif
+#ifdef ORIG_EVICT
+  #ifdef MULTI_MODE
+    auto device_id = static_cast<int>(ts[0].device().index());
+    auto *pm = getDTBPoolManager();
+  #endif
 
-// #ifdef MINIMAL_EVICT_COST
-//   #ifdef MULTI_MODE
-//   pm->auto_evict(device_id, memory_cost_records[rid]);
-//   #else
-//   pool.auto_evict(memory_cost_records[rid]);
-//   #endif
-// #endif
+  #ifdef MINIMAL_EVICT_COST
+    #ifdef MULTI_MODE
+    pm->auto_evict(device_id, memory_cost_records[rid]);
+    #else
+    pool.auto_evict(memory_cost_records[rid]);
+    #endif
+  #endif
+#endif
 
   auto ret = func(ts);
 
-// #ifdef MINIMAL_EVICT
-//   #ifdef MULTI_MODE
-//   pm->auto_evict(device_id);
-//   #else
-//   pool.auto_evict();
-//   #endif
-// #endif
+#ifdef ORIG_EVICT
+#ifdef MINIMAL_EVICT
+  #ifdef MULTI_MODE
+  pm->auto_evict(device_id);
+  #else
+  pool.auto_evict();
+  #endif
+#endif
+#endif
 
 #ifdef ORIGINAL_DTR
   time_t post = std::chrono::system_clock::now();
@@ -95,7 +100,13 @@ void Rematerializer::remat() {
   TORCH_CHECK(ret.size() == outputs.size());
   for (size_t i = 0; i < outputs.size(); ++i) {
     if (auto output_cell = outputs[i].lock()) {
+      // if(outputs.size()==2&&output_cell->pool->memory==268435456){
+      //   printf("check cell defined:%d ret[%ld] defined:%d before\n", output_cell->defined ? 1 : 0, i, ret[i].defined());
+      // }
       output_cell->fill(ret[i]);
+      // if(outputs.size()==2&&output_cell->pool->memory==268435456){
+      //   printf("check cell defined:%d ret[%ld] defined:%d after\n", output_cell->defined ? 1 : 0, i, ret[i].defined());
+      // }
 #ifndef ORIGINAL_DTR
       output_cell->pool->lock_remated();
 #endif

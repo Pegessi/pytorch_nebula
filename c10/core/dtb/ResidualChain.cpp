@@ -20,7 +20,7 @@ void ChainNode::lock_value(){
   }
 }
 
-void ChainNode::release_resources() {
+void ChainNode::unlock_value() {
   if(is_lock){
     if(auto cell = value.lock()){
       cell->pool->is_retain = false;
@@ -28,6 +28,10 @@ void ChainNode::release_resources() {
       cell->pool->unlock();
     }
   }
+}
+
+void ChainNode::release_resources() {
+  unlock_value();
   value.reset();
 }
 
@@ -58,6 +62,13 @@ void ResidualChain::erase(const StrongChainNode& n) {
 bool ResidualChain::in_chain(const StrongChainNode& n){
   const auto& last_node = members.back();
   return last_node->is_equal(n);
+}
+
+void ResidualChain::clear_members() {
+  for(auto &node: members){
+    node->unlock_value();
+  }
+  members.clear();
 }
 
 void ResidualChain::release_resources() {

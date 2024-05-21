@@ -73,7 +73,7 @@ struct CheckpointTensorCell : intrusive_ptr_target {
   // }
   void pin();
   
-  void release_resources();
+  void release_resources() override;
 
 };
 

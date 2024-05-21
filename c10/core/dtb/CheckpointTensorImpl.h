@@ -136,6 +136,8 @@ struct TORCH_API CheckpointTensorImpl : public TensorImpl {
     return false;
   }
 
+  ~CheckpointTensorImpl() override;
+
   //////////////////////////////////// addition ////////////////////////////
   /**
    * 需要说明的是，这里的impl并没有包含storage，意味着不能通过cpti构造的tensor来正常进行操作

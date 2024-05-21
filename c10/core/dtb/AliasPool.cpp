@@ -39,6 +39,9 @@ AliasPool::AliasPool(const Unsafe&, intrusive_ptr<Rematerializer> head_remat, si
 }
 
 void AliasPool::release_resources() {
+  if(!is_evicted){
+    evict(2);
+  }
   tensors.clear();
   neighbors.clear();
   head_remat.reset();
@@ -76,6 +79,7 @@ void AliasPool::evict(int mode) { // 0 - evict | 1 - deconstruct | 2 - Irreversi
           tensor_destruct_counts += 1;
       }
 #endif
+      printf("evict cell trigger\n");
       cell->evict();
     }
   }
@@ -110,7 +114,7 @@ void AliasPool::unlock() {
    * 上面的重物化检查相当于提供了一个释放重物化张量的timing
    * 但实际上由于动态执行中会出现remat_count==0但lock_count>0导致无法回收的情况（错过了这个回收窗口）
    * 因此在反向过程中额外检查是否有释放的机会
-   * Plus: 这里还将锁定的张量自动释放了
+   * Plus: 锁定的张量也可能在这里释放
   */
   if(during_backward){
     if(remat_count == 0 && external_count == 0 && lock_count == 0){

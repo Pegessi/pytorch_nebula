@@ -44,7 +44,7 @@
 // #define MEM_ORDER_ENABLE              /// 是否启用mem order策略
 // #define DEPENDENCY_CHECK              /// 依赖检查策略
 #define DEGREE_CHAIN                     /// 残差链发现策略
-#define BIG_PRE_EVICT                    /// 大块张量驱逐
+// #define ORIG_EVICT                       /// DTR original Evction
 
 static const int RESIDUAL_DEGREE = ([]() -> int {    /// 残差链度设置  4-Llama2-7b-hf 6-GPT_simp
     const char* env = getenv("RESIDUAL_DEGREE");

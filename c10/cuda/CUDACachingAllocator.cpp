@@ -937,7 +937,7 @@ SegmentTwin::SegmentTwin(Block* head) {
 void SegmentTwin::insert(Block* block) {
   // blocks.emplace_back(block);
   blocks.insert(block);
-  last_change_time = std::chrono::system_clock::now();
+  // last_change_time = std::chrono::system_clock::now();   // updated in Manager
 }
 
 void SegmentTwin::erase(Block* block) {
@@ -1058,6 +1058,87 @@ public:
     // 获取最小的Segment
     return head;
   }
+};
+
+// 自定义比较器，根据 last_change_time 进行排序
+struct CompareSegment {
+  bool operator()(const SegmentTwin* lhs, const SegmentTwin* rhs) const {
+      return lhs->last_change_time < rhs->last_change_time;
+  }
+};
+
+class SegmentManager {
+private:
+  // std::set<SegmentTwin*, CompareSegment> segments;
+  ska::flat_hash_map<size_t, std::set<SegmentTwin*, CompareSegment>> size_map;
+  ska::flat_hash_map<void*, SegmentTwin*> blocks2segment;
+
+public:
+
+  void add_block2segment(Block* block, SegmentTwin* seg) {
+    blocks2segment[block->ptr] = seg;
+    seg->insert(block);   // update last_change_time
+    update(seg);
+  }
+
+  SegmentTwin* get_segment_of_block(void* ptr, bool remove = false) {
+    auto it = blocks2segment.find(ptr);
+    if (it == blocks2segment.end()) {
+      return nullptr;
+    }
+    SegmentTwin* seg = it->second;
+    if (remove) {
+      blocks2segment.erase(it);
+    }
+    return seg;
+  }
+
+  /* Insert a new created SegmentTwin */
+  void insert(SegmentTwin* new_segment) {
+    auto it = size_map.find(new_segment->total_size);
+    if(it==size_map.end()){
+      std::set<SegmentTwin*, CompareSegment> segments;
+      segments.insert(new_segment);
+      size_map[new_segment->total_size] = segments;
+    }else{
+      size_map[new_segment->total_size].insert(new_segment);
+    }
+  }
+
+  void update(SegmentTwin* segment) {
+    size_map[segment->total_size].erase(segment);
+    segment->last_change_time = std::chrono::system_clock::now();
+    size_map[segment->total_size].insert(segment);
+  }
+
+  void erase(SegmentTwin* segment) {
+    auto it = size_map.find(segment->total_size);
+    TORCH_INTERNAL_ASSERT(it!=size_map.end());
+    it->second.erase(segment);
+    if(it->second.empty()){
+      size_map.erase(it);
+    }
+  }
+
+  void display_segments(){
+    for(const auto& it: size_map){
+      size_t segment_size = it.first;
+      for(const auto& seg_it: it.second){
+        auto pit = seg_it->blocks.begin();
+        uintptr_t ptr;
+        if(pit!=seg_it->blocks.end())
+          ptr = reinterpret_cast<uintptr_t>(pit.current->value->ptr);
+        else
+          ptr = 0;
+        size_t blocks_num = seg_it->blocks.size();
+        auto last_time = seg_it->last_change_time;
+        auto duration = last_time.time_since_epoch();
+        size_t millis = std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();  // timestamp
+        DTRLogSegmentsStats(segment_size, blocks_num, millis, ptr);
+      }
+    }
+  }
+
 };
 
 
@@ -1834,7 +1915,7 @@ class DeviceCachingAllocator {
 #endif
 
 #ifdef MEM_TWIN_REC
-  SegmentsContanier segManager;
+  SegmentManager segManager;
 #endif
 
   // captures_underway tracks if a capture might be underway on any stream.
@@ -2018,7 +2099,7 @@ class DeviceCachingAllocator {
     if(c10::dtb::USE_DTR){
       auto *pm = c10::dtb::getDTBPoolManager();
       auto if_evict = pm->auto_evict(device, size);
-      if(if_evict) getSegmentTwins();
+      // if(if_evict) getSegmentTwins();
       #ifdef MORE_POOL
       // if(if_evict){     // for figure, actually exectution will release these free blocks when close to OOM
       //   // release_blocks(ex1_blocks);
@@ -2236,6 +2317,7 @@ class DeviceCachingAllocator {
       remaining->ptr = static_cast<char*>(remaining->ptr) + size;   // remaining data pointer offset <size>, remaining means unallocated block
       remaining->size -= size;
 #ifdef MEM_TWIN_REC
+      // [TAG] split block and insert into it's SegmentTwin
       auto *seg = segManager.get_segment_of_block(block->ptr);   // remaining is orig block, and current block is a new block, but the orig ptr now belong to block
       segManager.add_block2segment(remaining, seg);              // and remaining->ptr is a new pointer to be added
 #endif
@@ -3359,25 +3441,25 @@ class DeviceCachingAllocator {
 #ifdef MEM_TWIN_REC
   void getSegmentTwins() {
     DTRLogger::logger().log("{\"TYPE\": \"TAG\", \"VALUE\": \"BEGIN\"}");
-    // for(auto& ele: segManager.blocks2segment){     // 不能遍历blocks2segment，这个map的个数其实是block的个数
-    SegmentTwin* seg = segManager.getMinSegment();
-    while(seg)
-    {
-      // uintptr_t ptr = reinterpret_cast<uintptr_t>(ele.first);
-      auto it = seg->blocks.begin();
-      uintptr_t ptr;
-      if(it!=seg->blocks.end())
-        ptr = reinterpret_cast<uintptr_t>(it.current->value->ptr);
-      else
-        ptr = 0;
-      size_t segment_size = seg->total_size;
-      size_t blocks_num = seg->blocks.size();
-      auto last_time = seg->last_change_time;
-      auto duration = last_time.time_since_epoch();
-      size_t millis = std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();  // timestamp
-      DTRLogSegmentsStats(segment_size, blocks_num, millis, ptr);
-      seg = seg->next;
-    }
+    // SegmentTwin* seg = segManager.getMinSegment();
+    // // for(auto& ele: segManager.blocks2segment){     // 不能遍历blocks2segment，这个map的个数其实是block的个数
+    // while(seg) {
+    //   // uintptr_t ptr = reinterpret_cast<uintptr_t>(ele.first);
+    //   auto it = seg->blocks.begin();
+    //   uintptr_t ptr;
+    //   if(it!=seg->blocks.end())
+    //     ptr = reinterpret_cast<uintptr_t>(it.current->value->ptr);
+    //   else
+    //     ptr = 0;
+    //   size_t segment_size = seg->total_size;
+    //   size_t blocks_num = seg->blocks.size();
+    //   auto last_time = seg->last_change_time;
+    //   auto duration = last_time.time_since_epoch();
+    //   size_t millis = std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();  // timestamp
+    //   DTRLogSegmentsStats(segment_size, blocks_num, millis, ptr);
+    //   seg = seg->next;
+    // }
+    segManager.display_segments();
     DTRLogger::logger().log("{\"TYPE\": \"TAG\", \"VALUE\": \"END\"}");
   }
 #endif

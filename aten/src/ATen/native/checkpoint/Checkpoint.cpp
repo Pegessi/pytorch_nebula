@@ -1813,12 +1813,25 @@ std::tuple<Tensor,Tensor>
 checkpoint_native_dropout(const Tensor& self, double p, c10::optional<bool> train){
   rematerialize_function_t rt =
     [p, train](const Tensors& vec) -> Tensors {
+      // printf("calling at::native_dropout\n");
       auto ret = at::native_dropout(vec.at(0), p, train);
       return {std::get<0>(ret), std::get<1>(ret)};
     };
   auto ret = CheckpointTensorImpl::make("aten::native_dropout", rt, {self});
   return {ret[0], ret[1]};
 }
+
+/// ['aten::native_dropout', 'std::tuple<at::Tensor,at::Tensor>', 'native_dropout', '(const at::Tensor & input, double p, c10::optional<bool> train)']
+// std::tuple<at::Tensor,at::Tensor> checkpoint_native_dropout(const at::Tensor & input, double p, c10::optional<bool> train) {
+//   rematerialize_function_t rt =
+//     [=](const Tensors& vec) -> Tensors {
+//       auto ret = at::native_dropout(vec.at(0), p, train);
+//       return {std::get<0>(ret), std::get<1>(ret)};
+//     };
+//   auto ret = CheckpointTensorImpl::make("aten::native_dropout", rt, {input});
+//   return {ret[0], ret[1]};
+// }
+
 
 std::tuple<Tensor, Tensor, Tensor> 
 checkpoint_native_batch_norm(const Tensor& self, const c10::optional<Tensor>& weight_opt, const c10::optional<Tensor>& bias_opt, const c10::optional<Tensor>& running_mean_opt, const c10::optional<Tensor>& running_var_opt, bool train, double momentum, double epsilon) {
