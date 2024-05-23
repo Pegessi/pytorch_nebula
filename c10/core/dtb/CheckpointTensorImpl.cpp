@@ -253,9 +253,9 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
   for (Tensor& t : raw_outputs) {             // prepare checkpoint for raw_outputs
     intrusive_ptr<AliasPool> alias_pool;
     int alias = get_alias(raw_inputs, t);           // check if t is an alias of tensor in inputs
+    auto m = memory(t);
+    auto addr = get_addr(t);
     if (alias == -1) {
-      auto m = memory(t);
-      auto addr = get_addr(t);
       // alias_pool = intrusive_ptr<AliasPool>::make(Unsafe(), remat, m, device_id);
       alias_pool = intrusive_ptr<AliasPool>::make(Unsafe(), remat, m, addr, device_id);     /// [TAG] AliasPool构造
       // if(reserved_range){     /// TAG: 保留区间内的aps保存
@@ -270,7 +270,12 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
     }
     else {
       alias_pool = inputs[alias]->pool;
-      alias_pool->set_addr(get_addr(t));    // TODO: why org addr become a strange addr
+#ifdef MEM_FIRST_EVICT
+      pm->update_ap(alias_pool, addr);
+      // alias_pool->set_addr(addr);    // TODO[√]: why org addr become a strange addr? because original ptr becomes an undefined ptr
+#else
+      alias_pool->set_addr(addr);    // TODO[√]: why org addr become a strange addr? because original ptr becomes an undefined ptr
+#endif
       if (alias_pool->head_remat) {
         alias_pool->head_remat->compute_cost += cur_compute_cost;
       }
@@ -818,6 +823,12 @@ CheckpointTensorImpl::CheckpointTensorImpl(Tensor& t, bool if_weight) : Checkpoi
   auto device_id = C10_LIKELY(t.defined()) ? static_cast<int>(t.device().index()) : -1;      /// CPU data possible or undefiend tensor
   auto *pm = getDTBPoolManager();
   pm->add_ext(device_id, weak_intrusive_ptr<External>(ref->value));
+  /**
+   * model weights maybe init on CPU, so cannot be add here
+   * aps only records CUDA tensors
+  */
+  // printf("[ADD_AP before] %ld %d\n", ref->value->value->pool->addr, device_id);
+  // pm->add_ap(device_id, ref->value->value->pool);                                       
 #else
   pool.exts.push_back(weak_intrusive_ptr<External>(ref->value));
 #endif

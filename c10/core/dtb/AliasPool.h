@@ -117,7 +117,10 @@ struct AliasPool : intrusive_ptr_target {
     }
     return dependency;
   }
-  void set_addr(uintptr_t new_addr) { addr = new_addr; }
+  void set_addr(uintptr_t new_addr) { 
+    // printf("[SET ADDR] %ld to %ld\n", addr, new_addr);
+    addr = new_addr; 
+  }
   // register_external() && release_external() is used for maintain the aps natural period
   void register_external() {
     ++external_count;
@@ -126,7 +129,7 @@ struct AliasPool : intrusive_ptr_target {
   // if it was evicted, refresh it. otherwise do nothing.
   // have to check so, because when we rematerialize a single tensor in an aliaspool,
   // we will set it to non-evicted, and when we rematerialize it's tensor they will also reset this.
-  void set_not_evicted(const intrusive_ptr<AliasPool>& self);
+  void set_not_evicted(intrusive_ptr<AliasPool>& self);
   void release_resources() final;
 };
 

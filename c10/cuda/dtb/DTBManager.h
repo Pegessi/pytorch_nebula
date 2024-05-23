@@ -10,6 +10,7 @@
 #include <cmath>
 #include <chrono>
 #include <c10/cuda/CUDACachingAllocator.h>
+#include <c10/util/flat_hash_map.h>
 #include <c10/core/dtb/AliasPool.h>
 #include <c10/core/dtb/CheckpointPool.h>
 #include <c10/core/dtb/External.h>
@@ -35,6 +36,10 @@ static const bool USE_DTR = ([]() -> bool {    /// init if use dtr by check env 
       std::vector<std::unique_ptr<CheckpointPool>> device_dtbpool;
       std::vector<size_t> peak_allocated_memory;
       std::vector<size_t> peak_reserved_memory;
+#ifdef MEM_FIRST_EVICT
+      ska::flat_hash_map<void*, weak_intrusive_ptr<AliasPool>> p2ap;
+      // std::unordered_map<void*, weak_intrusive_ptr<AliasPool>> p2ap;
+#endif
 
       void update_max_meminfo(int device_id){
         peak_allocated_memory[device_id] = std::max(peak_allocated_memory[device_id], current_memory(device_id));
@@ -54,7 +59,32 @@ static const bool USE_DTR = ([]() -> bool {    /// init if use dtr by check env 
           throw std::runtime_error("DTB manager is not initialized.");
         }
       }
-      
+
+#ifdef MEM_FIRST_EVICT
+      void insert_ptr2ap(void* ptr, weak_intrusive_ptr<AliasPool>&& ap) {
+        // printf("[INSERT CHECK] %ld\n", reinterpret_cast<uintptr_t>(ptr));
+        if(likely(ptr))   // some times with undefined tensor which memory=0
+        {
+          auto it = p2ap.find(ptr);
+          // TORCH_INTERNAL_ASSERT(it==p2ap.end());
+          if(likely(it!=p2ap.end()))  // 是否是同一个pool？
+            erase_ptr2ap(ptr);
+          p2ap.insert({ptr, ap});
+          
+        }else{
+          // printf("[ABNORMAL AP] ptr:%ld defined:%d", reinterpret_cast<uintptr_t>(ptr), ap->is_evicted ? 0 : 1);
+          // printf("[ABNORMAL AP] ptr:%ld defined:%d", reinterpret_cast<uintptr_t>(ptr), ap.defined());
+        }
+          // p2ap.insert({ptr, ap});
+      }
+
+      void erase_ptr2ap(void* ptr) {
+        TORCH_INTERNAL_ASSERT(ptr);
+        auto it = p2ap.find(ptr);
+        if(likely(it!=p2ap.end()))
+          p2ap.erase(it);
+      }
+#endif      
 
     public:
       std::vector<bool> if_train_mode;
@@ -74,11 +104,21 @@ static const bool USE_DTR = ([]() -> bool {    /// init if use dtr by check env 
 
       void add_into_keychain(int device, const weak& new_key, const weak& pre);
 
-      void add_ap(int device, const intrusive_ptr<AliasPool>& new_ap);
+      void add_ap(int device, intrusive_ptr<AliasPool>& new_ap);
 
       void add_ext(int device, const weak_intrusive_ptr<External>& new_ext);
 
       void erase_ap(int device, uintptr_t addr);
+
+#ifdef MEM_FIRST_EVICT
+      void update_ap(intrusive_ptr<AliasPool>& ap, uintptr_t new_addr);
+
+      void remove_p2ap(uintptr_t addr);
+
+      std::pair<weak_intrusive_ptr<AliasPool>, bool> get_ap_by_ptr(void* ptr);
+
+      size_t get_p2ap_size() {return p2ap.size();}
+#endif
 
       void toggle_sampling(bool if_sampling);
 
@@ -95,9 +135,6 @@ static const bool USE_DTR = ([]() -> bool {    /// init if use dtr by check env 
       void clear_checkpointpool(int device);
 
       void pool_cur_mem_snapshot(int device);
-
-      void insert_block(int device, MemBlockTwin* block);
-      // MemBlockTwin* get_block(int device, uintptr_t ptr);
 
       std::vector<std::pair<size_t, size_t>> get_peak_memory();
   };

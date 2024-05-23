@@ -38,7 +38,7 @@
 TORCH_SDT_DEFINE_SEMAPHORE(malloc)
 TORCH_SDT_DEFINE_SEMAPHORE(free)
 
-#define MEM_TWIN_REC
+// #define MEM_TWIN_REC
 
 // #define GMLAKE_ENABLE // GMLAKE history trace is unavailable(wrong history)
 #ifdef GMLAKE_ENABLE
@@ -143,12 +143,23 @@ void DTRLogcudaAPIEvents(const std::string& name, size_t size, int64_t addr) {
   DTRLogger::logger().log(log_msg);
 }
 
-void DTRLogSegmentsStats(const size_t& size, const size_t& blocks_num, const size_t& timstamp, const uintptr_t& head_addr){
+void DTRLogSegmentsStats(const size_t& size, const size_t& blocks_num, const size_t& timstamp, const std::vector<void*> ptrs, const std::vector<int> status){
   std::string log_msg = "{";
   log_msg += "\"TYPE\":\"SEGMENT INFO\", ";
   log_msg += "\"SIZE\":" + std::to_string(size) + ", ";
   log_msg += "\"MEMBERS\":" + std::to_string(blocks_num) + ", ";
-  log_msg += "\"ADDR\":" + std::to_string(head_addr) + ", ";
+  log_msg += "\"ADDR\":[";
+  for(size_t i=0; i<ptrs.size(); i++){
+    log_msg += std::to_string(reinterpret_cast<uintptr_t>(ptrs[i]));
+    if(i!=ptrs.size()-1) log_msg += + ", ";
+  }
+  log_msg += "], ";
+  log_msg += "\"STATUS\":[";
+  for(size_t i=0; i<status.size(); i++){
+    log_msg += std::to_string((status[i]));
+    if(i!=ptrs.size()-1) log_msg += + ", ";
+  }
+  log_msg += "], ";
   log_msg += "\"TIMESTAMP\":" + std::to_string(timstamp);
   log_msg += "}";
   DTRLogger::logger().log(log_msg);
@@ -904,9 +915,24 @@ struct ExpandableSegment {
 #ifdef MEM_TWIN_REC
 using c10::dtb::time_t;
 
+// 自定义比较器，根据 stream以及地址顺序 进行排序
+struct CompareBlockInSegment {
+  bool operator()(const Block* a, const Block* b) const {
+      if (a->stream != b->stream) {
+        return (uintptr_t)a->stream < (uintptr_t)b->stream;
+      }
+      return (uintptr_t)a->ptr < (uintptr_t)b->ptr;
+      // if (a->size != b->size) {
+      //   return a->size < b->size;
+      // }
+    }
+};
+
 struct SegmentTwin {
-  ska::flat_hash_set<Block*> blocks;
+  // ska::flat_hash_set<Block*> blocks;
+  std::set<Block*, CompareBlockInSegment> blocks;
   bool is_small = false;
+  bool evictable = true;
   time_t last_change_time;
   size_t total_size;
 
@@ -937,6 +963,7 @@ SegmentTwin::SegmentTwin(Block* head) {
 void SegmentTwin::insert(Block* block) {
   // blocks.emplace_back(block);
   blocks.insert(block);
+  evictable = true;
   // last_change_time = std::chrono::system_clock::now();   // updated in Manager
 }
 
@@ -951,114 +978,12 @@ void SegmentTwin::erase(Block* block) {
   // }
   // if(find_flag) blocks.erase(blocks.begin() + index);
   blocks.erase(block);
+  evictable = true;
 }
 
 bool SegmentTwin::empty(){
   return blocks.empty();
 }
-
-struct SegmentTwinInfo {
-
-};
-
-/**
- * Use flash_hash_map and Bidirectional linked list
- * to implement a All O(1) datastructure to record the ordered SegmentTwins.
- * Because last_change_time of SegmentTwin may changed frequently, so a efficient ds is needed.
-*/
-struct SegmentsContanier {
-  // ska::flat_hash_set<SegmentTwin*> stores SegmentTwin with common SegmentTwinInfo
-  // std::list<pair<ska::flat_hash_set<SegmentTwin*>, SegmentTwinInfo>> lst;
-  // ska::flat_hash_map<SegmentTwin*, std::list<pair<unordered_set<SegmentTwin*>, SegmentTwinInfo>>::iterator> nodes;
-private:
-  SegmentTwin* head{nullptr};
-  SegmentTwin* tail{nullptr};
-
-public:
-  ska::flat_hash_map<void*, SegmentTwin*> blocks2segment;
-
-  SegmentsContanier() {}
-
-  bool empty() { return (head==nullptr)&&(tail==nullptr); }
-
-  // 增加对SegmentTwin对象的操作
-  void insert(SegmentTwin* key) {
-    // 暂时用简单的双向链表尾插法
-    if(empty()){
-      head = key;
-      tail = key;
-    }else{
-      tail->next = key;
-      key->pre = tail;
-      tail = key;
-    }
-    // if (nodes.count(key)) {
-    //   auto cur = nodes[key], nxt = next(cur);
-    //   if (nxt == lst.end() || nxt->second > cur->second + 1) {  // TOCHANGE
-    //     ska::flat_hash_set<SegmentTwin*> s({key});
-    //     nodes[key] = lst.emplace(nxt, s, cur->second + 1); // TOCHANGE
-    //   } else {
-    //     nxt->first.emplace(key);
-    //     nodes[key] = nxt;
-    //   }
-    //   cur->first.erase(key);
-    //   if (cur->first.empty()) {
-    //     lst.erase(cur);
-    //   }
-    // } else { // key 不在链表中
-    //   if (lst.empty() || lst.begin()->second > 1) {  // TOCHANGE
-    //       ska::flat_hash_set<SegmentTwin*> s({key});
-    //       lst.emplace_front(s, 1);  // TOCHANGE
-    //   } else {
-    //       lst.begin()->first.emplace(key);
-    //   }
-    //   nodes[key] = lst.begin();
-    // }
-  }
-
-  void erase(SegmentTwin* key) {
-    if(!key) return;
-    if (key->pre) {
-        key->pre->next = key->next;
-    } else {  // key 是头节点
-        head = key->next;
-    }
-    
-    if (key->next) {
-        key->next->pre = key->pre;
-    } else {  // key 是尾节点
-        tail = key->pre;
-    }
-
-  }
-
-  void add_block2segment(Block* block, SegmentTwin* seg) {
-    blocks2segment[block->ptr] = seg;
-    seg->insert(block);
-  }
-
-  SegmentTwin* get_segment_of_block(void* ptr, bool remove = false) {
-    auto it = blocks2segment.find(ptr);
-    if (it == blocks2segment.end()) {
-      return nullptr;
-    }
-    SegmentTwin* seg = it->second;
-    if (remove) {
-      blocks2segment.erase(it);
-    }
-    return seg;
-  }
-
-  SegmentTwin* getMaxSegment() {
-    // 获取最大的Segment，需要定义比较逻辑
-    return tail;
-  }
-
-  SegmentTwin* getMinSegment() {
-    // 获取最小的Segment
-    return head;
-  }
-};
 
 // 自定义比较器，根据 last_change_time 进行排序
 struct CompareSegment {
@@ -1070,7 +995,8 @@ struct CompareSegment {
 class SegmentManager {
 private:
   // std::set<SegmentTwin*, CompareSegment> segments;
-  ska::flat_hash_map<size_t, std::set<SegmentTwin*, CompareSegment>> size_map;
+  // ska::flat_hash_map<size_t, std::set<SegmentTwin*, CompareSegment>> size_map;
+  std::map<size_t, std::set<SegmentTwin*, CompareSegment>> size_map;
   ska::flat_hash_map<void*, SegmentTwin*> blocks2segment;
 
 public:
@@ -1121,22 +1047,160 @@ public:
   }
 
   void display_segments(){
+#ifdef MEM_FIRST_EVICT
+    auto *pm = c10::dtb::getDTBPoolManager();
+    // printf("[CHECK p2ap] %ld\n",pm->get_p2ap_size());
     for(const auto& it: size_map){
       size_t segment_size = it.first;
       for(const auto& seg_it: it.second){
         auto pit = seg_it->blocks.begin();
-        uintptr_t ptr;
-        if(pit!=seg_it->blocks.end())
-          ptr = reinterpret_cast<uintptr_t>(pit.current->value->ptr);
-        else
-          ptr = 0;
+        std::vector<void*> data_ptrs;
+        std::vector<int> if_evictable;
+        for(auto pit = seg_it->blocks.begin(); pit!=seg_it->blocks.end(); pit++){
+          data_ptrs.emplace_back((*pit)->ptr);
+          auto res = pm->get_ap_by_ptr((*pit)->ptr);
+          if(res.second){
+            auto sap = res.first.lock();
+            if(sap.defined()){
+              if_evictable.emplace_back(sap->evictable() ? 1 : 0);  // 1-can evict 0-cannot
+            }else{
+              if_evictable.emplace_back(-2);
+            }
+          }else{
+            if(!(*pit)->allocated)            
+              if_evictable.emplace_back(-1);  // free block
+            else
+              if_evictable.emplace_back(-2);  // no record ptr but used
+          }
+        }
+        // uintptr_t ptr;
+        // if(pit!=seg_it->blocks.end())
+        //   ptr = reinterpret_cast<uintptr_t>(pit.current->value->ptr);
+        // else
+        //   ptr = 0;
         size_t blocks_num = seg_it->blocks.size();
         auto last_time = seg_it->last_change_time;
         auto duration = last_time.time_since_epoch();
         size_t millis = std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();  // timestamp
-        DTRLogSegmentsStats(segment_size, blocks_num, millis, ptr);
+        // DTRLogSegmentsStats(segment_size, blocks_num, millis, ptr);
+        DTRLogSegmentsStats(segment_size, blocks_num, millis, data_ptrs, if_evictable);
       }
     }
+#endif
+  }
+
+  bool auto_evict(size_t need_size) {
+    bool satisfied = false;
+    auto size_map_it = size_map.lower_bound(need_size);
+    auto *pm = c10::dtb::getDTBPoolManager();
+    size_t released_size = 0;
+
+    while(!satisfied && size_map_it != size_map.end()){
+    
+      for(auto seg_it = size_map_it->second.begin(); seg_it != size_map_it->second.end(); seg_it++){
+        if(!(*seg_it)->evictable) continue;
+        // 判断当前segment是否满足
+        bool all_cannot_evict = true;
+        for(auto bit = (*seg_it)->blocks.begin(); (!satisfied) && (bit != (*seg_it)->blocks.end()); bit++){
+          if((*bit)->allocated){
+            auto *ptr = (*bit)->ptr;
+            auto res = pm->get_ap_by_ptr(ptr);
+            if(res.second){
+              if(auto sap = res.first.lock()){
+                all_cannot_evict = false;
+                if(sap->evictable()) {
+                  printf("[TO RELEASE] ptr:%ld mem:%ld \n", reinterpret_cast<uintptr_t>(ptr), sap->memory);
+                  sap->evict(0);
+                  released_size += sap->memory;
+                }
+              }
+              // else{
+              //   /// exception for released ap
+              //   TORCH_INTERNAL_ASSERT(false, "exception for attaining a released ap.");
+              // }
+            }
+
+            if(released_size >= need_size){
+              satisfied = true;
+              break;
+            }
+
+          }else{
+            continue;
+          }
+        }
+
+        if(all_cannot_evict) (*seg_it)->evictable = false;  // this segment do not have ap
+
+        // 判断是否可以释放
+        if(satisfied){  // 如果可以释放且可用空间满足need_size，释放，结束
+          return true;
+        }
+        // 不可以再判断下一个
+        
+      }
+      // 都不满足，寻找下一组segments
+      size_map_it++;
+    }
+    return false;  // All segment cannot satisfy need, must alloc a new big enough block
+
+    /* 尽可能单段满足的驱逐
+    while(!satisfied && size_map_it != size_map.end()){
+      // if(size_map_it==size_map.end()) return false;
+
+    
+      size_t can_release_size = 0;
+      std::vector<intrusive_ptr<c10::dtb::AliasPool>> to_be_release_ap;
+      for(auto seg_it = size_map_it->second.begin(); seg_it != size_map_it->second.end(); seg_it++){
+        if(!(*seg_it)->evictable) continue;
+        // 判断当前segment是否满足
+        bool all_cannot_evict = true;
+        for(auto bit = (*seg_it)->blocks.begin(); (!satisfied) && (bit != (*seg_it)->blocks.end()); bit++){
+          if((*bit)->allocated){
+            auto *ptr = (*bit)->ptr;
+            // auto wap = pm->get_ap_by_ptr(ptr);
+            auto res = pm->get_ap_by_ptr(ptr);
+            if(res.second){
+              if(auto sap = res.first.lock()){
+                all_cannot_evict = false;
+                if(sap->evictable()) {
+                  can_release_size += sap->memory;
+                  to_be_release_ap.emplace_back(sap);
+                }
+              }else{
+                /// exception for released ap
+                TORCH_INTERNAL_ASSERT(false, "exception for attaining a released ap.");
+              }
+            }
+
+            if(can_release_size >= need_size){
+              satisfied = true;
+              break;
+            }
+
+          }else{
+            continue;
+          }
+        }
+
+        if(all_cannot_evict) (*seg_it)->evictable = false;  // this segment do not have ap
+
+        // 判断是否可以释放
+        if(satisfied){  // 如果可以释放且可用空间满足need_size，释放，结束
+          for(auto& sap: to_be_release_ap) {
+            sap->evict(0);
+          }
+          to_be_release_ap.clear();
+          if_evicted = true;
+          return if_evicted;
+        }
+        // 不可以再判断下一个
+        
+      }
+      // 都不满足，寻找下一组segments
+      size_map_it++;
+    }
+    */
   }
 
 };
@@ -2097,9 +2161,22 @@ class DeviceCachingAllocator {
     params.stat_types = get_stat_types_for_pool(pool);
     // if(c10::dtb::USE_DTR&&(getStats().active_bytes[device].current + size) > c10::dtb::memory_budget){
     if(c10::dtb::USE_DTR){
+      // printf("[CHECK EVICT] %d\n", if_evict?1:0);
+#ifdef MEM_TWIN_REC
+      if(c10::dtb::USE_DTR&&(getStats().active_bytes[device].current + size) > c10::dtb::memory_budget){
+        auto if_evict = segManager.auto_evict(size);
+        printf("Before eviction - Need: %ld, budget: %ld, current: %ld, device:%d\n", size, c10::dtb::memory_budget, getStats().active_bytes[device].current, device);
+        if(if_evict) 
+        {
+          printf("After eviction - Need: %ld, budget: %ld, current: %ld, device:%d\n", size, c10::dtb::memory_budget, getStats().active_bytes[device].current, device);
+          getSegmentTwins();
+        }
+      }
+#else
       auto *pm = c10::dtb::getDTBPoolManager();
       auto if_evict = pm->auto_evict(device, size);
-      // if(if_evict) getSegmentTwins();
+#endif
+
       #ifdef MORE_POOL
       // if(if_evict){     // for figure, actually exectution will release these free blocks when close to OOM
       //   // release_blocks(ex1_blocks);

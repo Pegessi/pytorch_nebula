@@ -1,5 +1,6 @@
 #include <c10/core/dtb/CheckpointTensorCell.h>
 #include <c10/core/dtb/utils.h>
+#include <c10/cuda/dtb/DTBManager.h>
 #include <queue>
 
 #define TORCH_CHECK(a, ...)   // replace original TORCH_CHECK  profile mode
@@ -19,10 +20,10 @@ namespace dtb {
 void CheckpointTensorCell::fill(Tensor& t) {
   STATS.track("CheckpointTensorCell::fill");
   if (!(this->t)) {
-    this->t = std::make_unique<Tensor>(std::move(t));
-    pool->set_not_evicted(pool);                          /// TAG: 改变标志位，更新cost
     pool->set_addr(get_addr(t));
-    if (!defined) {                                       /// 这里是将所有的属性拷贝一遍，虽然看起来毫无意义
+    this->t = std::make_unique<Tensor>(std::move(t));
+    pool->set_not_evicted(pool);                          /// TAG: 改变标志位，更新cost, MEM_FIRST_EVICT在上面的函数中更新了p2ap(add_ap)
+    if (!defined) {                                       /// 这里是将所有的属性拷贝一遍，满足兼容性
       defined = true;
       is_undefined_tensor = !this->t->defined();
       key_set_ = this->t->key_set();
@@ -64,6 +65,10 @@ CheckpointTensorCell::CheckpointTensorCell(Tensor& t,
 void CheckpointTensorCell::evict() {
   TORCH_CHECK(remat);
   defined = false;
+#ifdef MEM_FIRST_EVICT
+  auto *pm = getDTBPoolManager();
+  pm->remove_p2ap(pool->addr);            // remove old ptr record
+#endif
   t.reset();
 }
 

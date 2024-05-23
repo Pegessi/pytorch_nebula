@@ -225,14 +225,18 @@ void DTBCheckpointPool::force_evict(int device, int mode) {
   pool->force_evict(mode);
 }
 
-void DTBCheckpointPool::add_ap(int device, const intrusive_ptr<AliasPool>& new_ap){
-  if(!device_id_check(device)) return;
+void DTBCheckpointPool::add_ap(int device, intrusive_ptr<AliasPool>& new_ap){
+  if(!device_id_check(device)) return;  // ignore cpu tensor
   init_check();
 #ifdef DEBUG_MODE
   update_max_meminfo(device);
 #endif
   auto pool = device_dtbpool[device].get();
   pool->add(new_ap);
+#ifdef MEM_FIRST_EVICT
+  TORCH_INTERNAL_ASSERT(new_ap.defined());
+  insert_ptr2ap(reinterpret_cast<void*>(new_ap->addr), weak_intrusive_ptr<AliasPool>(new_ap));
+#endif
   // }else if(device==-1){
   //   for (const auto& pool : device_dtbpool) {
   //     pool->add(new_ap);
@@ -241,6 +245,56 @@ void DTBCheckpointPool::add_ap(int device, const intrusive_ptr<AliasPool>& new_a
   //   throw std::runtime_error("Invalid device was detected during ap inserting.");
   // }
 }
+
+/**
+ * Currently only used in mem_ordered_aps, not for normal eviction.
+ * Normal eviction will remove ap during CheckpointPool::evict()
+*/
+void DTBCheckpointPool::erase_ap(int device, uintptr_t addr){
+  auto pool = device_dtbpool[device].get();
+  pool->mem_ordered_aps.erase(addr);
+}
+
+#ifdef MEM_FIRST_EVICT
+/**
+ * Update ap's p2ap info.
+ * Remove old_ptr records and replace it with new_addr, both of them are in the same ap.
+*/
+void DTBCheckpointPool::update_ap(intrusive_ptr<AliasPool>& sap, uintptr_t new_addr){
+  TORCH_INTERNAL_ASSERT(sap.defined());
+  auto old_addr = sap->addr;
+  if(old_addr!=0){
+    // sap maybe not in record.
+    // auto sap = get_ap_by_ptr(reinterpret_cast<void*>(old_addr));
+    // TORCH_INTERNAL_ASSERT(sap.defined(), "ptr-" + std::to_string(old_addr) + " meet a released ap occured when updating aliaspool.");
+    erase_ptr2ap(reinterpret_cast<void*>(old_addr));
+  }
+  sap->set_addr(new_addr);
+  insert_ptr2ap(reinterpret_cast<void*>(new_addr), weak_intrusive_ptr(sap));
+
+}
+
+/**
+ * Remove addr's p2ap record.
+*/
+void DTBCheckpointPool::remove_p2ap(uintptr_t addr){
+  // printf("[CHECK REMOVE] ptr:%ld, total:%ld\n", addr, p2ap.size());
+  if(addr>0)
+    erase_ptr2ap(reinterpret_cast<void*>(addr));
+}
+
+/**
+ * Return finded ap of ptr, otherwise a null weak_intrusive_ptr.
+*/
+std::pair<weak_intrusive_ptr<AliasPool>, bool> DTBCheckpointPool::get_ap_by_ptr(void* ptr){
+  auto it = p2ap.find(ptr);
+  // printf("[FIND p2ap] %ld exist:%d\n", reinterpret_cast<uintptr_t>(ptr), it!=p2ap.end() ? 1 : 0);
+  // TORCH_INTERNAL_ASSERT(it!=p2ap.end());
+  if(it!=p2ap.end())
+    return {it->second, true};
+  else return {weak_intrusive_ptr<AliasPool>(intrusive_ptr<AliasPool>{}), false};
+}
+#endif
 
 void DTBCheckpointPool::add_ext(int device, const weak_intrusive_ptr<External>& new_ext) {
   if(!device_id_check(device)) return;
@@ -259,6 +313,7 @@ void DTBCheckpointPool::add_ext(int device, const weak_intrusive_ptr<External>& 
   //   throw std::runtime_error("Invalid device was detected during exts inserting.");
   // }
 }
+
 
 void DTBCheckpointPool::add_into_keychain(int device, const weak& new_key, const weak& pre) {
   if(!device_id_check(device)) return;
@@ -307,10 +362,6 @@ void DTBCheckpointPool::add_into_keychain(int device, const weak& new_key, const
 #endif
 }
 
-void DTBCheckpointPool::erase_ap(int device, uintptr_t addr){
-  auto pool = device_dtbpool[device].get();
-  pool->mem_ordered_aps.erase(addr);
-}
 
 void DTBCheckpointPool::toggle_sampling(bool if_sampling){
   for (const auto& pool : device_dtbpool) {
@@ -409,15 +460,6 @@ void DTBCheckpointPool::pool_cur_mem_snapshot(int device){
 //   }
 }
 
-void DTBCheckpointPool::insert_block(int device, MemBlockTwin* block) {
-  auto pool = device_dtbpool[device].get();
-  pool->mem_graph.add_allocated_block(block);
-}
-
-// MemBlockTwin* DTBCheckpointPool::get_block(int device, uintptr_t ptr) {
-//   auto pool = device_dtbpool[device].get();
-//   return pool->mem_graph.get_allocated_block(ptr);
-// }
 
 std::vector<std::pair<size_t, size_t>> DTBCheckpointPool::get_peak_memory(){
   std::vector<std::pair<size_t, size_t>> res;

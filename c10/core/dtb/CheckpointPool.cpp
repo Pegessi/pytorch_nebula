@@ -18,6 +18,10 @@ namespace dtb {
 // std::unordered_map<int64_t, duration_t> compute_cost_records;
 // std::unordered_map<int64_t, size_t> memory_cost_records;
 
+/**
+ * Only used in original dtr without poolManager.
+ * 
+*/
 void CheckpointPool::add(const intrusive_ptr<AliasPool>& p) {
   // ignore storage smaller than 1% average size
   if (p->memory > 0 && (memory_count == 0 || !ignore_small_tensors || p->memory >= 0.01 * double(memory_sum/memory_count))) {
@@ -64,7 +68,10 @@ void log_cur_mem_statics(){ /// single mode use
 }
 #endif
 
-// original dtr use this func. now use auto_evict of pm
+/**
+ * Only used in original dtr without poolManager
+ * now use auto_evict of pm
+*/
 void CheckpointPool::auto_evict() {
   STATS.track("CheckpointPool::auto_evict");
   constexpr float evict_mem_scale = 0.05;
@@ -104,6 +111,9 @@ void CheckpointPool::auto_evict() {
 }
 
 // bool peak_out = false;
+/**
+ * Only used in original dtr without poolManager
+*/
 void CheckpointPool::auto_evict(size_t size_bytes){
   STATS.track("CheckpointPool::auto_evict");
     if (has_memory_budget) {
@@ -125,7 +135,11 @@ void CheckpointPool::auto_evict(size_t size_bytes){
   }
 }
 
-// for debug
+/**
+ * Only used in original dtr without poolManager
+ * for debug
+ * [Deprecated]
+*/
 void CheckpointPool::force_evict(int mode){
   auto remove_from_aps = [&](size_t i) {
                            aps[i] = aps[aps.size() - 1];
@@ -172,7 +186,10 @@ void CheckpointPool::force_evict(int mode){
   }
 }
 
-
+/**
+ * Only used in original dtr without poolManager
+ * [Deprecated]
+*/
 void CheckpointPool::initiative_evict(size_t to_free_bytes){
   size_t have_freed_bytes = 0;
   constexpr size_t stride_idx = 1;
@@ -264,7 +281,7 @@ void CheckpointPool::evict() {
                           remove_from_aps(i);
                         };
     auto ap_strong = aps[i].lock();
-    if (!ap_strong.defined()) {
+    if (!ap_strong.defined()) {       // check weak_intrusive_ptr if valid
       cannot_evict();
     }
     else if (ap_strong->ecn) {
@@ -473,10 +490,13 @@ void CheckpointPool::clear_exts(){
   }
   chains.clear();
 // #define DEBUG_MODE
+/**
+ * TODO: 下面即使什么不做只是清空exts，仍然会清除掉pp时要留存的张量？
+*/
 #ifdef DEBUG_MODE
   int count = 0, pool_count = 0;
   std::map<uintptr_t, int> pool_rec;
-  printf("[CHECK CLEAR TIRGGER]\n");
+  // printf("[CHECK CLEAR TIRGGER]\n");
   while (!exts.empty()) {
     if (auto e = exts.back().lock()) {
       // e->value->pin();  /// why pin and remat?
@@ -492,22 +512,22 @@ void CheckpointPool::clear_exts(){
       }
 
       if(!e->value->pool->is_evicted){
-        if(e->value->pool->memory==268435456){  // external_count并不能区分native_dropout的张量
-          printf("exts size: %ld, size:%ld, external_count:%ld, is_weight:%d, pool_count:%d device_id:%d, have_remat:%d input_sizes:%ld output_sizes:%ld counts:%d\n", 
-            exts.size(), e->value->pool->memory, e->value->pool->external_count, e->value->pool->if_weight ? 1 : 0, pool_id,
-            e->value->pool->device_id, e->value->pool->head_remat ? 1 : 0, 
-            e->value->pool->head_remat ? e->value->pool->head_remat->inputs.size() : 0,
-            e->value->pool->head_remat ? e->value->pool->head_remat->outputs.size(): 0,
-            count);
+        // if(e->value->pool->memory==268435456){  // external_count并不能区分native_dropout的张量
+        //   printf("exts size: %ld, size:%ld, external_count:%ld, is_weight:%d, pool_count:%d device_id:%d, have_remat:%d input_sizes:%ld output_sizes:%ld counts:%d\n", 
+        //     exts.size(), e->value->pool->memory, e->value->pool->external_count, e->value->pool->if_weight ? 1 : 0, pool_id,
+        //     e->value->pool->device_id, e->value->pool->head_remat ? 1 : 0, 
+        //     e->value->pool->head_remat ? e->value->pool->head_remat->inputs.size() : 0,
+        //     e->value->pool->head_remat ? e->value->pool->head_remat->outputs.size(): 0,
+        //     count);
           // while(e->value->pool->external_count>0)
           //   e->value->pool->release_external();
           // if(!e->value->pool->is_evicted)
           //   e->value->pool->evict(1);
-          printf("[CHECK EVICT 268435456] before, evicted:%d\n", e->value->pool->is_evicted ? 1 : 0);
-          e->value->pool->evict(0);
-          printf("[CHECK EVICT 268435456] after, evicted:%d\n", e->value->pool->is_evicted ? 1 : 0);
+          // printf("[CHECK EVICT 268435456] before, evicted:%d\n", e->value->pool->is_evicted ? 1 : 0);
+          // e->value->pool->evict(0);
+          // printf("[CHECK EVICT 268435456] after, evicted:%d\n", e->value->pool->is_evicted ? 1 : 0);
           // e->value->pin();
-        }
+        // }
       }
       // e->value->pin();
       /**

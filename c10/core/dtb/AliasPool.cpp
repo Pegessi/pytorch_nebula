@@ -39,9 +39,9 @@ AliasPool::AliasPool(const Unsafe&, intrusive_ptr<Rematerializer> head_remat, si
 }
 
 void AliasPool::release_resources() {
-  if(!is_evicted){
-    evict(2);
-  }
+  // if(!is_evicted){
+  //   evict(2);
+  // }
   tensors.clear();
   neighbors.clear();
   head_remat.reset();
@@ -62,6 +62,11 @@ void AliasPool::evict(int mode) { // 0 - evict | 1 - deconstruct | 2 - Irreversi
       merge<CheckpointInfo>(merge_cpi, ecn, necn);
     }
   }
+// #ifdef MEM_FIRST_EVICT
+//   auto *pm = getDTBPoolManager();   // [TAG] Here release is not enough for tensors
+//   pm->remove_p2ap(addr);            // remove old ptr record
+// #endif
+  // set_addr(0);                      // if necessay?
   TORCH_CHECK(memory > 0);
   TORCH_CHECK(lock_count == 0);
   TORCH_CHECK(!is_evicted);
@@ -79,14 +84,15 @@ void AliasPool::evict(int mode) { // 0 - evict | 1 - deconstruct | 2 - Irreversi
           tensor_destruct_counts += 1;
       }
 #endif
-      printf("evict cell trigger\n");
       cell->evict();
     }
   }
+#ifdef MEM_ORDER_ENABLE
   if(mode==1){  /// memory order use
     auto *pm = getDTBPoolManager();
     pm->erase_ap(device_id, addr);
   }
+#endif
 }
 
 void AliasPool::unlock() {
@@ -222,7 +228,7 @@ std::set<ecn_ptr> AliasPool::neighbor_ecn() {
   return ptr_set;
 }
 
-void AliasPool::set_not_evicted(const intrusive_ptr<AliasPool>& self) {
+void AliasPool::set_not_evicted(intrusive_ptr<AliasPool>& self) {
   if (likely(is_evicted)) {
     STATS.track("AliasPool::set_not_evicted(inside)");
     is_evicted = false;
