@@ -494,64 +494,64 @@ void CheckpointPool::clear_exts(){
  * TODO: 下面即使什么不做只是清空exts，仍然会清除掉pp时要留存的张量？
 */
 #ifdef DEBUG_MODE
-  int count = 0, pool_count = 0;
-  std::map<uintptr_t, int> pool_rec;
-  // printf("[CHECK CLEAR TIRGGER]\n");
-  while (!exts.empty()) {
-    if (auto e = exts.back().lock()) {
-      // e->value->pin();  /// why pin and remat?
-      count++;
-      auto pool_ptr = reinterpret_cast<uintptr_t>((e->value->pool.get()));
-      auto it = pool_rec.find(pool_ptr);
-      int pool_id = 0;
-      if(it==pool_rec.end()){
-        pool_rec[pool_ptr] = ++pool_count;
-        pool_id = pool_count;
-      }else{
-        pool_id = pool_rec[pool_ptr];
-      }
+  // int count = 0, pool_count = 0;
+  // std::map<uintptr_t, int> pool_rec;
+  // // printf("[CHECK CLEAR TIRGGER]\n");
+  // while (!exts.empty()) {
+  //   if (auto e = exts.back().lock()) {
+  //     // e->value->pin();  /// why pin and remat?
+  //     count++;
+  //     auto pool_ptr = reinterpret_cast<uintptr_t>((e->value->pool.get()));
+  //     auto it = pool_rec.find(pool_ptr);
+  //     int pool_id = 0;
+  //     if(it==pool_rec.end()){
+  //       pool_rec[pool_ptr] = ++pool_count;
+  //       pool_id = pool_count;
+  //     }else{
+  //       pool_id = pool_rec[pool_ptr];
+  //     }
 
-      if(!e->value->pool->is_evicted){
-        // if(e->value->pool->memory==268435456){  // external_count并不能区分native_dropout的张量
-        //   printf("exts size: %ld, size:%ld, external_count:%ld, is_weight:%d, pool_count:%d device_id:%d, have_remat:%d input_sizes:%ld output_sizes:%ld counts:%d\n", 
-        //     exts.size(), e->value->pool->memory, e->value->pool->external_count, e->value->pool->if_weight ? 1 : 0, pool_id,
-        //     e->value->pool->device_id, e->value->pool->head_remat ? 1 : 0, 
-        //     e->value->pool->head_remat ? e->value->pool->head_remat->inputs.size() : 0,
-        //     e->value->pool->head_remat ? e->value->pool->head_remat->outputs.size(): 0,
-        //     count);
-          // while(e->value->pool->external_count>0)
-          //   e->value->pool->release_external();
-          // if(!e->value->pool->is_evicted)
-          //   e->value->pool->evict(1);
-          // printf("[CHECK EVICT 268435456] before, evicted:%d\n", e->value->pool->is_evicted ? 1 : 0);
-          // e->value->pool->evict(0);
-          // printf("[CHECK EVICT 268435456] after, evicted:%d\n", e->value->pool->is_evicted ? 1 : 0);
-          // e->value->pin();
-        // }
-      }
-      // e->value->pin();
-      /**
-       * 在混合并行策略时，某些张量是需要留存的，表现为external_count>=1，如通信张量其实是需要保存到下一次被使用
-       * 但在这里是很难获取到应用层上这种信息，且由于劫持张量生命周期，无法妥善处理
-      */
-      // if((e->value->pool->lock_count!=0||e->value->pool->external_count>0||e->value->pool->remat_count>0)&&e->value->defined){
-      //   if(e->value->pool->external_count>1){     /// TODO: 这里仍然不是全明晰的，部分external_count释放后，会出现segmentation fault，目前是没有问题的
-      //     if(!e->value->pool->if_weight&&e->value->pool->head_remat) // 保留权重与不可恢复张量
-      //       e->value->pin();
-      //     else{
-      //       printf("exts size: %ld, size:%ld, external_count:%ld, is_weight:%d, pool_count:%d device_id:%d, have_remat:%d counts:%d\n", 
-      //         exts.size(), e->value->pool->memory, e->value->pool->external_count, e->value->pool->if_weight ? 1 : 0, pool_id,
-      //         e->value->pool->device_id, e->value->pool->head_remat ? 1 : 0, count);
-      //     }
-      //   }else{
-      //     printf("exts size: %ld, size:%ld, external_count:%ld, is_weight:%d, pool_count:%d device_id:%d, have_remat:%d counts:%d\n", 
-      //       exts.size(), e->value->pool->memory, e->value->pool->external_count, e->value->pool->if_weight ? 1 : 0, pool_id,
-      //       e->value->pool->device_id, e->value->pool->head_remat ? 1 : 0, count);
-      //   }
-      // }
-    }
-    exts.pop_back();
-  }
+  //     if(!e->value->pool->is_evicted){
+  //       // if(e->value->pool->memory==268435456){  // external_count并不能区分native_dropout的张量
+  //       //   printf("exts size: %ld, size:%ld, external_count:%ld, is_weight:%d, pool_count:%d device_id:%d, have_remat:%d input_sizes:%ld output_sizes:%ld counts:%d\n", 
+  //       //     exts.size(), e->value->pool->memory, e->value->pool->external_count, e->value->pool->if_weight ? 1 : 0, pool_id,
+  //       //     e->value->pool->device_id, e->value->pool->head_remat ? 1 : 0, 
+  //       //     e->value->pool->head_remat ? e->value->pool->head_remat->inputs.size() : 0,
+  //       //     e->value->pool->head_remat ? e->value->pool->head_remat->outputs.size(): 0,
+  //       //     count);
+  //         // while(e->value->pool->external_count>0)
+  //         //   e->value->pool->release_external();
+  //         // if(!e->value->pool->is_evicted)
+  //         //   e->value->pool->evict(1);
+  //         // printf("[CHECK EVICT 268435456] before, evicted:%d\n", e->value->pool->is_evicted ? 1 : 0);
+  //         // e->value->pool->evict(0);
+  //         // printf("[CHECK EVICT 268435456] after, evicted:%d\n", e->value->pool->is_evicted ? 1 : 0);
+  //         // e->value->pin();
+  //       // }
+  //     }
+  //     // e->value->pin();
+  //     /**
+  //      * 在混合并行策略时，某些张量是需要留存的，表现为external_count>=1，如通信张量其实是需要保存到下一次被使用
+  //      * 但在这里是很难获取到应用层上这种信息，且由于劫持张量生命周期，无法妥善处理
+  //     */
+  //     // if((e->value->pool->lock_count!=0||e->value->pool->external_count>0||e->value->pool->remat_count>0)&&e->value->defined){
+  //     //   if(e->value->pool->external_count>1){     /// TODO: 这里仍然不是全明晰的，部分external_count释放后，会出现segmentation fault，目前是没有问题的
+  //     //     if(!e->value->pool->if_weight&&e->value->pool->head_remat) // 保留权重与不可恢复张量
+  //     //       e->value->pin();
+  //     //     else{
+  //     //       printf("exts size: %ld, size:%ld, external_count:%ld, is_weight:%d, pool_count:%d device_id:%d, have_remat:%d counts:%d\n", 
+  //     //         exts.size(), e->value->pool->memory, e->value->pool->external_count, e->value->pool->if_weight ? 1 : 0, pool_id,
+  //     //         e->value->pool->device_id, e->value->pool->head_remat ? 1 : 0, count);
+  //     //     }
+  //     //   }else{
+  //     //     printf("exts size: %ld, size:%ld, external_count:%ld, is_weight:%d, pool_count:%d device_id:%d, have_remat:%d counts:%d\n", 
+  //     //       exts.size(), e->value->pool->memory, e->value->pool->external_count, e->value->pool->if_weight ? 1 : 0, pool_id,
+  //     //       e->value->pool->device_id, e->value->pool->head_remat ? 1 : 0, count);
+  //     //   }
+  //     // }
+  //   }
+  //   exts.pop_back();
+  // }
 #endif
 
 }

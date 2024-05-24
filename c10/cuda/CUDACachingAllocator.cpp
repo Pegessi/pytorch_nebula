@@ -38,7 +38,8 @@
 TORCH_SDT_DEFINE_SEMAPHORE(malloc)
 TORCH_SDT_DEFINE_SEMAPHORE(free)
 
-// #define MEM_TWIN_REC
+#define MEM_TWIN_REC
+// #define MEM_TWIN_DEBUG
 
 // #define GMLAKE_ENABLE // GMLAKE history trace is unavailable(wrong history)
 #ifdef GMLAKE_ENABLE
@@ -988,7 +989,8 @@ bool SegmentTwin::empty(){
 // 自定义比较器，根据 last_change_time 进行排序
 struct CompareSegment {
   bool operator()(const SegmentTwin* lhs, const SegmentTwin* rhs) const {
-      return lhs->last_change_time < rhs->last_change_time;
+      if(lhs->last_change_time != rhs->last_change_time) return lhs->last_change_time < rhs->last_change_time;
+      return lhs->blocks.size() < rhs->blocks.size();
   }
 };
 
@@ -1050,34 +1052,61 @@ public:
 #ifdef MEM_FIRST_EVICT
     auto *pm = c10::dtb::getDTBPoolManager();
     // printf("[CHECK p2ap] %ld\n",pm->get_p2ap_size());
+    size_t cans = 0, cannot = 0, no_rec = 0, frees = 0, norecButInAps = 0;
+    size_t cans_size = 0, cannot_size = 0, no_rec_size = 0, frees_size = 0;
+    int device_id = 0;
     for(const auto& it: size_map){
       size_t segment_size = it.first;
       for(const auto& seg_it: it.second){
-        auto pit = seg_it->blocks.begin();
         std::vector<void*> data_ptrs;
         std::vector<int> if_evictable;
+        TORCH_INTERNAL_ASSERT(seg_it);
+        if(seg_it->blocks.empty()) { 
+          printf("[EMPTY SEG]\n"); 
+          frees_size += seg_it->total_size; 
+          continue; 
+        } // frees_size += seg_it->total_size;
         for(auto pit = seg_it->blocks.begin(); pit!=seg_it->blocks.end(); pit++){
-          data_ptrs.emplace_back((*pit)->ptr);
-          auto res = pm->get_ap_by_ptr((*pit)->ptr);
-          if(res.second){
-            auto sap = res.first.lock();
-            if(sap.defined()){
-              if_evictable.emplace_back(sap->evictable() ? 1 : 0);  // 1-can evict 0-cannot
-            }else{
-              if_evictable.emplace_back(-2);
-            }
-          }else{
-            if(!(*pit)->allocated)            
-              if_evictable.emplace_back(-1);  // free block
-            else
+          TORCH_INTERNAL_ASSERT((*pit)->ptr);
+          auto *ptr = (*pit)->ptr;
+          data_ptrs.emplace_back(ptr);
+          device_id = (*pit)->device;
+          if((*pit)->allocated){
+
+            auto res = pm->get_ap_by_ptr(ptr);
+            if(res.second){ // ptr in p2ap
+              auto sap = res.first.lock();
+              if(sap.defined()){
+                TORCH_INTERNAL_ASSERT(reinterpret_cast<void*>(sap->addr)==(*pit)->ptr);
+                if(sap->is_evicted){    // ap is evicted
+                  TORCH_INTERNAL_ASSERT(false, "ap status is not consistent with block.")
+                }else{
+                  if_evictable.emplace_back(sap->evictable() ? 1 : 0);  // 1-can evict 0-cannot
+                  if(sap->evictable()) { cans++; cans_size+=sap->memory; } 
+                  else { cannot++; cannot_size += sap->memory; }
+                }
+              }
+              else{  // ap is invalid, block is allocated but ap is released
+                if_evictable.emplace_back(-2);
+                cannot++;
+                cannot_size += (*pit)->size;
+              }
+            }else{  // block is allocated but not in p2ap
               if_evictable.emplace_back(-2);  // no record ptr but used
+              no_rec++;
+              no_rec_size += (*pit)->size;
+              bool if_inaps = pm->check_ptr_in_aps((*pit)->device, reinterpret_cast<uintptr_t>((*pit)->ptr));
+              if(if_inaps) norecButInAps++;
+            }
+
+          } 
+          else{ // block is free
+            if_evictable.emplace_back(-1);  // free block
+            frees++;
+            frees_size += (*pit)->size;
           }
+
         }
-        // uintptr_t ptr;
-        // if(pit!=seg_it->blocks.end())
-        //   ptr = reinterpret_cast<uintptr_t>(pit.current->value->ptr);
-        // else
-        //   ptr = 0;
         size_t blocks_num = seg_it->blocks.size();
         auto last_time = seg_it->last_change_time;
         auto duration = last_time.time_since_epoch();
@@ -1086,17 +1115,25 @@ public:
         DTRLogSegmentsStats(segment_size, blocks_num, millis, data_ptrs, if_evictable);
       }
     }
+    printf("[CHECK SEGMENTS STATIC] total_p2ap:%ld(device-%d:%ld) cans:%ld(%ld) cannot:%ld(%ld) no_rec:%ld(%ld)(%ld) frees:%ld(%ld)\n", 
+      pm->get_p2ap_size(), device_id, pm->get_aps_size(device_id),
+      cans, cans_size, cannot, cannot_size,
+      no_rec, no_rec_size, norecButInAps, frees, frees_size);
 #endif
   }
 
-  bool auto_evict(size_t need_size) {
+  bool auto_evict(size_t need_size, int device) {
     bool satisfied = false;
     auto size_map_it = size_map.lower_bound(need_size);
     auto *pm = c10::dtb::getDTBPoolManager();
     size_t released_size = 0;
-
-    while(!satisfied && size_map_it != size_map.end()){
-    
+    size_t before_allocated = c10::dtb::current_memory(device);
+    printf("[Before eviction] - Need: %ld, budget: %ld, current: %ld, find_begin_size:%ld, device:%d\n", need_size, c10::dtb::memory_budget, c10::dtb::current_memory(device),
+      size_map_it->first, device);
+    // while(!satisfied){
+    while((c10::dtb::current_memory(device)+need_size)>c10::dtb::memory_budget){
+      if(size_map_it == size_map.end()) return false;
+      printf("searching size:%ld\n", size_map_it->first);
       for(auto seg_it = size_map_it->second.begin(); seg_it != size_map_it->second.end(); seg_it++){
         if(!(*seg_it)->evictable) continue;
         // 判断当前segment是否满足
@@ -1108,8 +1145,8 @@ public:
             if(res.second){
               if(auto sap = res.first.lock()){
                 all_cannot_evict = false;
-                if(sap->evictable()) {
-                  printf("[TO RELEASE] ptr:%ld mem:%ld \n", reinterpret_cast<uintptr_t>(ptr), sap->memory);
+                if(sap->evictable()&&!sap->is_evicted) {
+                  printf("[TO RELEASE] ptr:%ld mem:%ld cur_size_map:%ld\n", reinterpret_cast<uintptr_t>(ptr), sap->memory, size_map_it->first);
                   sap->evict(0);
                   released_size += sap->memory;
                 }
@@ -1134,7 +1171,13 @@ public:
 
         // 判断是否可以释放
         if(satisfied){  // 如果可以释放且可用空间满足need_size，释放，结束
-          return true;
+          // printf("[After eviction] - Need: %ld, budget: %ld, current: %ld, device:%d\n", need_size, c10::dtb::memory_budget, c10::dtb::current_memory(device), device);
+          // size_t after_allocated = c10::dtb::current_memory(device);
+          // if(after_allocated==before_allocated){
+          //   printf("[INVAILID EVICTION]\n");
+          // }
+          // return true;
+          break;
         }
         // 不可以再判断下一个
         
@@ -1142,7 +1185,14 @@ public:
       // 都不满足，寻找下一组segments
       size_map_it++;
     }
-    return false;  // All segment cannot satisfy need, must alloc a new big enough block
+    
+    // return false;  // All segment cannot satisfy need, must alloc a new big enough block
+    printf("[After eviction] - Need: %ld, budget: %ld, current: %ld, device:%d\n", need_size, c10::dtb::memory_budget, c10::dtb::current_memory(device), device);
+    size_t after_allocated = c10::dtb::current_memory(device);
+    if(after_allocated==before_allocated){
+      printf("[INVAILID EVICTION]\n");
+    }
+    return true;
 
     /* 尽可能单段满足的驱逐
     while(!satisfied && size_map_it != size_map.end()){
@@ -2163,12 +2213,13 @@ class DeviceCachingAllocator {
     if(c10::dtb::USE_DTR){
       // printf("[CHECK EVICT] %d\n", if_evict?1:0);
 #ifdef MEM_TWIN_REC
-      if(c10::dtb::USE_DTR&&(getStats().active_bytes[device].current + size) > c10::dtb::memory_budget){
-        auto if_evict = segManager.auto_evict(size);
-        printf("Before eviction - Need: %ld, budget: %ld, current: %ld, device:%d\n", size, c10::dtb::memory_budget, getStats().active_bytes[device].current, device);
+      // auto *pm = c10::dtb::getDTBPoolManager();
+      // auto if_evict = pm->auto_evict(device, size);
+      // if(if_evict) getSegmentTwins();
+      if((c10::dtb::current_memory(device)+size) > c10::dtb::memory_budget){
+        auto if_evict = segManager.auto_evict(size, device);
         if(if_evict) 
         {
-          printf("After eviction - Need: %ld, budget: %ld, current: %ld, device:%d\n", size, c10::dtb::memory_budget, getStats().active_bytes[device].current, device);
           getSegmentTwins();
         }
       }
@@ -2395,8 +2446,21 @@ class DeviceCachingAllocator {
       remaining->size -= size;
 #ifdef MEM_TWIN_REC
       // [TAG] split block and insert into it's SegmentTwin
-      auto *seg = segManager.get_segment_of_block(block->ptr);   // remaining is orig block, and current block is a new block, but the orig ptr now belong to block
-      segManager.add_block2segment(remaining, seg);              // and remaining->ptr is a new pointer to be added
+      /**
+       * remaining is orig block and in seg->blocks, block is a new block not in seg.
+       * But the orig ptr which is in block2segment now belong to block.
+       * Then remove record of orig ptr(to remaining) and redirect it to block.
+      */
+      auto *seg = segManager.get_segment_of_block(block->ptr, true /*remove*/);
+      TORCH_INTERNAL_ASSERT(seg, "get a null segment!");
+    #ifdef MEM_TWIN_DEBUG
+      printf("[SPLIT] seg_members:%ld, add:%ld, reserve:%ld, new_block:%ld\n", seg->blocks.size(), 
+        reinterpret_cast<uintptr_t>(remaining->ptr), reinterpret_cast<uintptr_t>((*(seg->blocks.begin()))->ptr),
+        reinterpret_cast<uintptr_t>(block->ptr));
+    #endif
+      // now block and remaining are inserted in the seg->blocks
+      segManager.add_block2segment(block, seg);              // and remaining->ptr is a new pointer to be added
+      segManager.add_block2segment(remaining, seg);          // and remaining->ptr is a new pointer to be added
 #endif
 
 #ifdef GMLAKE_ENABLE
@@ -2655,6 +2719,14 @@ class DeviceCachingAllocator {
 
     block->allocated = true;
     block->requested_size = orig_size;
+#ifdef MEM_TWIN_REC
+    // [TAG] insert found block into it's SegmentTwin TODO: here adding block makes segment record more info than fact. but not adding makes lack of info.
+
+    // auto *seg = segManager.get_segment_of_block(block->ptr);   // remaining is orig block, and current block is a new block, but the orig ptr now belong to block
+    // TORCH_INTERNAL_ASSERT(seg, "alloc_found_block get a null segment!");
+    // segManager.add_block2segment(block, seg);              // and remaining->ptr is a new pointer to be added
+#endif
+
 #ifdef GMLAKE_ENABLE
     block->actual_size = size;
 #endif
@@ -3847,7 +3919,14 @@ class DeviceCachingAllocator {
 #ifdef MEM_TWIN_REC
       auto *seg = segManager.get_segment_of_block(dst->ptr, true /* remove */);    // record of current dst->ptr is deleted
       TORCH_INTERNAL_ASSERT(seg!=nullptr);
+    #ifdef MEM_TWIN_DEBUG
+      printf("[MERGE src dst] seg_members:%ld, erase:%ld, reserve:%ld\n", seg->blocks.size(), reinterpret_cast<uintptr_t>(src->ptr), reinterpret_cast<uintptr_t>((*(seg->blocks.begin()))->ptr));
+    #endif 
       seg->erase(src);  // release block src
+    #ifdef MEM_TWIN_DEBUG
+      printf("[AFTER MERGE src dst] seg_members:%ld, reserve:%ld\n", seg->blocks.size(), reinterpret_cast<uintptr_t>((*(seg->blocks.begin()))->ptr));
+    #endif
+      TORCH_INTERNAL_ASSERT(!seg->empty(), "erase get a empty segment!");
 #endif
       dst->ptr = src->ptr;
       dst->prev = src->prev;
@@ -3871,7 +3950,22 @@ class DeviceCachingAllocator {
 #ifdef MEM_TWIN_REC
       auto *seg = segManager.get_segment_of_block(src->ptr, true /* remove */);
       TORCH_INTERNAL_ASSERT(seg!=nullptr);
+      size_t before_size = seg->blocks.size();
+    #ifdef MEM_TWIN_DEBUG
+      printf("[MERGE dst src] seg_members:%ld, erase:%ld\n", seg->blocks.size(), reinterpret_cast<uintptr_t>(src->ptr));
+    #endif
       seg->erase(src);
+    #ifndef MEM_TWIN_DEBUG
+      TORCH_INTERNAL_ASSERT(!seg->empty(), "erase get a empty segment!");
+    #else
+      if(seg->empty()){
+        printf("dst:%ld(%ld), src:%ld(%ld), before_erase_seg_size:%ld(%ld)\n", 
+          reinterpret_cast<uintptr_t>(dst->ptr), dst->size, 
+          reinterpret_cast<uintptr_t>(src->ptr), src->size,
+          before_size, seg->total_size);
+        TORCH_INTERNAL_ASSERT(!seg->empty(), "erase get a empty segment!");
+      }
+    #endif
 #endif
       dst->next = src->next;
       if (dst->next) {
@@ -5199,6 +5293,9 @@ class DeviceCachingAllocator {
     SegmentTwin* new_seg = new SegmentTwin(p.block);    // [TAG] only entry for new SegmentTwin creatation
     segManager.add_block2segment(p.block, new_seg);
     segManager.insert(new_seg);
+  #ifdef MEM_TWIN_DEBUG
+    printf("[CREATE] seg_members:%ld, erase:%ld\n", new_seg->blocks.size(), reinterpret_cast<uintptr_t>(p.block->ptr));
+  #endif
 #endif
     for_each_selected_stat_type(p.stat_types, [&](size_t stat_type) {
       update_stat(stats.segment[stat_type], 1);
@@ -5429,10 +5526,13 @@ static const int vmmDefragment = ([]()->int{
     if(log_cudaAPI) DTRLogcudaAPIEvents("cudaFree", block->size, reinterpret_cast<uintptr_t>(block->ptr));
 #endif
 #ifdef MEM_TWIN_REC
-    auto *seg = segManager.get_segment_of_block(block->ptr, true /*remove*/);
+    auto *seg = segManager.get_segment_of_block(block->ptr, true /*remove*/);   // remove rec in block2seg
+  #ifdef MEM_TWIN_DEBUG
+    printf("[RELEASE] seg_members:%ld, erase:%ld\n", seg->blocks.size(), reinterpret_cast<uintptr_t>(block->ptr));
+  #endif
     seg->erase(block);
     TORCH_INTERNAL_ASSERT(seg->empty());    // a block can be released only when it's no split.
-    segManager.erase(seg);
+    segManager.erase(seg);                  // remove rec in size_map
     delete seg;                             // [TAG] only entry of segment destroying
 #endif
     C10_CUDA_CHECK(cudaFree((void*)block->ptr));

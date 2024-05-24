@@ -36,7 +36,7 @@
 #define unlikely(x)    __builtin_expect(!!(x), 0)
 
 // #define ORIGINAL_DTR
-// #define DEBUG_MODE
+#define DEBUG_MODE
 
 // #define TIME_REC                      /// 方便debug的宏定义
 #define MINIMAL_EVICT                    /// 最小驱逐策略（贪心+随机 DTR）

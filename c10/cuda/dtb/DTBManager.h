@@ -118,6 +118,10 @@ static const bool USE_DTR = ([]() -> bool {    /// init if use dtr by check env 
       std::pair<weak_intrusive_ptr<AliasPool>, bool> get_ap_by_ptr(void* ptr);
 
       size_t get_p2ap_size() {return p2ap.size();}
+
+      bool check_ptr_in_aps(int device, uintptr_t addr);
+
+      size_t get_aps_size(int device);
 #endif
 
       void toggle_sampling(bool if_sampling);

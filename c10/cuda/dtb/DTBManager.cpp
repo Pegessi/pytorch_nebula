@@ -199,7 +199,7 @@ bool DTBCheckpointPool::auto_evict(int device, size_t coming_bytes) {
     bool if_eviction = false;
     size_t last_mem = current_memory(device);
     while ((current_memory(device) + coming_bytes) > pool->memory_budget) {
-
+      // printf("[CHECK APS] before this evict, aps_num:%ld, current_mem:%ld, need_size:%ld\n", pool->aps.size(), current_memory(device), coming_bytes);
       pool->evict();
 
       check_counts[device]++;
@@ -294,6 +294,23 @@ std::pair<weak_intrusive_ptr<AliasPool>, bool> DTBCheckpointPool::get_ap_by_ptr(
     return {it->second, true};
   else return {weak_intrusive_ptr<AliasPool>(intrusive_ptr<AliasPool>{}), false};
 }
+
+
+bool DTBCheckpointPool::check_ptr_in_aps(int device, uintptr_t addr) {
+  auto pool = device_dtbpool[device].get();
+  for(auto& wap: pool->aps){
+    if(auto sap = wap.lock()){
+      if(sap->addr==addr) return true;
+    }
+  }
+  return false;
+}
+
+size_t DTBCheckpointPool::get_aps_size(int device) {
+  auto pool = device_dtbpool[device].get();
+  return pool->aps.size();
+}
+
 #endif
 
 void DTBCheckpointPool::add_ext(int device, const weak_intrusive_ptr<External>& new_ext) {
