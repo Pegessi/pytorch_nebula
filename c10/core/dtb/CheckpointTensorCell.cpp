@@ -69,6 +69,19 @@ void CheckpointTensorCell::evict() {
   auto *pm = getDTBPoolManager();
   pm->remove_p2ap(pool->addr);            // remove old ptr record
 #endif
+#ifdef DEBUG_MODE
+  if(trace_register_and_release){
+    printf("---|cptc evict, addr:%ld\n", reinterpret_cast<uintptr_t>(t->data_ptr()));
+  }
+  if(record_op_recs) {
+    if(t)
+      DTRLogAddress("release "+counter_name() + " if_tmp:"+std::to_string(pool->if_temp?1:0) + " " + std::to_string(pool->external_count) + std::to_string(pool->lock_count), 
+        reinterpret_cast<uintptr_t>(t->data_ptr()), pool->memory);
+    else
+      DTRLogAddress("release "+counter_name() + " if_tmp:"+std::to_string(pool->if_temp?1:0) + " " + std::to_string(pool->external_count) + std::to_string(pool->lock_count), 
+        pool->addr, pool->memory);
+  }
+#endif
   t.reset();
 }
 
@@ -81,10 +94,21 @@ void CheckpointTensorCell::release_resources() {
 
 Tensor CheckpointTensorCell::get(){
   if (!t) {
-      TORCH_CHECK(remat);
+      // TORCH_CHECK(remat);
+#ifdef DEBUG_MODE
+      if(!remat){
+        printf("[CHECK REMAT ERROR] tid:%s if_temp:%d device:%d tensors:%ld lc:%ld ec:%ld rc:%ld\n", counter_name().c_str(),
+          pool->if_temp ? 1 : 0, pool->device_id, pool->tensors.size(),
+          pool->lock_count, pool->external_count, pool->remat_count);
+        // printStackTrace();
+      }
+#endif
+      TORCH_INTERNAL_ASSERT(remat);
 #ifdef DEBUG_MODE
       // if(record_er_counts)
       //   DTRLogRematEvents(counter_name(), 0);
+      if(record_op_recs)
+        DTRLogAddress("remat need "+counter_name(), pool->addr, pool->memory);
 #endif
       remat->remat();
     }

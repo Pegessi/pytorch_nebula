@@ -55,7 +55,7 @@ CheckpointInfo merge_cpi(CheckpointInfo l, CheckpointInfo r) {
 void AliasPool::evict(int mode) { // 0 - evict | 1 - deconstruct | 2 - Irreversible deconstruction
   STATS.track("AliasPool::evict");
   TORCH_CHECK(!ecn);
-  if(mode!=2){
+  if(mode!=2&&head_remat){
     ecn = head_remat->get_ecn();      /// 发生驱逐|可恢复释放行为，初始化ecn
     auto ecns = neighbor_ecn();
     for (const auto& necn : ecns) {
@@ -71,6 +71,12 @@ void AliasPool::evict(int mode) { // 0 - evict | 1 - deconstruct | 2 - Irreversi
   TORCH_CHECK(lock_count == 0);
   TORCH_CHECK(!is_evicted);
   is_evicted = true;
+#ifdef DEBUG_MODE
+  int valid_w = 0;
+  if(trace_register_and_release){
+  // auto before_evict_mem = current_memory();
+  }
+#endif
   for (const weak& w : tensors) {
     if (auto cell = w.lock()) {
 #ifdef DEBUG_MODE
@@ -83,10 +89,20 @@ void AliasPool::evict(int mode) { // 0 - evict | 1 - deconstruct | 2 - Irreversi
         else
           tensor_destruct_counts += 1;
       }
+      valid_w++;
 #endif
       cell->evict();
     }
   }
+#ifdef DEBUG_MODE
+  if(trace_register_and_release){
+    // auto after_evict_mem = current_memory();
+    // if(after_evict_mem==before_evict_mem)    /// TODO: 看上去有许多无效的驱逐？
+    // printf("[INVAILD EVICTION] addr:%ld size:%ld\n", addr, memory);
+    printf("---ap evict - addr:%ld size:%ld evict_ws:%d\n", addr, memory, valid_w);
+  }
+#endif
+
 #ifdef MEM_ORDER_ENABLE
   if(mode==1){  /// memory order use
     auto *pm = getDTBPoolManager();
@@ -108,7 +124,7 @@ void AliasPool::unlock() {
       DTRLogLifeCycle(std::to_string(pid), external_count, lock_count, remat_count);
     }
   #endif
-    if(remat_count == 0 && external_count == 0 && lock_count == 0 && retain_count == 0){
+    if(remat_count == 0 && external_count == 0 && lock_count == 0){
       if (memory > 0 && (!ecn) && head_remat) {
         evict(1);
       } 
@@ -121,13 +137,19 @@ void AliasPool::unlock() {
    * 但实际上由于动态执行中会出现remat_count==0但lock_count>0导致无法回收的情况（错过了这个回收窗口）
    * 因此在反向过程中额外检查是否有释放的机会
    * Plus: 锁定的张量也可能在这里释放
+   * TODO: remat_count可能是冗余的
   */
   if(during_backward){
     if(remat_count == 0 && external_count == 0 && lock_count == 0){
       if (memory > 0 && (!ecn) && head_remat) {
         evict(1);
-      } 
+      } else if (memory > 0 && if_temp){
+        evict(2);
+      }
     }
+    // else{
+    //   printf("[CHECK REMATED] remat:%ld ext:%ld lock:%ld size:%ld\n", remat_count, external_count, lock_count, memory);
+    // }
   }
 #endif
 }
@@ -139,15 +161,29 @@ void AliasPool::release_external() {
     if (lock_count > 0) {
       return;
     }
-    
-
-    if (memory > 0 && (!ecn) && head_remat) {   /// [TAG] 对于无源之水无本之木，他们在这里就不会被释放了，包括所有模型权重和其他直接checkpoint的结果
+#ifdef DEBUG_MODE
+  if(trace_register_and_release){
+    printf("--ready to evict, mem:%ld, ecn:%d, head_remat:%d, addr:%ld\n", memory, ecn?1:0, head_remat?1:0, addr);
+  }
+#endif
+    /**
+     * 通信张量以及非权重张量(checkpoint转换)都没有head_remat
+     * 但涉及到通信的张量在backward时仍可能被使用
+    */
+    if (memory > 0 && (!ecn)) {
 #ifdef DEBUG_MODE
       // DTRLogDestructEvents();
       destruct_counts += 1;
 #endif
       evict(1);
     } 
+//     if (memory > 0 && (!ecn) && head_remat) {   /// [TAG] 对于无源之水无本之木，他们在这里就不会被释放了，包括所有模型权重和其他直接checkpoint的结果
+// #ifdef DEBUG_MODE
+//       // DTRLogDestructEvents();
+//       destruct_counts += 1;
+// #endif
+//       evict(1);
+//     } 
     // else if(memory > 0 && head_remat == nullptr){   /// 配合release_external_of_nosource_tensor才能释放这些张量
     //   evict(2);
     // }

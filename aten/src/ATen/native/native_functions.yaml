@@ -6,7 +6,7 @@
   variants: method
 - func: uncheckpoint(Tensor self) -> Tensor
   variants: method
-- func: decheckpoint(Tensor self) -> Tensor
+- func: decheckpoint(Tensor self, bool if_comm=False) -> Tensor
   variants: method
 - func: cpti_decrease(Tensor self) -> ()
   variants: method
@@ -16,7 +16,9 @@
   variants: function
 - func: toggle_log(bool use_log) -> ()
   variants: function
-- func: clear_checkpointpool(int device) -> ()
+- func: clear_checkpointpool(int device, bool last_iter=True) -> ()
+  variants: function
+- func: check_current_exts(int device) -> ()
   variants: function
 - func: init_dtb_manager() -> ()
   variants: function
@@ -1444,6 +1446,7 @@
     output_padding, int groups, bool[3] output_mask) -> (Tensor, Tensor, Tensor)
   dispatch:
     CompositeExplicitAutograd, CUDA: convolution_backward
+    Checkpoint: checkpoint_convolution_backward
   autogen: convolution_backward.out
   tags: core
 - func: convolution_overrideable(Tensor input, Tensor weight, Tensor? bias, int[]
@@ -2743,6 +2746,7 @@
   variants: function, method
   dispatch:
     CompositeExplicitAutograd: index_put_
+    Checkpoint: checkpoint_index_put_
   autogen: index_put.out
 - func: index_put(Tensor self, Tensor?[] indices, Tensor values, bool accumulate=False)
     -> Tensor
@@ -8137,6 +8141,7 @@
   python_module: nn
   dispatch:
     CompositeImplicitAutograd: cross_entropy_loss_symint
+    Checkpoint: checkpoint_cross_entropy_loss_symint
 - func: triangular_solve.X(Tensor self, Tensor A, bool upper=True, bool transpose=False,
     bool unitriangular=False, *, Tensor(a!) X, Tensor(b!) M) -> (Tensor(a!) solution,
     Tensor(b!) cloned_coefficient)
@@ -9083,6 +9088,7 @@
   variants: function
   dispatch:
     CUDA: _amp_foreach_non_finite_check_and_unscale_cuda_
+    Checkpoint: checkpoint__amp_foreach_non_finite_check_and_unscale_
   autogen: _amp_foreach_non_finite_check_and_unscale, _amp_foreach_non_finite_check_and_unscale.out
 - func: _amp_update_scale_(Tensor(a!) self, Tensor(b!) growth_tracker, Tensor found_inf,
     float scale_growth_factor, float scale_backoff_factor, int growth_interval) ->
@@ -10699,6 +10705,7 @@
     CUDA: avg_pool2d_out_cuda
     MPS: avg_pool2d_out_mps
     MkldnnCPU: mkldnn_avg_pool2d_out
+    Checkpoint: checkpoint_avg_pool2d_out
 - func: avg_pool2d(Tensor self, int[2] kernel_size, int[2] stride=[], int[2] padding=0,
     bool ceil_mode=False, bool count_include_pad=True, int? divisor_override=None)
     -> Tensor
@@ -10718,6 +10725,7 @@
     CUDA: avg_pool2d_backward_out_cuda
     MPS: avg_pool2d_backward_out_mps
     MkldnnCPU: mkldnn_avg_pool2d_backward_out
+    Checkpoint: checkpoint_avg_pool2d_backward_out
 - func: avg_pool2d_backward(Tensor grad_output, Tensor self, int[2] kernel_size, int[2]
     stride, int[2] padding, bool ceil_mode, bool count_include_pad, int? divisor_override)
     -> Tensor

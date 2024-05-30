@@ -255,6 +255,9 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
     int alias = get_alias(raw_inputs, t);           // check if t is an alias of tensor in inputs
     auto m = memory(t);
     auto addr = get_addr(t);
+#ifdef DEBUG_MODE
+    bool new_ap = true;
+#endif
     if (alias == -1) {
       // alias_pool = intrusive_ptr<AliasPool>::make(Unsafe(), remat, m, device_id);
       alias_pool = intrusive_ptr<AliasPool>::make(Unsafe(), remat, m, addr, device_id);     /// [TAG] AliasPool构造
@@ -270,6 +273,11 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
     }
     else {
       alias_pool = inputs[alias]->pool;
+#ifdef DEBUG_MODE
+      if(trace_register_and_release){
+        new_ap = false;
+      }
+#endif
 #ifdef MEM_FIRST_EVICT
       pm->update_ap(alias_pool, addr);
       // alias_pool->set_addr(addr);    // TODO[√]: why org addr become a strange addr? because original ptr becomes an undefined ptr
@@ -281,6 +289,13 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
       }
     }
     auto e = intrusive_ptr<External>::make(t, alias_pool, remat); // bind external for t
+
+#ifdef DEBUG_MODE
+    if(trace_register_and_release){
+      printf("make_raw(%s) new external, new ap:%d, addr:%ld\n", name.c_str(), new_ap?1:0, e->value->pool->addr);
+    }
+#endif
+
 #ifdef MULTI_MODE
     pm->add_ext(device_id, weak_intrusive_ptr<External>(e));
 #else
@@ -315,11 +330,11 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
   }
   for (const strong& s : inputs) {
     s->pool->unlock();
-    release_external_of_nosource_tensor(s, name);
+    // release_external_of_nosource_tensor(s, name);
   }
 
 #ifdef DEBUG_MODE
-  return {outputs, aliases, cur_compute_cost, remat, {{},{},{},{},{},{},{}}};
+  return {outputs, aliases, cur_compute_cost, remat, {{},name, cur_compute_cost, {}, {},{}, device_id}};
 #else
   return {outputs, aliases, cur_compute_cost, remat};
 #endif
@@ -443,10 +458,11 @@ MakeRawResult make_raw_rec(const rematerialize_function_t& remat_f,
   for (Tensor& t : raw_outputs) {             // prepare checkpoint for raw_outputs
     intrusive_ptr<AliasPool> alias_pool;
     int alias = get_alias(raw_inputs, t);           // if t is an alias of tensor in inputs?
+    auto m = memory(t);
+    auto addr = get_addr(t);
     if (alias == -1) {
-      auto m = memory(t);
       // alias_pool = intrusive_ptr<AliasPool>::make(Unsafe(), remat, m, device_id);
-      alias_pool = intrusive_ptr<AliasPool>::make(Unsafe(), remat, m, get_addr(t), device_id);    /// [TAG] AliasPool构造
+      alias_pool = intrusive_ptr<AliasPool>::make(Unsafe(), remat, m, addr, device_id);    /// [TAG] AliasPool构造
 #ifdef MULTI_MODE
       pm->add_ap(device_id, alias_pool);
 #else
@@ -455,6 +471,12 @@ MakeRawResult make_raw_rec(const rematerialize_function_t& remat_f,
     }
     else {
       alias_pool = inputs[alias]->pool;
+#ifdef MEM_FIRST_EVICT
+      pm->update_ap(alias_pool, addr);
+      // alias_pool->set_addr(addr);    // TODO[√]: why org addr become a strange addr? because original ptr becomes an undefined ptr
+#else
+      alias_pool->set_addr(addr);    // TODO[√]: why org addr become a strange addr? because original ptr becomes an undefined ptr
+#endif
       if (alias_pool->head_remat) {
         alias_pool->head_remat->compute_cost += (cur_compute_cost);
       }
@@ -482,7 +504,7 @@ MakeRawResult make_raw_rec(const rematerialize_function_t& remat_f,
   }
   for (const strong& s : inputs) {
     s->pool->unlock();
-    release_external_of_nosource_tensor(s, name);
+    // release_external_of_nosource_tensor(s, name);
   }
 #ifdef DEBUG_MODE
   OperationRecord rec = {rid, name, cur_compute_cost, cur_mem_cost, {}, {}, device_id};
@@ -812,17 +834,37 @@ void CheckpointTensorImpl::release_resources() {
 CheckpointTensorImpl::CheckpointTensorImpl(Tensor& t, bool if_weight) : CheckpointTensorImpl(c10::make_intrusive<External>(t, if_weight)) {
   // set_custom_sizes_strides(SizesStridesPolicy::CustomStrides);
   // set_custom_sizes_strides(SizesStridesPolicy::CustomSizes);
-  if(unsafeGetTensorCell()->get().defined())
+  if(unsafeGetTensorCell()->t->defined())
   {
     set_sizes_and_strides(unsafeGetTensorCell()->get().sizes(), unsafeGetTensorCell()->get().strides());
     /// original DTR do not add directly transfered tensor into it's pool
     /// this is for the Fine grained memory management
-    // unsafeGetTensorCell()->pool->tensors.push_back(weak(unsafeGetTensorCell()));         /// TODO: this should distinguish if outer tensor or inner tensor, otherwise double free
+
+    /**
+     * Original design do not really move content of t, so this should distinguish if outer tensor or inner tensor, otherwise double free.
+     * Because that outer tensor is still have content, but when pool release the same memory.
+     * The outer tensor(original t)'s deconstructor will try to free the same memory, so segmentation fault.
+     * But with real moving of t, the original t does not have any content.
+    */
+    unsafeGetTensorCell()->pool->tensors.push_back(weak(unsafeGetTensorCell()));
   }
 #ifdef MULTI_MODE
-  auto device_id = C10_LIKELY(t.defined()) ? static_cast<int>(t.device().index()) : -1;      /// CPU data possible or undefiend tensor
+  /**
+   * really std::move will clear t's content, so here will get the device_id all -1!!!
+  */
+  // auto device_id = C10_LIKELY(t.defined()) ? static_cast<int>(t.device().index()) : -1;      /// CPU data possible or undefiend tensor
+  auto device_id = C10_LIKELY(unsafeGetTensorCell()->defined) ? static_cast<int>(unsafeGetTensorCell()->pool->device_id) : -1;      /// CPU data possible or undefiend tensor
   auto *pm = getDTBPoolManager();
   pm->add_ext(device_id, weak_intrusive_ptr<External>(ref->value));
+#ifdef DEBUG_MODE
+  if(trace_register_and_release){
+    printf("checkpoint new external, new ap:1, deivce:%d\n", device_id);
+  }
+  // if(record_op_recs) {
+  //   DTRLogAddress("checkpoint "+counter_name()+ " " + std::string(unsafeGetTensorCell()->dtype().name()) + " device:" + std::to_string(device_id), 
+  //     unsafeGetTensorCell()->pool->addr, unsafeGetTensorCell()->pool->memory);
+  // }
+#endif
   /**
    * model weights maybe init on CPU, so cannot be add here
    * aps only records CUDA tensors

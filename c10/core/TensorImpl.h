@@ -1242,6 +1242,9 @@ private:
 
  protected:
   c10::Device device_default() const {
+    if(!device_opt_.has_value()){
+      printf("\n");
+    }
     TORCH_CHECK(device_opt_.has_value(), "tensor does not have a device");
     // See NOTE [c10::optional operator usage in CUDA]
     return *device_opt_;

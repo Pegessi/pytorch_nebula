@@ -2,6 +2,8 @@
 
 #include <c10/core/dtb/utils.h>
 #include <c10/core/dtb/CheckpointTensorCell.h>
+#include <c10/core/dtb/CheckpointTensorImpl.h>
+#include <c10/cuda/dtb/DTBManager.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -39,13 +41,14 @@ size_t memory_budget = 85899345920;
 #ifdef DEBUG_MODE
 bool record_er_counts = false;        // 驱逐&重物化次数
 bool record_mem_addr = false;         // 是否记录内存地址
-bool record_op_recs = false;          // 是否记录op历史
+bool record_op_recs = true;          // 是否记录op历史
 bool record_fragmentation = false;    // 记录碎片化和内存占用数据
 bool record_lifecycle = false;        // 记录ap生命周期计数分布
 bool record_ap_cost = false;          // 记录ap的cost分布
 bool record_dependcy = false;
 bool record_key_chain = false;
 bool current_if_any_evicted = false;
+bool trace_register_and_release = false;
 
 std::atomic<size_t> evict_counts = 0;
 std::atomic<size_t> tensor_evict_counts = 0;
@@ -212,7 +215,23 @@ Tensors try_checkpoint(Tensors& inputs) {
   Tensors ret;
   ret.reserve(inputs.size());
   for (auto& input : inputs) {
-    ret.push_back(at::native::try_checkpoint(input));
+    if(input.is_checkpoint()){
+      ret.push_back(input);
+    }else{
+      auto device_id = static_cast<int>(c10::cuda::current_device());
+      auto cpt = at::native::checkpoint(input);
+      auto* cpti = dynamic_cast<CheckpointTensorImpl*>(cpt.unsafeGetTensorImpl());
+      auto *pm = getDTBPoolManager();
+      pm->lock_temp_ext(device_id, weak(cpti->unsafeGetTensorCell()));
+#ifdef DEBUG_MODE
+      if(record_op_recs) {
+        DTRLogAddress("checkpoint "+cpti->unsafeGetTensorCell()->counter_name()+ " " + std::string(cpti->unsafeGetTensorCell()->dtype().name()) + " device:" + std::to_string(device_id), 
+          cpti->unsafeGetTensorCell()->pool->addr, cpti->unsafeGetTensorCell()->pool->lock_count);
+      }
+#endif
+      ret.push_back(cpt);
+    }
+    // ret.push_back(at::native::try_checkpoint(input));
   }
   return ret;
 }

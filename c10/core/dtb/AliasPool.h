@@ -26,6 +26,7 @@ struct AliasPool : intrusive_ptr_target {
   size_t remat_count = 0;         // for remat() call, which is used for improving the life cycle during backward
   size_t retain_count = 0;        // for retain long remat, |disabled| performance worse
   bool if_weight = false;         // flag for mark the tensors transformerd from weights
+  bool if_temp = false;           // mark if this pool belongs to a temp_cptc
 
   int dependency = 0;
   std::future<int> dep_future;

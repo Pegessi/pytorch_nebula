@@ -16,6 +16,7 @@ struct CheckpointPool : intrusive_ptr_target {
   std::map<uintptr_t, weak_intrusive_ptr<AliasPool>> mem_ordered_aps;
 
   std::vector<weak_intrusive_ptr<External>> exts;
+  std::vector<weak> temp_cptc;            // during forward&backward, mark those input tensors is created casually
   std::vector<weak> candidates;           // candidates for end point
   std::vector<ResidualChainRef> chains;
 
@@ -60,7 +61,8 @@ struct CheckpointPool : intrusive_ptr_target {
   void unset_memory_budget(){
     has_memory_budget = false;
   }
-  void clear_exts();
+  void clear_exts(bool last_iter=true);
+  void show_exts();
 
 };
 

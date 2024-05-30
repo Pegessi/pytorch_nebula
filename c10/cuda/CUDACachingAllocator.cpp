@@ -38,7 +38,7 @@
 TORCH_SDT_DEFINE_SEMAPHORE(malloc)
 TORCH_SDT_DEFINE_SEMAPHORE(free)
 
-#define MEM_TWIN_REC
+// #define MEM_TWIN_REC
 // #define MEM_TWIN_DEBUG
 
 // #define GMLAKE_ENABLE // GMLAKE history trace is unavailable(wrong history)
@@ -70,8 +70,11 @@ static const bool log_mem_events = ([]() -> bool {
     if(env) return (atoi(env))==1;
     else    return false;
 })();
-// constexpr bool log_cudaAPI = true;
-// constexpr bool log_mem_events = false;
+static const std::string mem_log_prefix = ([]() -> std::string {
+    const char* env = getenv("LOG_MEM_PREFIX");
+    if(env) return {env};
+    else    return ".";
+})();
 
 struct DTRLogger {
   std::string time_prefix;
@@ -92,7 +95,7 @@ struct DTRLogger {
   }
 
   std::string get_filename(const std::string& name) {
-    return time_prefix + "-" + name + ".log";
+    return mem_log_prefix + "/" + time_prefix + "-" + name + ".log";
   }
 
   DTRLogger() : time_prefix(get_time_prefix()) {
@@ -1125,6 +1128,79 @@ public:
   bool auto_evict(size_t need_size, int device) {
     bool satisfied = false;
     auto size_map_it = size_map.lower_bound(need_size);
+    // auto size_min = size_map.lower_bound(need_size)->first;   // Seach lower bound
+    auto *pm = c10::dtb::getDTBPoolManager();
+    size_t released_size = 0;
+    size_t before_allocated = c10::dtb::current_memory(device);
+    // printf("[Before eviction] - Need: %ld, budget: %ld, current: %ld, find_begin_size:%ld, device:%d\n", need_size, c10::dtb::memory_budget, c10::dtb::current_memory(device),
+    //   size_map_it->first, device);
+
+    std::map<size_t, std::vector<SegmentTwin*>> size_vectors;
+    size_t max_level = 0;
+    for (auto pair = size_map.lower_bound(need_size); pair!=size_map.end(); pair++) {
+      size_vectors[pair->first] = std::vector<SegmentTwin*>(pair->second.begin(), pair->second.end());
+      max_level = std::max(pair->second.size(), max_level);
+    }
+
+    std::set<SegmentTwin*, CompareSegment> to_evict_segments;
+
+    // 进行层次遍历
+    for (size_t level = 0; level < max_level && (c10::dtb::current_memory(device)+need_size)>c10::dtb::memory_budget; ++level) {
+      for (const auto& pair: size_vectors) {
+        if(level < pair.second.size()){
+          auto *seg = pair.second[level];
+          to_evict_segments.insert(seg);
+        }
+      }
+
+      // 检查第level层的segment是否可满足
+      for(auto seg_it=to_evict_segments.begin(); seg_it!=to_evict_segments.end(); seg_it++){
+        bool all_cannot_evict = true;
+        for(auto bit = (*seg_it)->blocks.begin(); (!satisfied) && (bit != (*seg_it)->blocks.end()); bit++){
+          if((*bit)->allocated){
+            auto *ptr = (*bit)->ptr;
+            auto res = pm->get_ap_by_ptr(ptr);
+            if(res.second){
+              if(auto sap = res.first.lock()){
+                all_cannot_evict = false;
+                if(sap->evictable()&&!sap->is_evicted) {
+                  // printf("[TO RELEASE] ptr:%ld mem:%ld cur_size_map:%ld\n", reinterpret_cast<uintptr_t>(ptr), sap->memory, size_map_it->first);
+                  sap->evict(0);
+                  released_size += sap->memory;
+                }
+              }
+              // else{
+              //   /// exception for released ap
+              //   TORCH_INTERNAL_ASSERT(false, "exception for attaining a released ap.");
+              // }
+            }
+
+            if(released_size >= need_size){
+              satisfied = true;
+              break;
+            }
+
+          }else{
+            continue;
+          }
+        }
+
+        if(all_cannot_evict) (*seg_it)->evictable = false;  // this segment do not have ap
+        if(satisfied) break;
+      }
+
+    }
+
+    // printf("[After eviction] - Need: %ld, budget: %ld, current: %ld, device:%d\n", need_size, c10::dtb::memory_budget, c10::dtb::current_memory(device), device);
+    size_t after_allocated = c10::dtb::current_memory(device);
+    // if(after_allocated==before_allocated){
+    //   printf("[INVAILID EVICTION]\n");
+    // }
+    return true;
+
+    /* 以内存大小进行连续的搜索，直到逐出张量满足内存需求，但对staleness考虑太差了
+    bool satisfied = false;
+    auto size_map_it = size_map.lower_bound(need_size);
     auto *pm = c10::dtb::getDTBPoolManager();
     size_t released_size = 0;
     size_t before_allocated = c10::dtb::current_memory(device);
@@ -1193,6 +1269,7 @@ public:
       printf("[INVAILID EVICTION]\n");
     }
     return true;
+    */
 
     /* 尽可能单段满足的驱逐
     while(!satisfied && size_map_it != size_map.end()){
@@ -2218,10 +2295,10 @@ class DeviceCachingAllocator {
       // if(if_evict) getSegmentTwins();
       if((c10::dtb::current_memory(device)+size) > c10::dtb::memory_budget){
         auto if_evict = segManager.auto_evict(size, device);
-        if(if_evict) 
-        {
-          getSegmentTwins();
-        }
+        // if(if_evict) 
+        // {
+        //   getSegmentTwins();
+        // }
       }
 #else
       auto *pm = c10::dtb::getDTBPoolManager();
@@ -2311,7 +2388,12 @@ class DeviceCachingAllocator {
       }
 
       std::string proc_info = reportProcessMemoryInfo(device);
-
+      if(log_mem_events) {
+        record_mem_events(
+          TraceEntry::OOM,
+          device_free,
+          params.size());
+      }
       if (record_history) {
         record_trace(
             TraceEntry::OOM,
@@ -2730,6 +2812,12 @@ class DeviceCachingAllocator {
 #ifdef GMLAKE_ENABLE
     block->actual_size = size;
 #endif
+    if(log_mem_events) {
+      record_mem_events(
+        TraceEntry::ALLOC,
+        int64_t(block->ptr),
+        orig_size);
+    }
     if (record_history) {
 #ifdef GMLAKE_ENABLE
       // trimHistoryBefore(block, (char*)block->ptr + size);
@@ -2816,6 +2904,12 @@ class DeviceCachingAllocator {
           stats.allocated_bytes[stat_type],
           -static_cast<std::int64_t>(block->size));
     });
+    if(log_mem_events) {
+      record_mem_events(
+        TraceEntry::FREE_REQUESTED,
+        int64_t(block->ptr),
+        block->requested_size);
+    }
     if (record_history) {
       record_trace(
           TraceEntry::FREE_REQUESTED,
@@ -3403,7 +3497,12 @@ class DeviceCachingAllocator {
         [](const SegmentInfo& a, const SegmentInfo& b) {
           return a.address < b.address;
         });
-
+    if(log_mem_events) {
+      record_mem_events(
+        TraceEntry::SNAPSHOT,
+        0,
+        total_active);
+    }
     if (record_history) {
       record_trace(TraceEntry::SNAPSHOT, 0, total_active, nullptr, nullptr);
     }
@@ -3768,6 +3867,12 @@ class DeviceCachingAllocator {
     for_each_selected_stat_type(stat_types, [&](size_t stat_type) {
       update_stat(stats.reserved_bytes[stat_type], mapped_range.size);
     });
+    if(log_mem_events) {
+      record_mem_events(
+        TraceEntry::SEGMENT_MAP,
+        int64_t(mapped_range.ptr),
+        mapped_range.size);
+    }
     if (record_history) {
       record_trace(
           TraceEntry::SEGMENT_MAP,
@@ -3823,6 +3928,12 @@ class DeviceCachingAllocator {
     TORCH_INTERNAL_ASSERT(
         !block->allocated && block->event_count == 0 &&
         block->stream_uses.empty());
+    if(log_mem_events) {
+      record_mem_events(
+          TraceEntry::FREE_COMPLETED,
+          int64_t(block->ptr),
+          block->requested_size);
+    }
     if (record_history) {
       record_trace(
           TraceEntry::FREE_COMPLETED,
@@ -5306,6 +5417,12 @@ class DeviceCachingAllocator {
 
     // p.block came from new, not cudaMalloc. It should not be nullptr here.
     TORCH_INTERNAL_ASSERT(p.block != nullptr && p.block->ptr != nullptr);
+    if(log_mem_events) {
+      record_mem_events(
+          TraceEntry::SEGMENT_ALLOC,
+          int64_t(p.block->ptr),
+          p.block->size);
+    }
     if (record_history) {
       record_trace(
           TraceEntry::SEGMENT_ALLOC,
@@ -5555,6 +5672,12 @@ static const int vmmDefragment = ([]()->int{
 
     if (block->size >= CachingAllocatorConfig::max_split_size())
       update_stat(stats.oversize_segments, -1);
+    if(log_mem_events) {
+      record_mem_events(
+          TraceEntry::SEGMENT_FREE,
+          int64_t(block->ptr),
+          block->size);
+    }
     if (record_history) {
       record_trace(
           TraceEntry::SEGMENT_FREE,
@@ -5615,6 +5738,11 @@ static const int vmmDefragment = ([]()->int{
     for_each_selected_stat_type(stat_types, [&](size_t stat_type) {
       update_stat(stats.reserved_bytes[stat_type], -unmapped.size);
     });
+    if(log_mem_events) {
+      record_mem_events(TraceEntry::SEGMENT_UNMAP,
+          int64_t(unmapped.ptr),
+          unmapped.size);
+    }
     if (record_history) {
       record_trace(
           TraceEntry::SEGMENT_UNMAP,
@@ -5799,24 +5927,35 @@ static const int vmmDefragment = ([]()->int{
     }
   }
 
+  void record_mem_events(TraceEntry::Action action, int64_t addr, size_t size) {
+    if(last_flag!=c10::dtb::during_backward){
+      if(!last_flag&&c10::dtb::during_backward) // 开始反向
+        DTRLogger::logger().log("{\"TYPE\":\"begin backward\"}");
+      else
+        DTRLogger::logger().log("{\"TYPE\":\"end backward\"}");
+      last_flag = c10::dtb::during_backward;
+    }
+    DTRLogMemEvents(std::to_string(action), size, addr);
+  }
+
   void record_trace(
       TraceEntry::Action action,
       int64_t addr,
       size_t size,
       cudaStream_t stream,
       std::shared_ptr<GatheredContext> context) {
-#ifdef MEM_EVENTS_REC
-    if(log_mem_events){
-      if(last_flag!=c10::dtb::during_backward){
-        if(!last_flag&&c10::dtb::during_backward) // 开始反向
-          DTRLogger::logger().log("{\"TYPE\":\"begin backward\"}");
-        else
-          DTRLogger::logger().log("{\"TYPE\":\"end backward\"}");
-        last_flag = c10::dtb::during_backward;
-      }
-      DTRLogMemEvents(std::to_string(action), size, addr);
-    }
-#endif
+// #ifdef MEM_EVENTS_REC
+//     if(log_mem_events){
+//       if(last_flag!=c10::dtb::during_backward){
+//         if(!last_flag&&c10::dtb::during_backward) // 开始反向
+//           DTRLogger::logger().log("{\"TYPE\":\"begin backward\"}");
+//         else
+//           DTRLogger::logger().log("{\"TYPE\":\"end backward\"}");
+//         last_flag = c10::dtb::during_backward;
+//       }
+//       DTRLogMemEvents(std::to_string(action), size, addr);
+//     }
+// #endif
     auto te = TraceEntry(
         action,
         addr,

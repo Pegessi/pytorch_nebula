@@ -331,12 +331,26 @@ void DTBCheckpointPool::add_ext(int device, const weak_intrusive_ptr<External>& 
   // }
 }
 
+void DTBCheckpointPool::lock_temp_ext(int device, const weak& w_cptc) {
+  init_check();
+  auto pool = device_dtbpool[device].get();
+  pool->temp_cptc.push_back(w_cptc);
+  if(auto scptc = w_cptc.lock()){       // lock temp cptc
+    scptc->pool->lock();
+    // DTRLogAddress("lock "+scptc->counter_name()+ " " + std::string(scptc->dtype().name()) + " device:" + std::to_string(device), 
+    //       scptc->pool->addr, scptc->pool->lock_count);
+    scptc->pool->if_temp = true;
+  }
+}
+
 
 void DTBCheckpointPool::add_into_keychain(int device, const weak& new_key, const weak& pre) {
   if(!device_id_check(device)) return;
   init_check();
   auto pool = device_dtbpool[device].get();
+#ifdef DEBUG_MODE
   pool->candidates.push_back(new_key);
+#endif
 
   auto pre_node = StrongChainNode::make(pre);
   auto new_node = StrongChainNode::make(new_key);
@@ -424,7 +438,7 @@ void DTBCheckpointPool::set_during_backward(bool flag){
   }
 }
 
-void DTBCheckpointPool::clear_checkpointpool(int device){
+void DTBCheckpointPool::clear_checkpointpool(int device, bool last_iter){
   if(device_dtbpool.empty()) return;          // exec without dtbpool  
   auto pool = device_dtbpool[device].get();
   if(pool->has_memory_budget){
@@ -449,7 +463,7 @@ void DTBCheckpointPool::clear_checkpointpool(int device){
     //   }
     // }
   #endif
-    pool->clear_exts();
+    pool->clear_exts(last_iter);
   }
 }
 
@@ -475,6 +489,8 @@ void DTBCheckpointPool::pool_cur_mem_snapshot(int device){
 //       }
 //     }
 //   }
+  auto pool = device_dtbpool[device].get();
+  pool->show_exts();
 }
 
 

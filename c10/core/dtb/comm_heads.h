@@ -36,16 +36,16 @@
 #define unlikely(x)    __builtin_expect(!!(x), 0)
 
 // #define ORIGINAL_DTR
-#define DEBUG_MODE
+// #define DEBUG_MODE
 
-// #define TIME_REC                      /// 方便debug的宏定义
 #define MINIMAL_EVICT                    /// 最小驱逐策略（贪心+随机 DTR）
 // #define MINIMAL_EVICT_COST            /// 最小驱逐策略+cost cache（贪心+随机 DTR） op记录
-// #define MEM_ORDER_ENABLE              /// 是否启用mem order策略
-// #define DEPENDENCY_CHECK              /// 依赖检查策略
 #define DEGREE_CHAIN                     /// 残差链发现策略
-// #define ORIG_EVICT                       /// DTR original Evction
 #define MEM_FIRST_EVICT                  /// 以内存为中心的驱逐策略
+// #define ORIG_EVICT                       /// DTR original Evction
+// #define TIME_REC                      /// [deprecated]方便debug的宏定义
+// #define MEM_ORDER_ENABLE              /// [deprecated]是否启用mem order策略
+// #define DEPENDENCY_CHECK              /// [deprecated]依赖检查策略
 
 static const int RESIDUAL_DEGREE = ([]() -> int {    /// 残差链度设置  4-Llama2-7b-hf 6-GPT_simp
     const char* env = getenv("RESIDUAL_DEGREE");
@@ -199,6 +199,7 @@ extern bool record_ap_cost;          // 记录ap的cost分布
 extern bool record_dependcy;
 extern bool record_key_chain;
 extern bool current_if_any_evicted;
+extern bool trace_register_and_release;   // 追踪所有ext和ap的生命周期(适合demo debug)
 
 
 extern std::atomic<size_t> evict_counts;

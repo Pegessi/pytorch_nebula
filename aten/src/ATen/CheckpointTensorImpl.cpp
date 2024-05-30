@@ -195,10 +195,24 @@ void pin(Tensor& t) {
   cpti->unsafeGetTensorCell()->pin();
 }
 
-Tensor decheckpoint(const Tensor& t) {
+/**
+ * Decheckpoint will create a shallow copy(detach) of tensor in cptc, which shares the same memory with cptc.
+ * It can be used in those scenario where progress is not managed by DTR runtime like custom kernel and communication progress.
+ * 
+ * @param t: tensor self
+ * @param if_comm: mark if this tensor is decheckpointed for communication
+ * 
+ * @return res: if t is a cptc, return inner t.detach(), otherwise return t self 
+ * 
+ * @skip
+ * ---------------------------------------some debug notes-------------------------------------
+ * 
+*/
+Tensor decheckpoint(const Tensor& t, bool if_comm) {
   // STATS.track("decheckpoint");
   auto* cpti = dynamic_cast<CheckpointTensorImpl*>(t.unsafeGetTensorImpl());
   if(cpti){
+    if (if_comm) cpti->unsafeGetTensorCell()->pool->is_retain = true;
     auto res = cpti->unsafeGetTensorCell()->get();
     // return res;    // BUG: segmentation fault
     return res.detach();
@@ -250,10 +264,10 @@ void toggle_log(bool b) {
   use_log_ = b;
 }
 
-void clear_checkpointpool(long device) {
+void clear_checkpointpool(long device, bool last_iter) {
 #ifdef MULTI_MODE
   auto *pm = getDTBPoolManager();
-  pm->clear_checkpointpool(device);
+  pm->clear_checkpointpool(device, last_iter);
 #else
   while (likely(!pool.exts.empty())) {
     if (auto e = pool.exts.back().lock()) {
@@ -262,6 +276,11 @@ void clear_checkpointpool(long device) {
     pool.exts.pop_back();
   }
 #endif
+}
+
+void check_current_exts(long device){
+  auto *pm = getDTBPoolManager();
+  pm->pool_cur_mem_snapshot(device);
 }
 
 void init_dtb_manager(){

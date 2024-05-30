@@ -16,7 +16,6 @@
 #include <c10/core/dtb/External.h>
 #include <c10/core/dtb/CheckpointTensorCell.h>
 #include <c10/core/dtb/ResidualChain.h>
-#include <c10/core/dtb/MemGraph.h>
 
 namespace c10 {
 namespace dtb {
@@ -108,6 +107,8 @@ static const bool USE_DTR = ([]() -> bool {    /// init if use dtr by check env 
 
       void add_ext(int device, const weak_intrusive_ptr<External>& new_ext);
 
+      void lock_temp_ext(int device, const weak& w_cptc);
+
       void erase_ap(int device, uintptr_t addr);
 
 #ifdef MEM_FIRST_EVICT
@@ -136,7 +137,7 @@ static const bool USE_DTR = ([]() -> bool {    /// init if use dtr by check env 
 
       void set_during_backward(bool flag);
 
-      void clear_checkpointpool(int device);
+      void clear_checkpointpool(int device, bool last_iter=true);
 
       void pool_cur_mem_snapshot(int device);
 

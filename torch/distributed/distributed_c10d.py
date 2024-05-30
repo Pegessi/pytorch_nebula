@@ -1522,7 +1522,7 @@ def isend(tensor: torch.Tensor, dst: int, group: Optional[ProcessGroup] = None, 
         return
     
     if _USE_DTR:
-        tensor = tensor.decheckpoint()
+        tensor = tensor.decheckpoint(True)
 
     if group is None or group is GroupMember.WORLD:
         default_pg = _get_default_group()
@@ -1559,7 +1559,7 @@ def irecv(tensor: torch.Tensor, src: Optional[int] = None, group: Optional[Proce
 
     if _USE_DTR:
         # if tensor.is_checkpoint():
-        tensor = tensor.decheckpoint()
+        tensor = tensor.decheckpoint(True)
 
     if group is None or group is GroupMember.WORLD:
         pg = _get_default_group()
@@ -1601,7 +1601,7 @@ def send(tensor: torch.Tensor, dst: int, group: Optional[ProcessGroup] = None, t
         return
 
     if _USE_DTR:
-        tensor = tensor.decheckpoint()
+        tensor = tensor.decheckpoint(True)
 
     if group is None or group is GroupMember.WORLD:
         default_pg = _get_default_group()
@@ -1634,7 +1634,7 @@ def recv(tensor: torch.Tensor, src: Optional[int] = None, group: Optional[Proces
         return -1
 
     if _USE_DTR:
-        tensor = tensor.decheckpoint()
+        tensor = tensor.decheckpoint(True)
 
     if group is None:
         pg = _get_default_group()
@@ -1873,7 +1873,7 @@ def broadcast_multigpu(tensor_list, src, group=None, async_op=False, src_tensor=
     opts.rootTensor = src_tensor
 
     if _USE_DTR:
-        tensor_list = [t.decheckpoint() for t in tensor_list]
+        tensor_list = [t.decheckpoint(True) for t in tensor_list]
 
     if group is None or group is GroupMember.WORLD:
         default_pg = _get_default_group()
@@ -1915,7 +1915,7 @@ def broadcast(tensor, src, group=None, async_op=False):
         return
 
     if _USE_DTR:
-        tensor = tensor.decheckpoint()
+        tensor = tensor.decheckpoint(True)
 
     opts = BroadcastOptions()
     opts.rootRank = src
@@ -1978,7 +1978,7 @@ def all_reduce_multigpu(tensor_list, op=ReduceOp.SUM, group=None, async_op=False
         return
 
     if _USE_DTR:
-        tensor_list = [t.decheckpoint() for t in tensor_list]
+        tensor_list = [t.decheckpoint(True) for t in tensor_list]
 
     tensor_list = [
         t if not t.is_complex() else torch.view_as_real(t) for t in tensor_list
@@ -2052,7 +2052,7 @@ def all_reduce(tensor, op=ReduceOp.SUM, group=None, async_op=False):
         return
 
     if _USE_DTR:
-        tensor = tensor.decheckpoint()
+        tensor = tensor.decheckpoint(True)
 
     if tensor.is_complex():
         if not supports_complex(op):
@@ -2126,7 +2126,7 @@ def all_reduce_coalesced(tensors, op=ReduceOp.SUM, group=None, async_op=False):
         return
 
     if _USE_DTR:
-        tensors = [t.decheckpoint() for t in tensors]
+        tensors = [t.decheckpoint(True) for t in tensors]
 
     if any(t.is_complex() for t in tensors) and not supports_complex(op):
         raise RuntimeError(f"all_reduce does not support {op} on complex tensors")
@@ -2191,7 +2191,7 @@ def reduce_multigpu(
         return
 
     if _USE_DTR:
-        tensor_list = [t.decheckpoint() for t in tensor_list]
+        tensor_list = [t.decheckpoint(True) for t in tensor_list]
 
     opts = ReduceOptions()
     opts.reduceOp = op
@@ -2240,7 +2240,7 @@ def reduce(tensor, dst, op=ReduceOp.SUM, group=None, async_op=False):
         return
 
     if _USE_DTR:
-        tensor = tensor.decheckpoint()
+        tensor = tensor.decheckpoint(True)
 
     opts = ReduceOptions()
     opts.reduceOp = op
@@ -2317,10 +2317,10 @@ def all_gather_multigpu(
 
     if _USE_DTR:
         output_tensor_lists = [
-            [t.decheckpoint() for t in l]
+            [t.decheckpoint(True) for t in l]
             for l in output_tensor_lists
         ]
-        input_tensor_list = [t.decheckpoint() for t in input_tensor_list]
+        input_tensor_list = [t.decheckpoint(True) for t in input_tensor_list]
 
     output_tensor_lists = [
         [t if not t.is_complex() else torch.view_as_real(t) for t in l]
@@ -2356,7 +2356,7 @@ def _object_to_tensor(obj, device):
 
 def _tensor_to_object(tensor, tensor_size):
     if _USE_DTR:
-        tensor = tensor.decheckpoint()
+        tensor = tensor.decheckpoint(True)
     tensor = tensor.cpu()
     buf = tensor.numpy().tobytes()[:tensor_size]
     return _unpickler(io.BytesIO(buf)).load()
@@ -2841,8 +2841,8 @@ def all_gather(tensor_list, tensor, group=None, async_op=False):
         return
 
     if _USE_DTR:
-        tensor_list = [t.decheckpoint() for t in tensor_list]
-        tensor = tensor.decheckpoint()
+        tensor_list = [t.decheckpoint(True) for t in tensor_list]
+        tensor = tensor.decheckpoint(True)
 
     tensor_list = [
         t if not t.is_complex() else torch.view_as_real(t) for t in tensor_list
@@ -2921,8 +2921,8 @@ def all_gather_into_tensor(output_tensor, input_tensor, group=None, async_op=Fal
         return
 
     if _USE_DTR:
-        output_tensor = output_tensor.decheckpoint()
-        input_tensor = input_tensor.decheckpoint()
+        output_tensor = output_tensor.decheckpoint(True)
+        input_tensor = input_tensor.decheckpoint(True)
 
     output_tensor = (
         output_tensor
@@ -3053,10 +3053,10 @@ def all_gather_coalesced(
 
     if _USE_DTR:
         output_tensor_lists = [
-            [t.decheckpoint() for t in l]
+            [t.decheckpoint(True) for t in l]
             for l in output_tensor_lists
         ]
-        input_tensor_list = [t.decheckpoint() for t in input_tensor_list]
+        input_tensor_list = [t.decheckpoint(True) for t in input_tensor_list]
 
     output_tensor_lists = [
         [t if not t.is_complex() else torch.view_as_real(t) for t in l]
@@ -3125,8 +3125,8 @@ def gather(tensor, gather_list=None, dst=0, group=None, async_op=False):
         return
     
     if _USE_DTR:
-        gather_list = [t.decheckpoint() for t in gather_list]
-        tensor = tensor.decheckpoint()
+        gather_list = [t.decheckpoint(True) for t in gather_list]
+        tensor = tensor.decheckpoint(True)
 
     my_rank = get_rank()
     _validate_output_list_for_rank(my_rank, dst, gather_list)
@@ -3209,8 +3209,8 @@ def scatter(tensor, scatter_list=None, src=0, group=None, async_op=False):
         return
     
     if _USE_DTR:
-        scatter_list = [t.decheckpoint() for t in scatter_list]
-        tensor = tensor.decheckpoint()
+        scatter_list = [t.decheckpoint(True) for t in scatter_list]
+        tensor = tensor.decheckpoint(True)
 
     scatter_list = [
         t if not t.is_complex() else torch.view_as_real(t) for t in scatter_list
@@ -3308,10 +3308,10 @@ def reduce_scatter_multigpu(
 
     if _USE_DTR:
         input_tensor_lists = [
-            [t.decheckpoint() for t in l]
+            [t.decheckpoint(True) for t in l]
             for l in input_tensor_lists
         ]
-        output_tensor_list = [t.decheckpoint() for t in output_tensor_list]
+        output_tensor_list = [t.decheckpoint(True) for t in output_tensor_list]
 
     opts = ReduceScatterOptions()
     opts.reduceOp = op
@@ -3356,8 +3356,8 @@ def reduce_scatter(output, input_list, op=ReduceOp.SUM, group=None, async_op=Fal
         return
 
     if _USE_DTR:
-        input_list = [t.decheckpoint() for t in input_list]
-        output = output.decheckpoint()
+        input_list = [t.decheckpoint(True) for t in input_list]
+        output = output.decheckpoint(True)
 
     opts = ReduceScatterOptions()
     opts.reduceOp = op
@@ -3437,8 +3437,8 @@ def reduce_scatter_tensor(output, input, op=ReduceOp.SUM, group=None, async_op=F
         return
 
     if _USE_DTR:
-        output = output.decheckpoint()
-        input = input.decheckpoint()
+        output = output.decheckpoint(True)
+        input = input.decheckpoint(True)
 
     opts = ReduceScatterOptions()
     opts.reduceOp = op
@@ -3594,8 +3594,8 @@ def all_to_all_single(
         return
 
     if _USE_DTR:
-        output = output.decheckpoint()
-        input = input.decheckpoint()
+        output = output.decheckpoint(True)
+        input = input.decheckpoint(True)
 
     opts = AllToAllOptions()
     _check_single_tensor(output, "output")
@@ -3723,8 +3723,8 @@ def all_to_all(output_tensor_list, input_tensor_list, group=None, async_op=False
         return
 
     if _USE_DTR:
-        output_tensor_list = [t.decheckpoint() for t in output_tensor_list]
-        input_tensor_list = [t.decheckpoint() for t in input_tensor_list]
+        output_tensor_list = [t.decheckpoint(True) for t in output_tensor_list]
+        input_tensor_list = [t.decheckpoint(True) for t in input_tensor_list]
 
     opts = AllToAllOptions()
     _check_tensor_list(output_tensor_list, "output_tensor_list")
