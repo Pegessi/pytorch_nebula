@@ -41,7 +41,7 @@ size_t memory_budget = 85899345920;
 #ifdef DEBUG_MODE
 bool record_er_counts = false;        // 驱逐&重物化次数
 bool record_mem_addr = false;         // 是否记录内存地址
-bool record_op_recs = true;          // 是否记录op历史
+bool record_op_recs = false;          // 是否记录op历史
 bool record_fragmentation = false;    // 记录碎片化和内存占用数据
 bool record_lifecycle = false;        // 记录ap生命周期计数分布
 bool record_ap_cost = false;          // 记录ap的cost分布

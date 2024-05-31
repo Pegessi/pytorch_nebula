@@ -2144,6 +2144,7 @@
   variants: method
   dispatch:
     CompositeExplicitAutograd: new_zeros
+    Checkpoint: checkpoint_new_zeros
   autogen: new_zeros.out
 - func: new_ones(Tensor self, SymInt[] size, *, ScalarType? dtype=None, Layout? layout=None,
     Device? device=None, bool? pin_memory=None) -> Tensor

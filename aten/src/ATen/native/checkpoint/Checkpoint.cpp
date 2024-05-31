@@ -2469,7 +2469,7 @@ at::Tensor & checkpoint__index_put_impl_(at::Tensor & self, const c10::List<c10:
     [=](const Tensors& vec) {
       Tensor self = vec.at(0);
       c10::List<c10::optional<at::Tensor>> inds;
-      for(int i=2; i<indices.size(); i++){
+      for(int i=2; i<vec.size(); i++){
         c10::optional<at::Tensor> t_(vec.at(i));
         inds.push_back(t_);
       }
@@ -2483,7 +2483,7 @@ at::Tensor & checkpoint__index_put_impl_(at::Tensor & self, const c10::List<c10:
     inputs.push_back(t_);
   }
   CheckpointTensorImpl::mutate("_index_put_impl_", mt, inputs, {0});
-  return {self};
+  return self;
 }
 
 /// ['aten::_foreach_lerp_', 'void', '_foreach_lerp_', '(at::TensorList self, at::TensorList tensors1, const at::Scalar & weight)']
@@ -2738,6 +2738,16 @@ std::tuple<at::Tensor,at::Tensor,at::Tensor> checkpoint_convolution_backward(con
     };
   auto ret = CheckpointTensorImpl::make("aten::convolution_backward", rt, {grad_output, input, weight});
   return {ret[0], ret[1], ret[2]};
+}
+
+/// ['aten::new_zeros', 'at::Tensor', 'new_zeros', '(const at::Tensor & self, c10::SymIntArrayRef size, c10::optional<at::ScalarType> dtype, c10::optional<at::Layout> layout, c10::optional<at::Device> device, c10::optional<bool> pin_memory)']
+at::Tensor checkpoint_new_zeros(const at::Tensor & self, at::IntArrayRef size, c10::optional<at::ScalarType> dtype, c10::optional<at::Layout> layout, c10::optional<at::Device> device, c10::optional<bool> pin_memory) {
+  auto size_ = size.vec();
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      return {at::native::new_zeros(vec.at(0), size_, dtype, layout, device, pin_memory)};
+    };
+  return CheckpointTensorImpl::make("aten::new_zeros", rt, {self})[0];
 }
 
 ////////////////////////////////// auto generate part //////////////////////////////////////

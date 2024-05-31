@@ -1127,7 +1127,7 @@ public:
 
   bool auto_evict(size_t need_size, int device) {
     bool satisfied = false;
-    auto size_map_it = size_map.lower_bound(need_size);
+    // auto size_map_it = size_map.lower_bound(need_size);
     // auto size_min = size_map.lower_bound(need_size)->first;   // Seach lower bound
     auto *pm = c10::dtb::getDTBPoolManager();
     size_t released_size = 0;
@@ -1146,10 +1146,12 @@ public:
 
     // 进行层次遍历
     for (size_t level = 0; level < max_level && (c10::dtb::current_memory(device)+need_size)>c10::dtb::memory_budget; ++level) {
+      
       for (const auto& pair: size_vectors) {
         if(level < pair.second.size()){
           auto *seg = pair.second[level];
-          to_evict_segments.insert(seg);
+          if((*seg)->evictable())
+            to_evict_segments.insert(seg);
         }
       }
 
@@ -1198,136 +1200,6 @@ public:
     // }
     return true;
 
-    /* 以内存大小进行连续的搜索，直到逐出张量满足内存需求，但对staleness考虑太差了
-    bool satisfied = false;
-    auto size_map_it = size_map.lower_bound(need_size);
-    auto *pm = c10::dtb::getDTBPoolManager();
-    size_t released_size = 0;
-    size_t before_allocated = c10::dtb::current_memory(device);
-    printf("[Before eviction] - Need: %ld, budget: %ld, current: %ld, find_begin_size:%ld, device:%d\n", need_size, c10::dtb::memory_budget, c10::dtb::current_memory(device),
-      size_map_it->first, device);
-    // while(!satisfied){
-    while((c10::dtb::current_memory(device)+need_size)>c10::dtb::memory_budget){
-      if(size_map_it == size_map.end()) return false;
-      printf("searching size:%ld\n", size_map_it->first);
-      for(auto seg_it = size_map_it->second.begin(); seg_it != size_map_it->second.end(); seg_it++){
-        if(!(*seg_it)->evictable) continue;
-        // 判断当前segment是否满足
-        bool all_cannot_evict = true;
-        for(auto bit = (*seg_it)->blocks.begin(); (!satisfied) && (bit != (*seg_it)->blocks.end()); bit++){
-          if((*bit)->allocated){
-            auto *ptr = (*bit)->ptr;
-            auto res = pm->get_ap_by_ptr(ptr);
-            if(res.second){
-              if(auto sap = res.first.lock()){
-                all_cannot_evict = false;
-                if(sap->evictable()&&!sap->is_evicted) {
-                  printf("[TO RELEASE] ptr:%ld mem:%ld cur_size_map:%ld\n", reinterpret_cast<uintptr_t>(ptr), sap->memory, size_map_it->first);
-                  sap->evict(0);
-                  released_size += sap->memory;
-                }
-              }
-              // else{
-              //   /// exception for released ap
-              //   TORCH_INTERNAL_ASSERT(false, "exception for attaining a released ap.");
-              // }
-            }
-
-            if(released_size >= need_size){
-              satisfied = true;
-              break;
-            }
-
-          }else{
-            continue;
-          }
-        }
-
-        if(all_cannot_evict) (*seg_it)->evictable = false;  // this segment do not have ap
-
-        // 判断是否可以释放
-        if(satisfied){  // 如果可以释放且可用空间满足need_size，释放，结束
-          // printf("[After eviction] - Need: %ld, budget: %ld, current: %ld, device:%d\n", need_size, c10::dtb::memory_budget, c10::dtb::current_memory(device), device);
-          // size_t after_allocated = c10::dtb::current_memory(device);
-          // if(after_allocated==before_allocated){
-          //   printf("[INVAILID EVICTION]\n");
-          // }
-          // return true;
-          break;
-        }
-        // 不可以再判断下一个
-        
-      }
-      // 都不满足，寻找下一组segments
-      size_map_it++;
-    }
-    
-    // return false;  // All segment cannot satisfy need, must alloc a new big enough block
-    printf("[After eviction] - Need: %ld, budget: %ld, current: %ld, device:%d\n", need_size, c10::dtb::memory_budget, c10::dtb::current_memory(device), device);
-    size_t after_allocated = c10::dtb::current_memory(device);
-    if(after_allocated==before_allocated){
-      printf("[INVAILID EVICTION]\n");
-    }
-    return true;
-    */
-
-    /* 尽可能单段满足的驱逐
-    while(!satisfied && size_map_it != size_map.end()){
-      // if(size_map_it==size_map.end()) return false;
-
-    
-      size_t can_release_size = 0;
-      std::vector<intrusive_ptr<c10::dtb::AliasPool>> to_be_release_ap;
-      for(auto seg_it = size_map_it->second.begin(); seg_it != size_map_it->second.end(); seg_it++){
-        if(!(*seg_it)->evictable) continue;
-        // 判断当前segment是否满足
-        bool all_cannot_evict = true;
-        for(auto bit = (*seg_it)->blocks.begin(); (!satisfied) && (bit != (*seg_it)->blocks.end()); bit++){
-          if((*bit)->allocated){
-            auto *ptr = (*bit)->ptr;
-            // auto wap = pm->get_ap_by_ptr(ptr);
-            auto res = pm->get_ap_by_ptr(ptr);
-            if(res.second){
-              if(auto sap = res.first.lock()){
-                all_cannot_evict = false;
-                if(sap->evictable()) {
-                  can_release_size += sap->memory;
-                  to_be_release_ap.emplace_back(sap);
-                }
-              }else{
-                /// exception for released ap
-                TORCH_INTERNAL_ASSERT(false, "exception for attaining a released ap.");
-              }
-            }
-
-            if(can_release_size >= need_size){
-              satisfied = true;
-              break;
-            }
-
-          }else{
-            continue;
-          }
-        }
-
-        if(all_cannot_evict) (*seg_it)->evictable = false;  // this segment do not have ap
-
-        // 判断是否可以释放
-        if(satisfied){  // 如果可以释放且可用空间满足need_size，释放，结束
-          for(auto& sap: to_be_release_ap) {
-            sap->evict(0);
-          }
-          to_be_release_ap.clear();
-          if_evicted = true;
-          return if_evicted;
-        }
-        // 不可以再判断下一个
-        
-      }
-      // 都不满足，寻找下一组segments
-      size_map_it++;
-    }
-    */
   }
 
 };
@@ -2289,10 +2161,7 @@ class DeviceCachingAllocator {
     // if(c10::dtb::USE_DTR&&(getStats().active_bytes[device].current + size) > c10::dtb::memory_budget){
     if(c10::dtb::USE_DTR){
       // printf("[CHECK EVICT] %d\n", if_evict?1:0);
-#ifdef MEM_TWIN_REC
-      // auto *pm = c10::dtb::getDTBPoolManager();
-      // auto if_evict = pm->auto_evict(device, size);
-      // if(if_evict) getSegmentTwins();
+#if defined(MEM_TWIN_REC) && defined(MEM_FIRST_EVICT) 
       if((c10::dtb::current_memory(device)+size) > c10::dtb::memory_budget){
         auto if_evict = segManager.auto_evict(size, device);
         // if(if_evict) 
@@ -5402,8 +5271,8 @@ class DeviceCachingAllocator {
     p.block = new Block(p.device(), p.stream(), size, p.pool, (char*)ptr);
 #ifdef MEM_TWIN_REC
     SegmentTwin* new_seg = new SegmentTwin(p.block);    // [TAG] only entry for new SegmentTwin creatation
-    segManager.add_block2segment(p.block, new_seg);
     segManager.insert(new_seg);
+    segManager.add_block2segment(p.block, new_seg);
   #ifdef MEM_TWIN_DEBUG
     printf("[CREATE] seg_members:%ld, erase:%ld\n", new_seg->blocks.size(), reinterpret_cast<uintptr_t>(p.block->ptr));
   #endif

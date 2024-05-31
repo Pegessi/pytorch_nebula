@@ -36,12 +36,12 @@
 #define unlikely(x)    __builtin_expect(!!(x), 0)
 
 // #define ORIGINAL_DTR
-// #define DEBUG_MODE
+#define DEBUG_MODE
 
 #define MINIMAL_EVICT                    /// 最小驱逐策略（贪心+随机 DTR）
 // #define MINIMAL_EVICT_COST            /// 最小驱逐策略+cost cache（贪心+随机 DTR） op记录
 #define DEGREE_CHAIN                     /// 残差链发现策略
-#define MEM_FIRST_EVICT                  /// 以内存为中心的驱逐策略
+// #define MEM_FIRST_EVICT                  /// 以内存为中心的驱逐策略
 // #define ORIG_EVICT                       /// DTR original Evction
 // #define TIME_REC                      /// [deprecated]方便debug的宏定义
 // #define MEM_ORDER_ENABLE              /// [deprecated]是否启用mem order策略

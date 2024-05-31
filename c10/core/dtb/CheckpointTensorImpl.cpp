@@ -551,7 +551,7 @@ Tensors CheckpointTensorImpl::make(const std::string& name,
 #endif
   }
 
-#ifdef MINIMAL_EVICT
+#if defined(MINIMAL_EVICT) || defined(MEM_FIRST_EVICT)
   auto ret = make_raw(remat, input_values, name);
 #endif
 #ifdef MINIMAL_EVICT_COST
@@ -635,7 +635,7 @@ Tensors CheckpointTensorImpl::make(const std::string& name,
 #endif
   }
 
-#ifdef MINIMAL_EVICT
+#if defined(MINIMAL_EVICT) || defined(MEM_FIRST_EVICT)
   auto ret = make_raw(remat, input_values, name);
 #endif
 #ifdef MINIMAL_EVICT_COST
@@ -717,7 +717,7 @@ void CheckpointTensorImpl::mutate(const std::string& name,
     }
 #endif
   }
-#ifdef MINIMAL_EVICT
+#if defined(MINIMAL_EVICT) || defined(MEM_FIRST_EVICT)
   auto ret = make_raw(remat, input_values, name);
 #endif
 #ifdef MINIMAL_EVICT_COST
@@ -782,7 +782,7 @@ void CheckpointTensorImpl::mutate(const std::string& name,
     }
 #endif
   }
-#ifdef MINIMAL_EVICT
+#if defined(MINIMAL_EVICT) || defined(MEM_FIRST_EVICT)
   auto ret = make_raw(remat, input_values, name);
 #endif
 #ifdef MINIMAL_EVICT_COST

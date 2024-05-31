@@ -55,6 +55,7 @@ CheckpointInfo merge_cpi(CheckpointInfo l, CheckpointInfo r) {
 void AliasPool::evict(int mode) { // 0 - evict | 1 - deconstruct | 2 - Irreversible deconstruction
   STATS.track("AliasPool::evict");
   TORCH_CHECK(!ecn);
+#if defined(MINIMAL_EVICT) || defined(MINIMAL_EVICT_COST)
   if(mode!=2&&head_remat){
     ecn = head_remat->get_ecn();      /// 发生驱逐|可恢复释放行为，初始化ecn
     auto ecns = neighbor_ecn();
@@ -62,6 +63,7 @@ void AliasPool::evict(int mode) { // 0 - evict | 1 - deconstruct | 2 - Irreversi
       merge<CheckpointInfo>(merge_cpi, ecn, necn);
     }
   }
+#endif
 // #ifdef MEM_FIRST_EVICT
 //   auto *pm = getDTBPoolManager();   // [TAG] Here release is not enough for tensors
 //   pm->remove_p2ap(addr);            // remove old ptr record
@@ -125,9 +127,15 @@ void AliasPool::unlock() {
     }
   #endif
     if(remat_count == 0 && external_count == 0 && lock_count == 0){
+#if defined(MINIMAL_EVICT) || defined(MINIMAL_EVICT_COST)
       if (memory > 0 && (!ecn) && head_remat) {
         evict(1);
       } 
+#else // MEM_FIRST_EVICT
+      if (memory > 0 && head_remat) {
+        evict(1);
+      } 
+#endif
       // else if (memory > 0 && head_remat==nullptr)
       //   evict(2);
     }
@@ -141,9 +149,16 @@ void AliasPool::unlock() {
   */
   if(during_backward){
     if(remat_count == 0 && external_count == 0 && lock_count == 0){
+#if defined(MINIMAL_EVICT) || defined(MINIMAL_EVICT_COST)
       if (memory > 0 && (!ecn) && head_remat) {
         evict(1);
-      } else if (memory > 0 && if_temp){
+      } 
+#else
+      if (memory > 0 && head_remat) {
+        evict(1);
+      } 
+#endif
+      else if (memory > 0 && if_temp){
         evict(2);
       }
     }
@@ -268,12 +283,14 @@ void AliasPool::set_not_evicted(intrusive_ptr<AliasPool>& self) {
   if (likely(is_evicted)) {
     STATS.track("AliasPool::set_not_evicted(inside)");
     is_evicted = false;
+#if defined(MINIMAL_EVICT) || defined(MINIMAL_EVICT_COST)
     if (ecn) {
       TORCH_CHECK(head_remat);
       auto cpi = get_t(ecn);
       update_t(ecn, CheckpointInfo(cpi.compute_cost - head_remat->compute_cost));
       ecn.reset();
     }
+#endif
 
 #ifdef MULTI_MODE
     auto *pm = getDTBPoolManager();
