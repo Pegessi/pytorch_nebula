@@ -323,6 +323,7 @@ void CheckpointPool::evict() {
     auto evict_from_idx = [&](size_t idx) {
                             auto ap_strong = aps[idx].lock();
                             TORCH_CHECK(ap_strong.defined());
+                            printf("evict cost:%lf mem:%ld|",evict_cost*1e9, ap_strong->memory);
                             ap_strong->evict(0);
                             remove_from_aps(evict_idx);
                           };

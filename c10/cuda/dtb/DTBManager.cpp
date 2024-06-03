@@ -194,6 +194,8 @@ bool DTBCheckpointPool::auto_evict(int device, size_t coming_bytes) {
   if(!device_id_check(device)) return false;
   init_check();
   auto pool = device_dtbpool[device].get();
+  long search_time_ = 0;
+  time_t pre = std::chrono::system_clock::now();
   if (pool->has_memory_budget&&if_train_mode[device]) {
     int check_counts[8] = {0};
     bool if_eviction = false;
@@ -213,6 +215,11 @@ bool DTBCheckpointPool::auto_evict(int device, size_t coming_bytes) {
         c10::cuda::CUDACachingAllocator::emptyCache();
         return false;
       }
+    }
+    if(if_eviction){
+      time_t post = std::chrono::system_clock::now();
+      search_time_ += (post - pre).count();
+      printf("single search time:%ld\n", search_time_);
     }
     return if_eviction;
   }else return false;

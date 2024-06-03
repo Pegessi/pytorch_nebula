@@ -38,7 +38,7 @@
 TORCH_SDT_DEFINE_SEMAPHORE(malloc)
 TORCH_SDT_DEFINE_SEMAPHORE(free)
 
-// #define MEM_TWIN_REC
+#define MEM_TWIN_REC
 // #define MEM_TWIN_DEBUG
 
 // #define GMLAKE_ENABLE // GMLAKE history trace is unavailable(wrong history)
@@ -937,8 +937,9 @@ struct SegmentTwin {
   std::set<Block*, CompareBlockInSegment> blocks;
   bool is_small = false;
   bool evictable = true;
-  time_t last_change_time;
   size_t total_size;
+  time_t last_change_time;
+  double max_evict_cost=0; 
 
   SegmentTwin* pre{nullptr};
   SegmentTwin* next{nullptr};
@@ -947,6 +948,7 @@ struct SegmentTwin {
   void insert(Block* block);
   void erase(Block* block);
   bool empty();
+  void flush_cost(time_t cur);
 };
 
 SegmentTwin::SegmentTwin(Block* head) {
@@ -985,6 +987,20 @@ void SegmentTwin::erase(Block* block) {
   evictable = true;
 }
 
+void SegmentTwin::flush_cost(time_t cur) {
+    auto *pm = c10::dtb::getDTBPoolManager();
+    for(const auto& bit: blocks){
+      auto ptr = bit->ptr;
+      auto res = pm->get_ap_by_ptr(ptr);
+      if(res.second){
+        if(auto sap = res.first.lock()){
+          if(sap->evictable())
+            max_evict_cost = std::max(max_evict_cost, sap->cost(cur));
+        }
+      }
+    }
+}
+
 bool SegmentTwin::empty(){
   return blocks.empty();
 }
@@ -992,6 +1008,15 @@ bool SegmentTwin::empty(){
 // 自定义比较器，根据 last_change_time 进行排序
 struct CompareSegment {
   bool operator()(const SegmentTwin* lhs, const SegmentTwin* rhs) const {
+      if(lhs->last_change_time != rhs->last_change_time) return lhs->last_change_time < rhs->last_change_time;
+      return lhs->blocks.size() < rhs->blocks.size();
+  }
+};
+
+// 自定义比较器，根据 cost 进行排序
+struct CompareCostSegment {
+  bool operator()(const SegmentTwin* lhs, const SegmentTwin* rhs) const {
+      if(lhs->max_evict_cost != rhs->max_evict_cost) return lhs->max_evict_cost < rhs->max_evict_cost;
       if(lhs->last_change_time != rhs->last_change_time) return lhs->last_change_time < rhs->last_change_time;
       return lhs->blocks.size() < rhs->blocks.size();
   }
@@ -1126,32 +1151,41 @@ public:
   }
 
   bool auto_evict(size_t need_size, int device) {
+    if((c10::dtb::current_memory(device)+need_size) < c10::dtb::memory_budget) return false;
+    long search_time_ = 0, search_size = 0;
+    time_t pre = std::chrono::system_clock::now();
     bool satisfied = false;
-    // auto size_map_it = size_map.lower_bound(need_size);
-    // auto size_min = size_map.lower_bound(need_size)->first;   // Seach lower bound
+    
     auto *pm = c10::dtb::getDTBPoolManager();
     size_t released_size = 0;
     size_t before_allocated = c10::dtb::current_memory(device);
+    
     // printf("[Before eviction] - Need: %ld, budget: %ld, current: %ld, find_begin_size:%ld, device:%d\n", need_size, c10::dtb::memory_budget, c10::dtb::current_memory(device),
     //   size_map_it->first, device);
 
     std::map<size_t, std::vector<SegmentTwin*>> size_vectors;
     size_t max_level = 0;
     for (auto pair = size_map.lower_bound(need_size); pair!=size_map.end(); pair++) {
+      search_size+=pair->second.size();
       size_vectors[pair->first] = std::vector<SegmentTwin*>(pair->second.begin(), pair->second.end());
       max_level = std::max(pair->second.size(), max_level);
     }
 
-    std::set<SegmentTwin*, CompareSegment> to_evict_segments;
+    std::set<SegmentTwin*, CompareCostSegment> to_evict_segments;
+
+    constexpr const size_t check_range = 2;
 
     // 进行层次遍历
-    for (size_t level = 0; level < max_level && (c10::dtb::current_memory(device)+need_size)>c10::dtb::memory_budget; ++level) {
+    for (size_t level = 0; level < max_level && (c10::dtb::current_memory(device)+need_size)>c10::dtb::memory_budget; level+=check_range) {
       
       for (const auto& pair: size_vectors) {
-        if(level < pair.second.size()){
-          auto *seg = pair.second[level];
-          if((*seg)->evictable())
+        #pragma unroll
+        for(int i=0; i<check_range; i++){
+          if((level+i) < pair.second.size()){
+            auto *seg = pair.second[level+i];
+            seg->flush_cost(pre);
             to_evict_segments.insert(seg);
+          }
         }
       }
 
@@ -1167,6 +1201,7 @@ public:
                 all_cannot_evict = false;
                 if(sap->evictable()&&!sap->is_evicted) {
                   // printf("[TO RELEASE] ptr:%ld mem:%ld cur_size_map:%ld\n", reinterpret_cast<uintptr_t>(ptr), sap->memory, size_map_it->first);
+                  // printf("evict cost:%lf mem:%ld|", sap->cost(pre)*1e9, sap->memory);
                   sap->evict(0);
                   released_size += sap->memory;
                 }
@@ -1195,9 +1230,10 @@ public:
 
     // printf("[After eviction] - Need: %ld, budget: %ld, current: %ld, device:%d\n", need_size, c10::dtb::memory_budget, c10::dtb::current_memory(device), device);
     size_t after_allocated = c10::dtb::current_memory(device);
-    // if(after_allocated==before_allocated){
-    //   printf("[INVAILID EVICTION]\n");
-    // }
+
+    // time_t post = std::chrono::system_clock::now();
+    // search_time_ += (post - pre).count();
+    // printf("single search time:%ld, segs:%ld\n", search_time_, search_size);
     return true;
 
   }
@@ -2162,13 +2198,13 @@ class DeviceCachingAllocator {
     if(c10::dtb::USE_DTR){
       // printf("[CHECK EVICT] %d\n", if_evict?1:0);
 #if defined(MEM_TWIN_REC) && defined(MEM_FIRST_EVICT) 
-      if((c10::dtb::current_memory(device)+size) > c10::dtb::memory_budget){
-        auto if_evict = segManager.auto_evict(size, device);
+      // if((c10::dtb::current_memory(device)+size) > c10::dtb::memory_budget){
+      auto if_evict = segManager.auto_evict(size, device);
         // if(if_evict) 
         // {
         //   getSegmentTwins();
         // }
-      }
+      // }
 #else
       auto *pm = c10::dtb::getDTBPoolManager();
       auto if_evict = pm->auto_evict(device, size);
