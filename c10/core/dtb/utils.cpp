@@ -49,6 +49,7 @@ bool record_dependcy = false;
 bool record_key_chain = false;
 bool current_if_any_evicted = false;
 bool trace_register_and_release = false;
+bool trace_evicted_tensor = false;
 
 std::atomic<size_t> evict_counts = 0;
 std::atomic<size_t> tensor_evict_counts = 0;

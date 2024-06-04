@@ -860,10 +860,13 @@ CheckpointTensorImpl::CheckpointTensorImpl(Tensor& t, bool if_weight) : Checkpoi
   if(trace_register_and_release){
     printf("checkpoint new external, new ap:1, deivce:%d\n", device_id);
   }
-  // if(record_op_recs) {
-  //   DTRLogAddress("checkpoint "+counter_name()+ " " + std::string(unsafeGetTensorCell()->dtype().name()) + " device:" + std::to_string(device_id), 
-  //     unsafeGetTensorCell()->pool->addr, unsafeGetTensorCell()->pool->memory);
+  // if(!if_weight){
+  //   pm->lock_temp_ext(c10::cuda::current_device(), weak(unsafeGetTensorCell()));
   // }
+  if(record_op_recs) {
+    DTRLogAddress("checkpoint "+counter_name()+ " " + std::string(unsafeGetTensorCell()->dtype().name()) + " device:" + std::to_string(device_id), 
+      unsafeGetTensorCell()->pool->addr, unsafeGetTensorCell()->pool->memory);
+  }
 #endif
   /**
    * model weights maybe init on CPU, so cannot be add here

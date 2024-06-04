@@ -216,11 +216,15 @@ bool DTBCheckpointPool::auto_evict(int device, size_t coming_bytes) {
         return false;
       }
     }
-    if(if_eviction){
-      time_t post = std::chrono::system_clock::now();
-      search_time_ += (post - pre).count();
-      printf("single search time:%ld\n", search_time_);
+    #ifdef DEBUG_MODE
+    if(c10::dtb::trace_evicted_tensor){
+      if(if_eviction){
+        time_t post = std::chrono::system_clock::now();
+        search_time_ += (post - pre).count();
+        printf("single search time:%ld\n", search_time_);
+      }
     }
+    #endif
     return if_eviction;
   }else return false;
 }

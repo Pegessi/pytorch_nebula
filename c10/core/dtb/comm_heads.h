@@ -200,6 +200,7 @@ extern bool record_dependcy;
 extern bool record_key_chain;
 extern bool current_if_any_evicted;
 extern bool trace_register_and_release;   // 追踪所有ext和ap的生命周期(适合demo debug)
+extern COMMON_API bool trace_evicted_tensor;  // 追踪驱逐算法选择的张量
 
 
 extern std::atomic<size_t> evict_counts;

@@ -24,6 +24,7 @@
 #include <bitset>
 #include <cstddef>
 #include <cstdint>
+#include <cmath>
 #include <deque>
 #include <iostream>
 #include <iterator>
@@ -936,10 +937,11 @@ struct SegmentTwin {
   // ska::flat_hash_set<Block*> blocks;
   std::set<Block*, CompareBlockInSegment> blocks;
   bool is_small = false;
-  bool evictable = true;
+  bool evictable = true;        // change when flush_cost
   size_t total_size;
   time_t last_change_time;
-  double max_evict_cost=0; 
+  double max_evict_cost=0;      // represent cost of evicting this segment
+  size_t can_free_size=0;
 
   SegmentTwin* pre{nullptr};
   SegmentTwin* next{nullptr};
@@ -948,7 +950,7 @@ struct SegmentTwin {
   void insert(Block* block);
   void erase(Block* block);
   bool empty();
-  void flush_cost(time_t cur);
+  inline void flush_cost(time_t cur, size_t need_size=0);
 };
 
 SegmentTwin::SegmentTwin(Block* head) {
@@ -987,18 +989,35 @@ void SegmentTwin::erase(Block* block) {
   evictable = true;
 }
 
-void SegmentTwin::flush_cost(time_t cur) {
+/**
+ * find out whether this segment can be evicted to satisfy need_size
+*/
+inline void SegmentTwin::flush_cost(time_t cur, size_t need_size) {
     auto *pm = c10::dtb::getDTBPoolManager();
+    can_free_size = 0;
+    max_evict_cost = 1e9;
+    bool can_evict = false;
     for(const auto& bit: blocks){
       auto ptr = bit->ptr;
       auto res = pm->get_ap_by_ptr(ptr);
       if(res.second){
         if(auto sap = res.first.lock()){
-          if(sap->evictable())
-            max_evict_cost = std::max(max_evict_cost, sap->cost(cur));
+          if(sap->evictable()&&!sap->is_evicted){
+            if(max_evict_cost==1e9) max_evict_cost = 0;
+            max_evict_cost += sap->cost(cur);
+            can_free_size += sap->memory;
+            can_evict = true;
+          }else{
+            if(total_size==need_size){    // avoid fragmentation
+              can_evict = false;
+              break;
+            }
+          }
         }
       }
     }
+    if(can_free_size<need_size) can_evict = false;
+    evictable = can_evict;
 }
 
 bool SegmentTwin::empty(){
@@ -1026,7 +1045,8 @@ class SegmentManager {
 private:
   // std::set<SegmentTwin*, CompareSegment> segments;
   // ska::flat_hash_map<size_t, std::set<SegmentTwin*, CompareSegment>> size_map;
-  std::map<size_t, std::set<SegmentTwin*, CompareSegment>> size_map;
+  // std::map<size_t, std::set<SegmentTwin*, CompareSegment>> size_map;
+  std::map<size_t, std::vector<SegmentTwin*>> size_map;
   ska::flat_hash_map<void*, SegmentTwin*> blocks2segment;
 
 public:
@@ -1034,7 +1054,8 @@ public:
   void add_block2segment(Block* block, SegmentTwin* seg) {
     blocks2segment[block->ptr] = seg;
     seg->insert(block);   // update last_change_time
-    update(seg);
+    seg->last_change_time = std::chrono::system_clock::now();
+    // update(seg);       // vector存储size_map并不需要更新排序
   }
 
   SegmentTwin* get_segment_of_block(void* ptr, bool remove = false) {
@@ -1053,24 +1074,32 @@ public:
   void insert(SegmentTwin* new_segment) {
     auto it = size_map.find(new_segment->total_size);
     if(it==size_map.end()){
-      std::set<SegmentTwin*, CompareSegment> segments;
-      segments.insert(new_segment);
+      // std::set<SegmentTwin*, CompareSegment> segments;
+      std::vector<SegmentTwin*> segments;
+      segments.emplace_back(new_segment);
       size_map[new_segment->total_size] = segments;
     }else{
-      size_map[new_segment->total_size].insert(new_segment);
+      size_map[new_segment->total_size].emplace_back(new_segment);
     }
   }
 
   void update(SegmentTwin* segment) {
-    size_map[segment->total_size].erase(segment);
-    segment->last_change_time = std::chrono::system_clock::now();
-    size_map[segment->total_size].insert(segment);
+    // size_map[segment->total_size].erase(segment);
+    // segment->last_change_time = std::chrono::system_clock::now();
+    // size_map[segment->total_size].insert(segment);
   }
 
   void erase(SegmentTwin* segment) {
     auto it = size_map.find(segment->total_size);
     TORCH_INTERNAL_ASSERT(it!=size_map.end());
-    it->second.erase(segment);
+    // it->second.erase(segment);
+    for(size_t i=0; i<it->second.size(); i++){
+      if(it->second[i]==segment){
+        it->second[i] = it->second.back();
+        it->second.pop_back();
+        break;
+      }
+    }
     if(it->second.empty()){
       size_map.erase(it);
     }
@@ -1152,89 +1181,129 @@ public:
 
   bool auto_evict(size_t need_size, int device) {
     if((c10::dtb::current_memory(device)+need_size) < c10::dtb::memory_budget) return false;
+    if(need_size > size_map.rbegin()->first) return false;
+
     long search_time_ = 0, search_size = 0;
+    size_t before_allocated = c10::dtb::current_memory(device);
     time_t pre = std::chrono::system_clock::now();
-    bool satisfied = false;
+    size_t gap_size = c10::dtb::memory_budget - before_allocated;
+    size_t low_cost_size = 0;
     
     auto *pm = c10::dtb::getDTBPoolManager();
     size_t released_size = 0;
-    size_t before_allocated = c10::dtb::current_memory(device);
+
+    std::vector<SegmentTwin*> to_evict_segments;
     
-    // printf("[Before eviction] - Need: %ld, budget: %ld, current: %ld, find_begin_size:%ld, device:%d\n", need_size, c10::dtb::memory_budget, c10::dtb::current_memory(device),
-    //   size_map_it->first, device);
+    constexpr const size_t topk = 6;
+    constexpr const size_t check_scale = 8;
+    constexpr const double stop_threshold = 1e-10;
+    // double min_cost = 1e5;
+    // SegmentTwin* to_evict = nullptr;
 
-    std::map<size_t, std::vector<SegmentTwin*>> size_vectors;
-    size_t max_level = 0;
-    for (auto pair = size_map.lower_bound(need_size); pair!=size_map.end(); pair++) {
-      search_size+=pair->second.size();
-      size_vectors[pair->first] = std::vector<SegmentTwin*>(pair->second.begin(), pair->second.end());
-      max_level = std::max(pair->second.size(), max_level);
-    }
-
-    std::set<SegmentTwin*, CompareCostSegment> to_evict_segments;
-
-    constexpr const size_t check_range = 2;
-
-    // 进行层次遍历
-    for (size_t level = 0; level < max_level && (c10::dtb::current_memory(device)+need_size)>c10::dtb::memory_budget; level+=check_range) {
-      
-      for (const auto& pair: size_vectors) {
-        #pragma unroll
-        for(int i=0; i<check_range; i++){
-          if((level+i) < pair.second.size()){
-            auto *seg = pair.second[level+i];
-            seg->flush_cost(pre);
-            to_evict_segments.insert(seg);
+    /**
+     * Traverse each segment to find the lowest cost is unnecessay and heavy overhead.
+     * In fact, a suitable threshold of cost for early stop is beneficial to recude searching time
+     * and it's enough for efficient eviction.
+     * However, need_size bigger than the biggest size cannot be satisfied by evicting smaller segments.
+     * Then a bigger segment will cause the over budget so in the next eviction, gap_size is much larger than need_size.
+     * In this case, reverse traversal is used to find some big and cheap tensor to evict and avoid from small but expensive tensor.
+     * 
+    */
+    double cur_min_cost = 1e5;
+    if(gap_size > need_size*100) {
+      for(auto size_it=size_map.rbegin(); size_it!=size_map.rend(); ++size_it){
+        // if(size_it->first>check_scale*need_size) break;   // early stop
+        if(cur_min_cost < stop_threshold) break;
+        bool all_cannot_evict = true;
+        for(auto &seg: size_it->second){
+          search_size++;
+          seg->flush_cost(pre);
+          if(seg->evictable) {
+            to_evict_segments.emplace_back(seg);
+            cur_min_cost = std::min(cur_min_cost, seg->max_evict_cost);
+            if(seg->max_evict_cost < stop_threshold) low_cost_size += seg->can_free_size;
           }
+          // if(cur_min_cost < stop_threshold && low_cost_size > gap_size) 
+          if(low_cost_size > gap_size) 
+            break;
         }
       }
-
-      // 检查第level层的segment是否可满足
-      for(auto seg_it=to_evict_segments.begin(); seg_it!=to_evict_segments.end(); seg_it++){
+    } else {
+      for(auto size_it=size_map.lower_bound(need_size); size_it!=size_map.end(); size_it++){
+        // if(size_it->first>check_scale*need_size) break;   // early stop
+        if(cur_min_cost < stop_threshold) break;
         bool all_cannot_evict = true;
-        for(auto bit = (*seg_it)->blocks.begin(); (!satisfied) && (bit != (*seg_it)->blocks.end()); bit++){
-          if((*bit)->allocated){
-            auto *ptr = (*bit)->ptr;
-            auto res = pm->get_ap_by_ptr(ptr);
-            if(res.second){
-              if(auto sap = res.first.lock()){
-                all_cannot_evict = false;
-                if(sap->evictable()&&!sap->is_evicted) {
-                  // printf("[TO RELEASE] ptr:%ld mem:%ld cur_size_map:%ld\n", reinterpret_cast<uintptr_t>(ptr), sap->memory, size_map_it->first);
-                  // printf("evict cost:%lf mem:%ld|", sap->cost(pre)*1e9, sap->memory);
-                  sap->evict(0);
+        for(auto &seg: size_it->second){
+          search_size++;
+          seg->flush_cost(pre, need_size);
+          // if(!std::isfinite(seg->max_evict_cost)) {       // drop abnormal val
+          //   printf("cost:%lf inf|", seg->max_evict_cost);
+          //   seg->evictable = false;
+          //   continue;
+          // }
+          if(seg->evictable) {
+            to_evict_segments.emplace_back(seg);
+            cur_min_cost = std::min(cur_min_cost, seg->max_evict_cost);
+            if(seg->max_evict_cost < stop_threshold) low_cost_size += seg->can_free_size;
+          }
+          // if(cur_min_cost < stop_threshold && low_cost_size > gap_size) 
+          if(low_cost_size > gap_size) 
+            break;
+        }
+      }
+    }
+
+    // printf("search size_map time:%ld, segs:%ld\n", (std::chrono::system_clock::now() - pre).count(), search_size);
+
+    std::sort(to_evict_segments.begin(), to_evict_segments.end(), [](SegmentTwin* lhs, SegmentTwin* rhs) {
+      if(lhs->max_evict_cost != rhs->max_evict_cost) return lhs->max_evict_cost < rhs->max_evict_cost;
+      if(lhs->last_change_time != rhs->last_change_time) return lhs->last_change_time < rhs->last_change_time;
+      return lhs->blocks.size() < rhs->blocks.size();
+    });
+
+    for(auto& to_evict: to_evict_segments){
+      if((c10::dtb::current_memory(device)+need_size) < c10::dtb::memory_budget){
+      #ifdef DEBUG_MODE
+        if(c10::dtb::trace_evicted_tensor){
+          time_t post = std::chrono::system_clock::now();
+          search_time_ += (post - pre).count();
+          printf("need size:%ld single search time:%ld, segs:%ld, before alloc:%ld, release:%ld\n", need_size, search_time_, search_size,
+            before_allocated, released_size);
+        }
+      #endif
+        return true;
+      }
+
+      for(auto bit = to_evict->blocks.begin(); (bit != to_evict->blocks.end()); bit++){
+        if((*bit)->allocated){
+          auto *ptr = (*bit)->ptr;
+          auto res = pm->get_ap_by_ptr(ptr);
+          if(res.second) {
+            if(auto sap = res.first.lock()) {
+              if(sap->evictable()){
+              #ifdef DEBUG_MODE
+                if(c10::dtb::trace_evicted_tensor){
+                  printf("[expected total:%lf]evict cost:%lf mem:%ld|", to_evict->max_evict_cost*1e9, sap->cost(pre)*1e9, sap->memory);
                   released_size += sap->memory;
                 }
+              #endif
+                sap->evict(0);
+                if((c10::dtb::current_memory(device)+need_size) < c10::dtb::memory_budget) break;
               }
-              // else{
-              //   /// exception for released ap
-              //   TORCH_INTERNAL_ASSERT(false, "exception for attaining a released ap.");
               // }
-            }
-
-            if(released_size >= need_size){
-              satisfied = true;
-              break;
-            }
-
-          }else{
-            continue;
+              // else {
+              //   if(sap->head_remat)
+              //     printf("choosed evict-cost:%lf mem:%ld but %d %d %ld %ld %ld|", sap->cost(pre)*1e9, sap->memory, sap->evictable()?1:0, sap->is_evicted?1:0,
+              //       sap->lock_count, sap->external_count, sap->remat_count);
+              // }
+            } 
           }
         }
-
-        if(all_cannot_evict) (*seg_it)->evictable = false;  // this segment do not have ap
-        if(satisfied) break;
       }
-
+      
     }
 
-    // printf("[After eviction] - Need: %ld, budget: %ld, current: %ld, device:%d\n", need_size, c10::dtb::memory_budget, c10::dtb::current_memory(device), device);
-    size_t after_allocated = c10::dtb::current_memory(device);
-
-    // time_t post = std::chrono::system_clock::now();
-    // search_time_ += (post - pre).count();
-    // printf("single search time:%ld, segs:%ld\n", search_time_, search_size);
-    return true;
+    return false;
 
   }
 
