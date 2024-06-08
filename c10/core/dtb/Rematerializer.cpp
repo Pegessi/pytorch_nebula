@@ -63,30 +63,36 @@ void Rematerializer::remat() {
 #endif
 
 #ifdef ORIG_EVICT
-  #ifdef MULTI_MODE
-    auto device_id = static_cast<int>(ts[0].device().index());
-    auto *pm = getDTBPoolManager();
-  #endif
-
-  #ifdef MINIMAL_EVICT_COST
+  if(COST_FIRST_EVICT){
     #ifdef MULTI_MODE
-    pm->auto_evict(device_id, memory_cost_records[rid]);
-    #else
-    pool.auto_evict(memory_cost_records[rid]);
+      auto device_id = static_cast<int>(ts[0].device().index());
+      auto *pm = getDTBPoolManager();
     #endif
-  #endif
+
+    #ifdef MINIMAL_EVICT_COST
+      #ifdef MULTI_MODE
+      pm->auto_evict(device_id, memory_cost_records[rid]);
+      #else
+      pool.auto_evict(memory_cost_records[rid]);
+      #endif
+    #endif
+  }
 #endif
 
   auto ret = func(ts);
 
 #ifdef ORIG_EVICT
-#ifdef MINIMAL_EVICT
-  #ifdef MULTI_MODE
-  pm->auto_evict(device_id);
-  #else
-  pool.auto_evict();
+  if(COST_FIRST_EVICT){
+  #ifdef MINIMAL_EVICT
+    #ifdef MULTI_MODE
+    auto device_id = static_cast<int>(ts[0].device().index());
+    auto *pm = getDTBPoolManager();
+    pm->auto_evict(device_id);
+    #else
+    pool.auto_evict();
+    #endif
   #endif
-#endif
+  }
 #endif
 
 #ifdef ORIGINAL_DTR
@@ -118,6 +124,7 @@ void Rematerializer::remat() {
   }
 }
 
+/* [Deprecated] */
 void Rematerializer::remat(int& cumulative_num) {
 #ifdef DEBUG_MODE
   if(record_er_counts){

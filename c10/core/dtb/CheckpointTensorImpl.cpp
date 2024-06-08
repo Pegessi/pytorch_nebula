@@ -231,11 +231,13 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
 
   auto* pm = getDTBPoolManager();
 #ifdef ORIG_EVICT
-  #ifdef MULTI_MODE
-  pm->auto_evict(device_id);
-  #else
-  pool.auto_evict();
-  #endif
+  if(COST_FIRST_EVICT){
+    #ifdef MULTI_MODE
+    pm->auto_evict(device_id);
+    #else
+    pool.auto_evict();
+    #endif
+  }
 #endif
 
 #ifdef ORIGINAL_DTR
@@ -422,11 +424,13 @@ MakeRawResult make_raw_rec(const rematerialize_function_t& remat_f,
   if(have_record){
     cur_mem_cost = memory_cost_records[rid];
 #ifdef ORIG_EVICT
-  #ifdef MULTI_MODE
-    pm->auto_evict(device_id, cur_mem_cost);
-  #else
-    pool.auto_evict(cur_mem_cost);
-  #endif
+  if(COST_FIRST_EVICT){
+    #ifdef MULTI_MODE
+      pm->auto_evict(device_id, cur_mem_cost);
+    #else
+      pool.auto_evict(cur_mem_cost);
+    #endif
+  }
 #endif
     cur_compute_cost = compute_cost_records[rid];
     raw_outputs = remat_f(raw_inputs);
@@ -442,11 +446,13 @@ MakeRawResult make_raw_rec(const rematerialize_function_t& remat_f,
     cur_mem_cost = post_mem - pre_mem;
     memory_cost_records[rid] = cur_mem_cost;
 #ifdef ORIG_EVICT
-  #ifdef MULTI_MODE
-    pm->auto_evict(device_id);
-  #else
-    pool.auto_evict();
-  #endif
+  if(COST_FIRST_EVICT){
+    #ifdef MULTI_MODE
+      pm->auto_evict(device_id);
+    #else
+      pool.auto_evict();
+    #endif
+  }
 #endif
   }
   

@@ -510,6 +510,7 @@ std::vector<std::pair<size_t, size_t>> DTBCheckpointPool::get_peak_memory(){
   for (int i = 0; i<device_dtbpool.size(); i++) {
       res.push_back({peak_allocated_memory[i], peak_reserved_memory[i]});
   }
+  clear_meminfo();
   return res;
 }
 

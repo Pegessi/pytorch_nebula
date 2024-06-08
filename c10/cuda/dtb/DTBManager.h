@@ -45,6 +45,13 @@ static const bool USE_DTR = ([]() -> bool {    /// init if use dtr by check env 
         peak_reserved_memory[device_id] = std::max(peak_reserved_memory[device_id], reserved_memory(device_id));
       }
 
+      void clear_meminfo(){
+        for (int i = 0; i<device_dtbpool.size(); i++) {
+          peak_allocated_memory[i] = 0;
+          peak_reserved_memory[i] = 0;
+        }
+      }
+
       bool device_id_check(int device_id){
         return device_id >= 0;
       }

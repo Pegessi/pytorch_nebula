@@ -282,14 +282,9 @@ void log_dtr_statics(){
     int did = 0;
     for(const auto& mem_info: pm->get_peak_memory()){
       std::stringstream log_str;
-      log_str << "device-" << did << " peak allocated memory";
-      c10::dtb::DTRLogCounts(log_str.str(), mem_info.first);
-      log_str.clear();
-      log_str << "device-" << did << " peak reserved memory";
-      c10::dtb::DTRLogCounts(log_str.str(), mem_info.second);
-      log_str.clear();
-      log_str << "device-" << did << " fragmentation ratio";
-      c10::dtb::DTRLogCounts(log_str.str(), static_cast<double>(mem_info.first) / static_cast<double>(mem_info.second));
+      c10::dtb::DTRLogCounts("device-"+std::to_string(did)+" peak allocated memory", mem_info.first);
+      c10::dtb::DTRLogCounts("device-"+std::to_string(did)+" peak reserved memory", mem_info.second);
+      c10::dtb::DTRLogApCost("device-"+std::to_string(did)+" fragmentation ratio", (1. - (static_cast<double>(mem_info.first) / static_cast<double>(mem_info.second))) / 1e7);
       did++;
     }
   }

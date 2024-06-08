@@ -41,8 +41,14 @@
 #define MINIMAL_EVICT                    /// 最小驱逐策略（贪心+随机 DTR）
 // #define MINIMAL_EVICT_COST            /// 最小驱逐策略+cost cache（贪心+随机 DTR） op记录
 #define DEGREE_CHAIN                     /// 残差链发现策略
-#define MEM_FIRST_EVICT                  /// 以内存为中心的驱逐策略
-// #define ORIG_EVICT                       /// DTR original Evction
+#define MEM_FIRST_EVICT                  /// 以内存为中心的驱逐策略(unified_evict)
+#define ORIG_EVICT                       /// DTR original Evction
+
+/**
+ * 为测试方便，不用重新编译，都采用环境变量来控制不同优化是否启用
+ * 尽管上述开关均打开，会带来额外的指令开销
+*/
+
 // #define TIME_REC                      /// [deprecated]方便debug的宏定义
 // #define MEM_ORDER_ENABLE              /// [deprecated]是否启用mem order策略
 // #define DEPENDENCY_CHECK              /// [deprecated]依赖检查策略
@@ -54,11 +60,13 @@ static const int RESIDUAL_DEGREE = ([]() -> int {    /// 残差链度设置  4-L
 })();
 // constexpr const int RESIDUAL_DEGREE = 6;  /// 残差链度设置  4-Llama2-7b-hf 6-GPT_simp
 
-static const size_t OVER_TENSOR_SIZE = ([]() -> size_t {    /// 残差链度设置  4-Llama2-7b-hf 6-GPT_simp
-    const char* env = getenv("OVER_TENSOR_SIZE");
-    if(env) return static_cast<size_t>(atoi(env));
-    else    return 21474836480;  // 20GB
+static const bool COST_FIRST_EVICT = ([]() -> bool {
+    const char* env = getenv("COST_FIRST_EVICT");
+    if(env) return (atoi(env))==1;
+    else    return false;
 })();
+
+static const bool UNIFIED_EVICT = !COST_FIRST_EVICT;
 
 constexpr const int dep_threshold = 50;             /// 重物化链深度阈值
 constexpr const int threshold_touch_counts = 0;     /// 累积触发次数
