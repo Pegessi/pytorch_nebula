@@ -12,7 +12,16 @@ ChainNode::ChainNode(const weak& weak_cell) : value(weak_cell) {}
 void ChainNode::lock_value(){
   if(!is_lock){
     if(auto cell = value.lock()){
-      cell->get();
+      store_in_special_pool[cell->pool->device_id] = true;
+      if(cell->defined)  // remove cell firstly
+      {
+        auto t_ = cell->t->clone(); 
+        cell->pool->evict(0);
+        cell->fill(t_);
+      }else{
+        cell->get();
+      }
+      store_in_special_pool[cell->pool->device_id] = false;
       cell->pool->is_retain = true;
       cell->pool->lock();
       is_lock = true;

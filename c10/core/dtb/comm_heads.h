@@ -179,6 +179,8 @@ extern size_t memory_sum;
 extern size_t memory_max;
 extern size_t memory_count;
 
+constexpr const int CHAIN_LENGTH_LOCK_THRESHOLD = 8;  // 16
+constexpr const int CHAIN_LOCK_STRIDE = 2;            // llama2 lora use 2 for faster remat, megatron-lm use 4 for test, maybe can use 2 too?
 
 extern long base_compute_time_;
 extern long remat_compute_time_;
@@ -189,6 +191,7 @@ extern bool use_profile_;
 extern std::unordered_map<int64_t, duration_t> compute_cost_records;
 extern std::unordered_map<int64_t, size_t> memory_cost_records;
 extern COMMON_API size_t memory_budget;
+extern COMMON_API bool store_in_special_pool[8];
 #ifdef DEBUG_MODE
 extern bool record_er_counts;        // 驱逐&重物化次数
 extern bool record_mem_addr;         // 是否记录内存地址

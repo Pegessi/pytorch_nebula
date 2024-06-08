@@ -37,6 +37,7 @@ bool use_profile_ = false;
 std::unordered_map<int64_t, duration_t> compute_cost_records;
 std::unordered_map<int64_t, size_t> memory_cost_records;
 size_t memory_budget = 85899345920;  
+bool store_in_special_pool[8] = {false};
 
 #ifdef DEBUG_MODE
 bool record_er_counts = false;        // 驱逐&重物化次数

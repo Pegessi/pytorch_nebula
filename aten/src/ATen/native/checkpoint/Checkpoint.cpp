@@ -2750,6 +2750,15 @@ at::Tensor checkpoint_new_zeros(const at::Tensor & self, at::IntArrayRef size, c
   return CheckpointTensorImpl::make("aten::new_zeros", rt, {self})[0];
 }
 
+/// ['aten::alias', 'at::Tensor', 'alias', '(const at::Tensor & self)']
+at::Tensor checkpoint_alias(const at::Tensor & self) {
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      return {at::alias(vec.at(0))};
+    };
+  return CheckpointTensorImpl::make("aten::alias", rt, {self})[0];
+}
+
 ////////////////////////////////// auto generate part //////////////////////////////////////
 
 /// ['aten::uniform.out', 'at::Tensor &', 'uniform_out', '(at::Tensor & out, const at::Tensor & self, double from=0, double to=1, c10::optional<at::Generator> generator=c10::nullopt)']

@@ -34,8 +34,8 @@ struct ChainNode : intrusive_ptr_target {
 
 };
 
-constexpr const int CHAIN_LENGTH_LOCK_THRESHOLD = 8;  // 16
-constexpr const int CHAIN_LOCK_STRIDE = 4;
+// constexpr const int CHAIN_LENGTH_LOCK_THRESHOLD = 8;  // 16
+// constexpr const int CHAIN_LOCK_STRIDE = 4;
 
 // TODO: weak并不能作为键
 struct ResidualChain : intrusive_ptr_target {

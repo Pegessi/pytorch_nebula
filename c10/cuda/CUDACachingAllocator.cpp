@@ -277,16 +277,16 @@ constexpr size_t kE2Buffer =
     2147483648; // "E2" allocations may be packed in 2048(8*256) MiB blocks
 
 
-constexpr size_t kMinE1Alloc =  // used to choose size 
-    20971520; // allocations between 1 and 20 MiB may use kE1Buffer
-constexpr size_t kMinE2Alloc = 
-    1024*1024*200; // allocations between 20 and 256 MiB may use kE2Buffer 
+// constexpr size_t kMinE1Alloc =  // used to choose size 
+//     20971520; // allocations between 1 and 20 MiB may use kE1Buffer
+// constexpr size_t kMinE2Alloc = 
+//     1024*1024*200; // allocations between 20 and 256 MiB may use kE2Buffer 
 
 // else all use Large blocks
 constexpr size_t kLargeBuffer =
     20971520; // "large" allocations may be packed in 20 MiB blocks
 constexpr size_t kMinLargeAlloc =
-    2147483648; // allocations between 32 and 64 MiB may use kLargeBuffer   [not use]
+    10485760; // allocations between 32 and 64 MiB may use kLargeBuffer   [not use]
 #endif
 
 constexpr size_t kRoundLarge = 2097152; // round up large allocations to 2 MiB
@@ -2775,13 +2775,6 @@ class DeviceCachingAllocator {
 
     block->allocated = true;
     block->requested_size = orig_size;
-#ifdef MEM_TWIN_REC
-    // [TAG] insert found block into it's SegmentTwin TODO: here adding block makes segment record more info than fact. but not adding makes lack of info.
-
-    // auto *seg = segManager.get_segment_of_block(block->ptr);   // remaining is orig block, and current block is a new block, but the orig ptr now belong to block
-    // TORCH_INTERNAL_ASSERT(seg, "alloc_found_block get a null segment!");
-    // segManager.add_block2segment(block, seg);              // and remaining->ptr is a new pointer to be added
-#endif
 
 #ifdef GMLAKE_ENABLE
     block->actual_size = size;
@@ -4174,15 +4167,25 @@ class DeviceCachingAllocator {
       }
     }
 #endif
+    // TODO: change get_block logic, choosed by if lock this value
+    if(c10::dtb::store_in_special_pool[current_device()])
+    {
+      return ex1_blocks;
+    }
     if (size <= kSmallSize) {
       return small_blocks;
-    } else if (size <= kE1Size){
-      return ex1_blocks;
-    } else if (size <= kE2Size){
-      return ex2_blocks;
     } else {
       return large_blocks;
     }
+    // if (size <= kSmallSize) {
+    //   return small_blocks;
+    // } else if (size <= kE1Size){
+    //   return ex1_blocks;
+    // } else if (size <= kE2Size){
+    //   return ex2_blocks;
+    // } else {
+    //   return large_blocks;
+    // }
   }
 #endif
 
@@ -4239,8 +4242,15 @@ class DeviceCachingAllocator {
   static size_t get_allocation_size(size_t size) {
     if (size <= kSmallSize) {                                           // 1MB以下padding到2MB
       return kSmallBuffer;
-    } 
-    // else if (size < kE1Size) { // kMinE1Alloc       // small-E1    // TODO: if reserve 20MB pool?
+    } else if (size < kMinLargeAlloc) {                                 // 1-10MB内padding到20MB
+      return kLargeBuffer;
+    } else {                                                            // 否则按2MB的倍数分配
+      return kRoundLarge * ((size + kRoundLarge - 1) / kRoundLarge);
+    }
+    // if (size <= kSmallSize) {                                           // 1MB以下padding到2MB
+    //   return kSmallBuffer;
+    // } 
+    // else if (size < kE1Size) { // kMinE1Alloc       // small-E1    // TODO: 适配这里的逻辑到锁定张量
     //   return kE1Buffer;
     // } 
     // else if (size < kE2Size) {  // kMinE2Alloc        // E1-E2
@@ -4250,9 +4260,9 @@ class DeviceCachingAllocator {
     // else if (size < kMinLargeAlloc) {                 // E2-Large
     //   return kE2Buffer;
     // } 
-    else {                                                           // 否则按2MB的倍数分配
-      return kRoundLarge * ((size + kRoundLarge - 1) / kRoundLarge);
-    }
+    // else {                                                           // 否则按2MB的倍数分配
+    //   return kRoundLarge * ((size + kRoundLarge - 1) / kRoundLarge);
+    // }
   }
 #endif
 
