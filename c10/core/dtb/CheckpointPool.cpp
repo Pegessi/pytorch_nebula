@@ -490,10 +490,19 @@ void CheckpointPool::mem_first_evict(bool &if_cleared) {
 
 void CheckpointPool::clear_exts(bool last_iter){
   candidates.clear();
-  for(auto &chain: chains){
-    chain->clear_members();
+  if(last_iter){
+    for(auto &chain: chains){
+      chain->clear_members();
+    }
+    chains.clear();
+  }else{
+    auto it = chains.begin();         // 1F1B, release locked nodes like a stack order
+    while(it!=chains.end()&&!(*it)->is_locked){
+      it = chains.erase(it);
+    }
+    (*it)->clear_members();
+    chains.erase(it);
   }
-  chains.clear();
   
   if(last_iter){
     // clear temp_cptc  TODO: can be optimized by std::future

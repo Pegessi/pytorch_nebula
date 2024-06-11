@@ -42,6 +42,7 @@ struct ResidualChain : intrusive_ptr_target {
   StrongChainNode root;
   std::vector<StrongChainNode> members;
   int last_check_idx = 0;
+  bool is_locked = false;
 
   ResidualChain(const StrongChainNode& n);
 

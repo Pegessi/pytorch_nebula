@@ -153,11 +153,6 @@ bool is_checkpoint(const Tensor& t) {
 
 Tensor try_checkpoint(Tensor& t) {
   // STATS.track("try_checkpiont");
-  // if(t.key_set().has(DispatchKey::Checkpoint)&&!is_checkpoint(t)){   /// 这行代码不一定有用 但debug验证的代价较大
-  //   // t.key_set() = t.key_set().remove(DispatchKey::Checkpoint);    // 返回值是keyset，但没有set函数 所以是没有用的
-  //   annotate_log("trigger");
-  //   return(checkpoint(t.decheckpoint()));
-  // }
   return is_checkpoint(t) ? t : checkpoint(t);
 }
 

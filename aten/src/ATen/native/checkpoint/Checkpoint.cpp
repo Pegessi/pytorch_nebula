@@ -2759,6 +2759,25 @@ at::Tensor checkpoint_alias(const at::Tensor & self) {
   return CheckpointTensorImpl::make("aten::alias", rt, {self})[0];
 }
 
+/// ['aten::norm', 'at::Tensor', 'norm', '(const at::Tensor & self, const at::Scalar & p=2)']
+at::Tensor checkpoint_norm(const at::Tensor & self, const at::Scalar & p) {
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      return {at::norm(vec.at(0), p)};
+    };
+  return CheckpointTensorImpl::make("aten::norm", rt, {self})[0];
+}
+
+/// ['aten::norm', 'at::Tensor', 'norm', '(const at::Tensor & self, const c10::optional<at::Scalar> & p, at::IntArrayRef dim, bool keepdim, at::ScalarType dtype)']
+at::Tensor checkpoint_norm(const at::Tensor & self, const c10::optional<at::Scalar> & p, at::IntArrayRef dim, bool keepdim, at::ScalarType dtype) {
+  auto dim_ = dim.vec();
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      return {at::norm(vec.at(0), p, dim_, keepdim, dtype)};
+    };
+  return CheckpointTensorImpl::make("aten::norm", rt, {self})[0];
+}
+
 ////////////////////////////////// auto generate part //////////////////////////////////////
 
 /// ['aten::uniform.out', 'at::Tensor &', 'uniform_out', '(at::Tensor & out, const at::Tensor & self, double from=0, double to=1, c10::optional<at::Generator> generator=c10::nullopt)']

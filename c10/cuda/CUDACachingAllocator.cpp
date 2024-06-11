@@ -1241,17 +1241,11 @@ public:
         for(auto &seg: size_it->second){
           search_size++;
           seg->flush_cost(pre, need_size, stream);
-          // if(!std::isfinite(seg->max_evict_cost)) {       // drop abnormal val
-          //   printf("cost:%lf inf|", seg->max_evict_cost);
-          //   seg->evictable = false;
-          //   continue;
-          // }
           if(seg->evictable) {
             to_evict_segments.emplace_back(seg);
             cur_min_cost = std::min(cur_min_cost, seg->max_evict_cost);
             if(seg->max_evict_cost < stop_threshold) low_cost_size += seg->can_free_size;
           }
-          // if(cur_min_cost < stop_threshold && low_cost_size > gap_size) 
           if(low_cost_size > gap_size) 
             break;
         }

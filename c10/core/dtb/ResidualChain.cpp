@@ -54,6 +54,7 @@ void ResidualChain::insert(const StrongChainNode& n) {
 
   if(size()>CHAIN_LENGTH_LOCK_THRESHOLD) {  // 认为该链是要找的链
     // printf("[TAG] with chain len:%ld\n", size());
+    is_locked = true;
     for(int i = last_check_idx; i<size(); i++){
       if(i%CHAIN_LOCK_STRIDE==0)
         members[i]->lock_value();

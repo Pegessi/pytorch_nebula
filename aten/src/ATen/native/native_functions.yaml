@@ -5105,6 +5105,7 @@
   dispatch:
     SparseCPU, SparseCUDA: sqrt_sparse
     SparseCsrCPU, SparseCsrCUDA: sqrt_sparse_csr
+    Checkpoint: checkpoint_sqrt
   tags:
   - core
   - pointwise
@@ -5872,6 +5873,7 @@
   variants: function, method
   dispatch:
     CompositeExplicitAutograd: norm
+    Checkpoint: checkpoint_norm
   autogen: norm.Scalar_out
 - func: norm.ScalarOpt_dim_dtype(Tensor self, Scalar? p, int[1] dim, bool keepdim,
     *, ScalarType dtype) -> Tensor
@@ -5880,6 +5882,7 @@
   variants: function, method
   dispatch:
     SparseCPU, SparseCUDA: sparse_dtype_norm
+    Checkpoint: checkpoint_norm
 - func: norm.ScalarOpt_dim(Tensor self, Scalar? p, int[1] dim, bool keepdim=False)
     -> Tensor
   structured_delegate: norm.out
@@ -11440,6 +11443,8 @@
 - func: sigmoid_backward(Tensor grad_output, Tensor output) -> Tensor
   python_module: nn
   structured_delegate: sigmoid_backward.grad_input
+  dispatch:
+    Checkpoint: checkpoint_sigmoid_backward
   tags: pointwise
 - func: logit_backward.grad_input(Tensor grad_output, Tensor self, float? eps=None,
     *, Tensor(a!) grad_input) -> Tensor(a!)
