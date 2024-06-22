@@ -96,6 +96,23 @@ Tensor checkpoint(Tensor& t, bool if_weight) {
   return res;
 }
 
+Tensor fake_checkpoint(const Tensor& t) {
+  // STATS.track("checkpoint");
+  // if(!t.defined())
+  //   return Tensor(nullptr);
+  // auto cpti = intrusive_ptr<CheckpointTensorImpl>::make(t);   // 调用了Ref<intrusive_ptr<External>> External CheckpointTensorCell的相关构造函数
+  Tensor t_ = t;
+  auto cpti = c10::make_intrusive<CheckpointTensorImpl>(t_);      // cpti->ref->value->value->t 是包裹的unique_ptr<Tensor> unsafeGetTensorCell()
+#ifdef DEBUG_MODE
+  if (use_log_) {
+    c10::dtb::DTRLogConstant(cpti->counter_name());
+    c10::dtb::DTRLogMemory(std::to_string(cpti->unsafeGetTensorCell()->pool->if_weight)+"-"+std::to_string(0), cpti->unsafeGetTensorCell()->memory());
+  }
+#endif
+  auto res = Tensor(cpti);
+  return res;
+}
+
 Tensor uncheckpoint(const Tensor& t) {
   // STATS.track("uncheckpoint");
   auto* cpti = dynamic_cast<CheckpointTensorImpl*>(t.unsafeGetTensorImpl());

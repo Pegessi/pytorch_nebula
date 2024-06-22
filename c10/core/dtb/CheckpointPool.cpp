@@ -490,6 +490,7 @@ void CheckpointPool::mem_first_evict(bool &if_cleared) {
 
 void CheckpointPool::clear_exts(bool last_iter){
   candidates.clear();
+  // DTRLogAlias("[clear exts and if last iter]", last_iter?1:0);
   if(last_iter){
     for(auto &chain: chains){
       chain->clear_members();
@@ -500,8 +501,10 @@ void CheckpointPool::clear_exts(bool last_iter){
     while(it!=chains.end()&&!(*it)->is_locked){
       it = chains.erase(it);
     }
-    (*it)->clear_members();
-    chains.erase(it);
+    if(it != chains.end()) {
+      (*it)->clear_members();
+      chains.erase(it);
+    }
   }
   
   if(last_iter){

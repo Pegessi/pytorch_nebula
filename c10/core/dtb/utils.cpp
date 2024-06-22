@@ -227,7 +227,7 @@ Tensors try_checkpoint(Tensors& inputs) {
       pm->lock_temp_ext(device_id, weak(cpti->unsafeGetTensorCell()));
 #ifdef DEBUG_MODE
       if(record_op_recs) {
-        DTRLogAddress("checkpoint "+cpti->unsafeGetTensorCell()->counter_name()+ " " + std::string(cpti->unsafeGetTensorCell()->dtype().name()) + " device:" + std::to_string(device_id), 
+        DTRLogAddress("inner checkpoint "+cpti->unsafeGetTensorCell()->counter_name()+ " " + std::string(cpti->unsafeGetTensorCell()->dtype().name()) + " device:" + std::to_string(device_id), 
           cpti->unsafeGetTensorCell()->pool->addr, cpti->unsafeGetTensorCell()->pool->lock_count);
       }
 #endif

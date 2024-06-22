@@ -59,10 +59,20 @@ c10::intrusive_ptr<TensorImpl> CheckpointTensorImpl::shallow_copy_and_detach(
 
 void CheckpointTensorImpl::shallow_copy_from(const c10::intrusive_ptr<TensorImpl>& impl) {
   STATS.track("CheckpointTensorCell::shallow_copy_from");
+  // auto self_impl = c10::make_intrusive<CheckpointTensorImpl>(ref);
   TORCH_CHECK(impl->key_set().has(DispatchKey::CheckpointTensorId));
   auto* cpti = dynamic_cast<CheckpointTensorImpl*>(impl.get());
   TORCH_CHECK(cpti != nullptr);
   ref->value = cpti->ref->value;
+  TensorImpl::copy_tensor_metadata(
+        /*src_impl=*/impl.get(),
+        /*dest_impl=*/this,
+        /*version_counter=*/version_counter(),
+        /*allow_tensor_metadata_change=*/allow_tensor_metadata_change());
+  // impl->refresh_numel();
+  refresh_numel();
+  refresh_contiguous();
+  
   if(unsafeGetTensorCell()->get().defined())
     set_sizes_and_strides(unsafeGetTensorCell()->get().sizes(), unsafeGetTensorCell()->get().strides());
 #ifdef DEBUG_MODE
@@ -212,8 +222,12 @@ inline void release_external_of_nosource_tensor(const strong& s, const std::stri
 MakeRawResult make_raw(const rematerialize_function_t& remat_f,
                        const strongs& inputs, const std::string& name) {
   STATS.track("make_raw");
+  // bool if_res_retain = false;
   for (const strong& s : inputs) {                  // lock for unevictable
     s->pool->lock();
+    // if(!s->pool->head_remat.defined()) {
+    //   if_res_retain = true;
+    // }
   }
 #ifdef DEPTH_ENABLE
   int cumulative_num = 0;
@@ -310,6 +324,7 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
     }
 #endif
     alias_pool->tensors.push_back(weak(e->value));                // same storage in one alias_pool
+    // alias_pool->is_retain = if_res_retain;
     outputs.push_back(e);
     aliases.push_back(alias);
     weak_outputs.push_back(weak(outputs.back()->value));
@@ -870,7 +885,7 @@ CheckpointTensorImpl::CheckpointTensorImpl(Tensor& t, bool if_weight) : Checkpoi
   //   pm->lock_temp_ext(c10::cuda::current_device(), weak(unsafeGetTensorCell()));
   // }
   if(record_op_recs) {
-    DTRLogAddress("checkpoint "+counter_name()+ " " + std::string(unsafeGetTensorCell()->dtype().name()) + " device:" + std::to_string(device_id), 
+    DTRLogAddress("outer checkpoint "+counter_name()+ " " + std::string(unsafeGetTensorCell()->dtype().name()) + " device:" + std::to_string(device_id), 
       unsafeGetTensorCell()->pool->addr, unsafeGetTensorCell()->pool->memory);
   }
 #endif

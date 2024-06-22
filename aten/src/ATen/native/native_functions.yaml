@@ -1,5 +1,7 @@
 - func: checkpoint(Tensor(a!) self, bool if_weight=False) -> Tensor
   variants: method
+- func: fake_checkpoint(Tensor self) -> Tensor
+  variants: method
 - func: try_checkpoint(Tensor(a!) self) -> Tensor
   variants: method
 - func: is_checkpoint(Tensor self) -> bool
@@ -11633,6 +11635,7 @@
   variants: method
   dispatch:
     CUDA: record_stream_cuda
+    Checkpoint: checkpoint_record_stream
 - func: isposinf(Tensor self) -> Tensor
   variants: function, method
   structured_delegate: isposinf.out

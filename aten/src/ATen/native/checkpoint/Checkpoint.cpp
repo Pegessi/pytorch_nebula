@@ -2778,6 +2778,10 @@ at::Tensor checkpoint_norm(const at::Tensor & self, const c10::optional<at::Scal
   return CheckpointTensorImpl::make("aten::norm", rt, {self})[0];
 }
 
+void checkpoint_record_stream(Tensor& self, c10::Stream stream){
+  self.decheckpoint().record_stream(stream);
+}
+
 ////////////////////////////////// auto generate part //////////////////////////////////////
 
 /// ['aten::uniform.out', 'at::Tensor &', 'uniform_out', '(at::Tensor & out, const at::Tensor & self, double from=0, double to=1, c10::optional<at::Generator> generator=c10::nullopt)']

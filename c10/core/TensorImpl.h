@@ -2024,6 +2024,9 @@ private:
     // if (key_set_.has(DispatchKey::CUDA) && from.has(DispatchKey::Checkpoint)) { // this is parameter set_data, has potential bug
     //   return true;
     // }
+    if (key_set_.has(DispatchKey::Checkpoint) && from.has(DispatchKey::Checkpoint)) { // this is for invalid shallow copy during execution
+      return true;
+    }
     if (key_set_.has(DispatchKey::Checkpoint) || from.has(DispatchKey::Checkpoint)) { // this is for invalid shallow copy during execution
       return false;
     }
