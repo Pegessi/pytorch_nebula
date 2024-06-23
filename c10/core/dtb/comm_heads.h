@@ -42,7 +42,8 @@
 // #define MINIMAL_EVICT_COST            /// 最小驱逐策略+cost cache（贪心+随机 DTR） op记录
 #define DEGREE_CHAIN                     /// 残差链发现策略
 #define MEM_FIRST_EVICT                  /// 以内存为中心的驱逐策略(unified_evict)
-#define ORIG_EVICT                       /// DTR original Evction
+// #define ORIG_EVICT                       /// DTR original Evction
+// 集群上的cost_evict也使用了single_pool + pre_eviction的优化
 
 /**
  * 为测试方便，不用重新编译，都采用环境变量来控制不同优化是否启用
@@ -187,8 +188,19 @@ extern size_t memory_sum;
 extern size_t memory_max;
 extern size_t memory_count;
 
-constexpr const int CHAIN_LENGTH_LOCK_THRESHOLD = 8;  // 16
-constexpr const int CHAIN_LOCK_STRIDE = 2;            // llama2 lora use 2 for faster remat, megatron-lm use 4 for test, maybe can use 2 too?
+// constexpr const int CHAIN_LENGTH_LOCK_THRESHOLD = 8;  // 16
+// constexpr const int CHAIN_LOCK_STRIDE = 2;            // llama2 lora use 2 for faster remat, megatron-lm use 4 for test, maybe can use 2 too?
+static const int CHAIN_LENGTH_LOCK_THRESHOLD = ([]() -> int {
+    const char* env = getenv("CHAIN_LENGTH_LOCK_THRESHOLD");
+    if(env) return (atoi(env));
+    else    return 8;
+})();
+static const int CHAIN_LOCK_STRIDE = ([]() -> int {
+    const char* env = getenv("CHAIN_LOCK_STRIDE");
+    if(env) return (atoi(env));
+    else    return 2;
+})();
+
 
 extern long base_compute_time_;
 extern long remat_compute_time_;

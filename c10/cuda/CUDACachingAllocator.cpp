@@ -2316,16 +2316,16 @@ class DeviceCachingAllocator {
     params.stat_types = get_stat_types_for_pool(pool);
     // if(c10::dtb::USE_DTR&&(getStats().active_bytes[device].current + size) > c10::dtb::memory_budget){
     if(c10::dtb::USE_DTR){
-      // if(COST_FIRST_EVICT){
-      //   auto *pm = c10::dtb::getDTBPoolManager();
-      //   auto if_evict = pm->auto_evict(device, size);
-      // }else{  // MEM_FIRST_EVICT
-      //   auto if_evict = segManager.auto_evict(size, device, stream);
-      // }
-
-      if(UNIFIED_EVICT){
+      if(COST_FIRST_EVICT){
+        auto *pm = c10::dtb::getDTBPoolManager();
+        auto if_evict = pm->auto_evict(device, size);
+      }else{  // UNIFIED_EVICT
         auto if_evict = segManager.auto_evict(size, device, stream);
       }
+
+      // if(UNIFIED_EVICT){
+      //   auto if_evict = segManager.auto_evict(size, device, stream);
+      // }
 
 
 // #if defined(MEM_TWIN_REC) && defined(MEM_FIRST_EVICT) 
