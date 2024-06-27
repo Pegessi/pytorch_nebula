@@ -4,6 +4,8 @@ from torch.cuda import nccl
 from torch._utils import _take_tensors, _flatten_dense_tensors, \
     _unflatten_dense_tensors, _reorder_tensors_as, _get_device_index, _handle_complex
 from typing import List
+import os
+USE_DTR =  True if os.environ.get('DTR_ENABLE') == '1' else False
 
 def broadcast(tensor, devices=None, *, out=None):
     r"""Broadcasts a tensor to specified GPU devices.
@@ -26,6 +28,8 @@ def broadcast(tensor, devices=None, *, out=None):
             a tuple containing :attr:`out` tensors, each containing a copy of
             :attr:`tensor`.
     """
+    if USE_DTR:
+        tensor = tensor.decheckpoint()
     tensor = _handle_complex(tensor)
     if not ((devices is None) ^ (out is None)):
         raise RuntimeError(
@@ -52,6 +56,8 @@ def broadcast_coalesced(tensors, devices, buffer_size=10485760):
     Returns:
         A tuple containing copies of :attr:`tensor`, placed on :attr:`devices`.
     """
+    if USE_DTR:
+        tensors = [t.decheckpoint() for t in tensors]
     devices = [_get_device_index(d) for d in devices]
     tensors = [_handle_complex(t) for t in tensors]
     return torch._C._broadcast_coalesced(tensors, devices, buffer_size)
@@ -72,6 +78,8 @@ def reduce_add(inputs, destination=None):
         A tensor containing an elementwise sum of all inputs, placed on the
         :attr:`destination` device.
     """
+    if USE_DTR:
+        inputs = [t.decheckpoint() for t in inputs]
     destination = _get_device_index(destination, optional=True)
     input_size = inputs[0].size()
     root_index = None  # index of input tensor that already is on the correct device
@@ -119,6 +127,8 @@ def reduce_add_coalesced(inputs, destination=None, buffer_size=10485760):
         A tuple of tensors containing an elementwise sum of each group of
         inputs, placed on the ``destination`` device.
     """
+    if USE_DTR:
+        inputs = [[t.decheckpoint() for t in ts] for ts in inputs]
     # TODO: When `len(inputs) == 1` and all inputs are on `destination`, just
     #       return `inputs`.
     dense_tensors: List[List] = [[] for _ in inputs]  # shape (num_gpus, num_tensors)
@@ -181,6 +191,8 @@ def scatter(tensor, devices=None, chunk_sizes=None, dim=0, streams=None, *, out=
             a tuple containing :attr:`out` tensors, each containing a chunk of
             :attr:`tensor`.
     """
+    if USE_DTR:
+        tensor = tensor.decheckpoint()
     tensor = _handle_complex(tensor)
     if out is None:
         devices = [_get_device_index(d) for d in devices]
@@ -221,6 +233,8 @@ def gather(tensors, dim=0, destination=None, *, out=None):
             the :attr:`out` tensor, now containing results of concatenating
             :attr:`tensors` along :attr:`dim`.
     """
+    if USE_DTR:
+        tensors = [t.decheckpoint() for t in tensors]
     tensors = [_handle_complex(t) for t in tensors]
     if out is None:
         if destination == -1:

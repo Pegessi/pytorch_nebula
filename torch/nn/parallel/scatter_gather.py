@@ -2,6 +2,8 @@ import torch
 from typing import Any, Dict, List, Optional, Sequence, Tuple, TypeVar, Union, overload
 from ._functions import Scatter, Gather
 import warnings
+import os
+USE_DTR =  True if os.environ.get('DTR_ENABLE') == '1' else False
 
 __all__ = ['scatter', 'scatter_kwargs', 'gather']
 
@@ -40,6 +42,8 @@ def scatter(inputs, target_gpus, dim=0):
     """
     def scatter_map(obj):
         if isinstance(obj, torch.Tensor):
+            if USE_DTR:
+                obj = obj.decheckpoint()
             return Scatter.apply(target_gpus, None, dim, obj)
         if _is_namedtuple(obj):
             return [type(obj)(*args) for args in zip(*map(scatter_map, obj))]
@@ -87,6 +91,8 @@ def gather(outputs: Any, target_device: Union[int, torch.device], dim: int = 0) 
     def gather_map(outputs):
         out = outputs[0]
         if isinstance(out, torch.Tensor):
+            if USE_DTR:
+                out = out.decheckpoint()
             return Gather.apply(target_device, dim, *outputs)
         if out is None:
             return None

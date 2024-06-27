@@ -13,6 +13,8 @@ from torch._utils import (
     _get_device_index,
     _get_devices_properties
 )
+import os
+USE_DTR =  True if os.environ.get('DTR_ENABLE') == '1' else False
 
 __all__ = ['DataParallel', 'data_parallel']
 

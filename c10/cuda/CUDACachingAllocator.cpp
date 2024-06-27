@@ -1200,7 +1200,7 @@ public:
 
   bool auto_evict(size_t need_size, int device, cudaStream_t stream) {
     if((c10::dtb::current_memory(device)+need_size) < c10::dtb::memory_budget) return false;
-    if(need_size > size_map.rbegin()->first) return false;
+    // if(need_size > size_map.rbegin()->first) return false;
 
     long search_time_ = 0, search_size = 0;
     size_t before_allocated = c10::dtb::current_memory(device);
