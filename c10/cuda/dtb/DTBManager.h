@@ -118,6 +118,8 @@ static const bool USE_DTR = ([]() -> bool {    /// init if use dtr by check env 
 
       void erase_ap(int device, uintptr_t addr);
 
+      void proactive_remat(int device, int remat_depth);
+
 #ifdef MEM_FIRST_EVICT
       void update_ap(intrusive_ptr<AliasPool>& ap, uintptr_t new_addr);
 

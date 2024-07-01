@@ -14,6 +14,8 @@
   variants: method
 - func: pin(Tensor(a!) self) -> ()
   variants: method
+- func: proactive_recovery(int device, int depth) -> ()
+  variants: function
 - func: annotate_log(str logname) -> ()
   variants: function
 - func: toggle_log(bool use_log) -> ()
@@ -4454,6 +4456,7 @@
     CPU: gelu_out_cpu
     CUDA: gelu_out_cuda
     MPS: gelu_out_mps
+    Checkpoint: checkpoint_gelu_out
 - func: gelu_(Tensor(a!) self, *, str approximate='none') -> Tensor(a!)
   structured_delegate: gelu.out
   device_check: NoCheck
@@ -4469,6 +4472,7 @@
     QuantizedCPU: gelu_quantized_cpu
     QuantizedCUDA: gelu_quantized_cuda
     NestedTensorCPU, NestedTensorCUDA: NestedTensor_gelu
+    Checkpoint: checkpoint_gelu
   tags:
   - core
   - pointwise

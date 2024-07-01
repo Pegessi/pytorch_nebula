@@ -171,5 +171,22 @@ int CheckpointTensorCell::precheck(){
   // pool->set_dependency(dependency);
 }
 
+/**
+ * Remat output of cptc'remater
+ */
+void CheckpointTensorCell::remat_neghibors(int remat_depth) {
+  if(remat && pool->external_count>0)
+    get();  // remat self
+  if(remat_depth > 0) {
+    for(auto &wcptc: pool->neighbors) {
+      if(auto scptc = wcptc.lock()) {
+          // if(remat && pool->external_count>0)
+          //   scptc->get();
+          scptc->remat_neghibors(remat_depth-1);
+      }
+    }
+  }
+}
+
 }
 }

@@ -208,6 +208,13 @@ void clear_checkpointpool(long device, bool last_iter) {
 #endif
 }
 
+void proactive_recovery(long device, long depth) {
+#ifdef MULTI_MODE
+  auto *pm = getDTBPoolManager();
+  pm->proactive_remat(device, depth);
+#endif
+}
+
 void check_current_exts(long device){
   auto *pm = getDTBPoolManager();
   pm->pool_cur_mem_snapshot(device);

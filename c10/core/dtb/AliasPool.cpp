@@ -139,8 +139,6 @@ void AliasPool::unlock() {
         evict(1);
       } 
 #endif
-      // else if (memory > 0 && head_remat==nullptr)
-      //   evict(2);
     }
   }
   /**

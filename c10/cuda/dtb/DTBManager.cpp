@@ -266,6 +266,26 @@ void DTBCheckpointPool::erase_ap(int device, uintptr_t addr){
   pool->mem_ordered_aps.erase(addr);
 }
 
+/**
+ * Proactive remat tensors started from the first locked nodes.
+ * remat_depth is the remat length num, 1 means remat it's neighbors
+ * 2 means remat neighbors of neighors (second layer nodes)
+ */
+void DTBCheckpointPool::proactive_remat(int device, int remat_depth) {
+  auto pool = device_dtbpool[device].get();
+  auto it = pool->chains.begin();
+  while(it != pool->chains.end() && !(*it) -> is_locked){   // find the first locked chain
+    it = pool->chains.erase(it);
+  }
+  if(it != pool->chains.end()) {
+    for(auto& cn: (*it)->members) {
+      if(auto scptc = cn->value.lock()) {
+        scptc->remat_neghibors(remat_depth);
+      }
+    }
+  }
+}
+
 #ifdef MEM_FIRST_EVICT
 /**
  * Update ap's p2ap info.

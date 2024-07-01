@@ -67,6 +67,8 @@ struct CheckpointTensorCell : intrusive_ptr_target {
   }
   Tensor get();
   Tensor get(int&);   // for remat count (deprecated)
+
+  void remat_neghibors(int remat_depth);
   int precheck();
   // std::vector<int64_t> sizes(){
   //   return get().sizes().vec();

@@ -2782,6 +2782,26 @@ void checkpoint_record_stream(Tensor& self, c10::Stream stream){
   self.decheckpoint().record_stream(stream);
 }
 
+/// ['aten::gelu_outf', 'at::Tensor &', 'gelu_outf', '(const at::Tensor & self, c10::string_view approximate, at::Tensor & out)']
+at::Tensor & checkpoint_gelu_out(const at::Tensor & self, c10::string_view approximate, at::Tensor & out) {
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      Tensor out = vec.at(1);
+      return {at::gelu_out(out, vec.at(0), approximate)};
+    };
+  return CheckpointTensorImpl::make("aten::gelu_outf", rt, {self, out})[0];
+}
+
+
+/// ['aten::gelu', 'at::Tensor', 'gelu', '(const at::Tensor & self, c10::string_view approximate="none")']
+at::Tensor checkpoint_gelu(const at::Tensor & self, c10::string_view approximate) {
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      return {at::gelu(vec.at(0), approximate)};
+    };
+  return CheckpointTensorImpl::make("aten::gelu", rt, {self})[0];
+}
+
 ////////////////////////////////// auto generate part //////////////////////////////////////
 
 /// ['aten::uniform.out', 'at::Tensor &', 'uniform_out', '(at::Tensor & out, const at::Tensor & self, double from=0, double to=1, c10::optional<at::Generator> generator=c10::nullopt)']
