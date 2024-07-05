@@ -1028,9 +1028,15 @@ inline Block* SegmentTwin::flush_cost(time_t cur, size_t need_size, cudaStream_t
         }
       } else {
         if(need_size != 0) {
-          evict_start = nullptr;
-          max_evict_cost = 0;
-          can_free_size = 0;
+          if(bit->allocated) {
+            evict_start = nullptr;
+            max_evict_cost = 0;
+            can_free_size = 0;
+          } else {
+            evict_start = nullptr;
+            max_evict_cost = 0;
+            can_free_size = bit->size;
+          }
         }
       }
     }
