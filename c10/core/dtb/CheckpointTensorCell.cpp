@@ -1,6 +1,7 @@
 #include <c10/core/dtb/CheckpointTensorCell.h>
 #include <c10/core/dtb/utils.h>
 #include <c10/cuda/dtb/DTBManager.h>
+#include <c10/cuda/CUDACachingAllocator.h>
 #include <queue>
 
 #define TORCH_CHECK(a, ...)   // replace original TORCH_CHECK  profile mode
@@ -182,7 +183,8 @@ void CheckpointTensorCell::remat_neghibors(int remat_depth) {
       if(auto scptc = wcptc.lock()) {
           // if(remat && pool->external_count>0)
           //   scptc->get();
-          scptc->remat_neghibors(remat_depth-1);
+          if(scptc->pool->is_evicted && scptc->pool->external_count>0) // 对被驱逐的需要的张量进行恢复
+            scptc->remat_neghibors(remat_depth-1);
       }
     }
   }

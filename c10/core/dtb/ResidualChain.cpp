@@ -1,4 +1,5 @@
 #include <c10/core/dtb/ResidualChain.h>
+#include <c10/cuda/CUDACachingAllocator.h>
 
 #define TORCH_CHECK(a, ...) 
 
