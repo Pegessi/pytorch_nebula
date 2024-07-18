@@ -271,8 +271,11 @@ void DTBCheckpointPool::erase_ap(int device, uintptr_t addr){
  * remat_depth is the remat length num, 1 means remat it's neighbors
  * 2 means remat neighbors of neighors (second layer nodes)
  */
-void DTBCheckpointPool::proactive_remat(int device, int remat_depth) {
+void DTBCheckpointPool::proactive_remat(int device, float remat_depth, bool erase) {
+  init_check();
   auto pool = device_dtbpool[device].get();
+  /**
+   * 下面是以保留节点为起始的恢复，但不易查询到驱逐节点
   auto it = pool->chains.begin();
   while(it != pool->chains.end() && !(*it) -> is_locked){   // find the first locked chain
     it = pool->chains.erase(it);
@@ -284,6 +287,45 @@ void DTBCheckpointPool::proactive_remat(int device, int remat_depth) {
       }
     }
   }
+   */
+  pool->remat_front_batch(remat_depth, erase);
+}
+
+/**
+ * record evicted tensors in eviction strageties.
+ */
+void DTBCheckpointPool::record_evicted_tensors(int device, const weak& wcptc) {
+  auto pool = device_dtbpool[device].get();
+  pool->add_evited_tensor(wcptc);
+}
+
+void DTBCheckpointPool::push_batch_evicted_tensors(int device) {
+  if(device_dtbpool.empty()) return;
+  auto pool = device_dtbpool[device].get();
+#ifdef DEBUG_MODE
+  // size_t total_mem = 0;
+  // for(const auto& wcptc: pool->cur_batch_evicted_tensors){
+  //   if(auto scptc = wcptc.lock()){
+  //     total_mem += scptc->pool->memory;
+  //     std::string rec = "device:" + std::to_string(scptc->pool->device_id) + " mem:" + std::to_string(scptc->pool->memory/1024/1024) + " MB\n";
+  //     std::cout<< rec;
+  //   }
+  // }
+#endif
+  auto inserted = pool->push_single_batch_ets();
+#ifdef DEBUG_MODE
+  // if(inserted){
+  //   std::cout << int(c10::cuda::current_device()) << " evicted " << pool->evicted_batch_tensors.back().size() 
+  //     << " tensors (" << pool->evicted_batch_tensors.size() << " batch) "
+  //     << "total mem:" << total_mem/1024/1024 << "MB\n";
+  // }
+#endif
+}
+
+void DTBCheckpointPool::clear_recorded_batch(int device) {
+  if(device_dtbpool.empty()) return;
+  auto pool = device_dtbpool[device].get();
+  pool->clear_recorded_batch();
 }
 
 #ifdef MEM_FIRST_EVICT

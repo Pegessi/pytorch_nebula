@@ -208,10 +208,10 @@ void clear_checkpointpool(long device, bool last_iter) {
 #endif
 }
 
-void proactive_recovery(long device, long depth) {
+void proactive_recovery(long device, double depth, bool erase) {
 #ifdef MULTI_MODE
   auto *pm = getDTBPoolManager();
-  pm->proactive_remat(device, depth);
+  pm->proactive_remat(device, depth, erase);
 #endif
 }
 
@@ -246,6 +246,10 @@ void set_memory_budget(long budget) {
 #endif
 }
 
+void register_stream(c10::Stream stream, long label) {
+  c10::dtb::registerStreamLabel(stream, label);
+}
+
 void set_reserved(){
   reserved_range = true;
 }
@@ -260,6 +264,10 @@ void set_backward_flag(){
 //   pm->set_during_backward(true);
 // #else
   during_backward = true;
+#ifdef PROACTIVE_REMAT
+  auto *pm = getDTBPoolManager();
+  pm->push_batch_evicted_tensors(c10::cuda::current_device());
+#endif
 // #endif
   // printf("SET_BACKWARD_FALG TRIGGER\n");
 }
@@ -272,6 +280,13 @@ void unset_backward_flag(){
   during_backward = false;
 // #endif
   // printf("UNSET_BACKWARD_FALG TRIGGER\n");
+}
+
+void clear_batched_records(long device) {
+#ifdef PROACTIVE_REMAT
+  auto *pm = getDTBPoolManager();
+  pm->clear_recorded_batch(device);
+#endif
 }
 
 void mark_train(bool flag){

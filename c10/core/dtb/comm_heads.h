@@ -31,6 +31,7 @@
 #include <ATen/Tensor.h>
 #include <ATen/ATen.h>
 #include <c10/core/dtb/Logger.h>
+#include <cuda_runtime.h>
 
 #define likely(x)      __builtin_expect(!!(x), 1)
 #define unlikely(x)    __builtin_expect(!!(x), 0)
@@ -44,6 +45,9 @@
 #define MEM_FIRST_EVICT                  /// 以内存为中心的驱逐策略(unified_evict)
 // #define ORIG_EVICT                       /// DTR original Evction
 // 集群上的cost_evict也使用了single_pool + pre_eviction的优化
+#define PROACTIVE_REMAT                 /// 主动恢复相关接口
+
+// #define ARITHMETIC_TEST                 /// 等差释放测试
 
 /**
  * 为测试方便，不用重新编译，都采用环境变量来控制不同优化是否启用
@@ -212,6 +216,7 @@ extern std::unordered_map<int64_t, duration_t> compute_cost_records;
 extern std::unordered_map<int64_t, size_t> memory_cost_records;
 extern COMMON_API size_t memory_budget;
 extern COMMON_API bool store_in_special_pool[8];
+extern COMMON_API std::unordered_map<cudaStream_t, int>* stream_to_label;
 #ifdef DEBUG_MODE
 extern bool record_er_counts;        // 驱逐&重物化次数
 extern bool record_mem_addr;         // 是否记录内存地址

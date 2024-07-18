@@ -14,7 +14,7 @@
   variants: method
 - func: pin(Tensor(a!) self) -> ()
   variants: method
-- func: proactive_recovery(int device, int depth) -> ()
+- func: proactive_recovery(int device, float depth, bool if_comm=True) -> ()
   variants: function
 - func: annotate_log(str logname) -> ()
   variants: function
@@ -22,11 +22,15 @@
   variants: function
 - func: clear_checkpointpool(int device, bool last_iter=True) -> ()
   variants: function
+- func: clear_batched_records(int device) -> ()
+  variants: function
 - func: check_current_exts(int device) -> ()
   variants: function
 - func: init_dtb_manager() -> ()
   variants: function
 - func: set_memory_budget(int budget) -> ()
+  variants: function
+- func: register_stream(Stream s, int label) -> ()
   variants: function
 - func: set_reserved() -> ()
   variants: function

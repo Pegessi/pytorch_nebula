@@ -214,6 +214,10 @@ inline void release_external_of_nosource_tensor(const strong& s, const std::stri
   }
 }
 
+#ifdef ARITHMETIC_TEST
+static size_t cur_op_counts = 0;
+static constexpr size_t evict_num = 2;
+#endif
 // remat take a single vector of tensors,
 // while there are two vector, one storing nonconstants and one storing constants.
 // the constants are small and they will not be considered for eviction.
@@ -222,6 +226,9 @@ inline void release_external_of_nosource_tensor(const strong& s, const std::stri
 MakeRawResult make_raw(const rematerialize_function_t& remat_f,
                        const strongs& inputs, const std::string& name) {
   STATS.track("make_raw");
+  #ifdef ARITHMETIC_TEST
+  cur_op_counts++;
+  #endif
   // bool if_res_retain = false;
   for (const strong& s : inputs) {                  // lock for unevictable
     s->pool->lock();
@@ -348,6 +355,12 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
   for (const strong& s : inputs) {
     s->pool->unlock();
     // release_external_of_nosource_tensor(s, name);
+    // #ifdef ARITHMETIC_TEST // stupid
+    // if(cur_op_counts % evict_num == 0){
+    //   if(s->pool->evictable())
+    //   s->pool->evict(0);
+    // }
+    // #endif
   }
 
 #ifdef DEBUG_MODE

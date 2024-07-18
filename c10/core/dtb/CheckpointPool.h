@@ -13,12 +13,14 @@ namespace dtb {
 // CheckpointPool keep a list of AliasPool, and search over them to choose the best one to evict.
 struct CheckpointPool : intrusive_ptr_target {
   std::vector<weak_intrusive_ptr<AliasPool>> aps;
-  std::map<uintptr_t, weak_intrusive_ptr<AliasPool>> mem_ordered_aps;
+  std::map<uintptr_t, weak_intrusive_ptr<AliasPool>> mem_ordered_aps;   // [deprecated]
 
   std::vector<weak_intrusive_ptr<External>> exts;
   std::vector<weak> temp_cptc;            // during forward&backward, mark those input tensors is created casually
-  std::vector<weak> candidates;           // candidates for end point
-  std::vector<ResidualChainRef> chains;
+  std::vector<weak> candidates;           // candidates for end point [deprecated]
+  std::vector<ResidualChainRef> chains; 
+  std::vector<weak> cur_batch_evicted_tensors;
+  std::vector<std::vector<weak>> evicted_batch_tensors; // record private evicted tensors
 
 
   std::random_device rd;
@@ -42,6 +44,10 @@ struct CheckpointPool : intrusive_ptr_target {
   void initiative_evict(size_t to_free_bytes);
   
   void add(const intrusive_ptr<AliasPool>&);
+  void add_evited_tensor(const weak& wcptc);
+  bool push_single_batch_ets();
+  void clear_recorded_batch();
+  void remat_front_batch(float scale=0.5, bool erase=true);
   // void add_chain(const intrusive_ptr<KeyChain>&);
   // void erase_chain(intrusive_ptr<KeyChain>&);
   CheckpointPool();

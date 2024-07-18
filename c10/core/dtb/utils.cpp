@@ -37,6 +37,7 @@ bool use_profile_ = false;
 std::unordered_map<int64_t, duration_t> compute_cost_records;
 std::unordered_map<int64_t, size_t> memory_cost_records;
 size_t memory_budget = 85899345920;  
+std::unordered_map<cudaStream_t, int>* stream_to_label = new std::unordered_map<cudaStream_t, int>();
 bool store_in_special_pool[8] = {false};
 
 #ifdef DEBUG_MODE
@@ -180,6 +181,23 @@ uintptr_t get_addr(const Tensor& t) {
 
 void set_global_memory_budget(size_t budget){
   memory_budget = budget;
+}
+
+void registerStreamLabel(c10::Stream stream, int label) {
+  auto s = c10::cuda::getCurrentCUDAStream(c10::cuda::current_device());
+  auto it = stream_to_label->find(s);
+  if (it != stream_to_label->end()) return;
+  stream_to_label->insert({s, label});
+  printf("register stream:%d is_default:%d\n", label, s==cudaStreamDefault ? 1 : 0);
+}
+
+int getStreamLabel(cudaStream_t stream) {
+    auto it = stream_to_label->find(stream);
+    if (it != stream_to_label->end()) {
+        return it->second;
+    } else {
+        return -1; // 未找到标记
+    }
 }
 
 Tensor uncheckpoint(const strong& input) {

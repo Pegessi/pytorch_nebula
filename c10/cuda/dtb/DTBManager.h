@@ -118,7 +118,13 @@ static const bool USE_DTR = ([]() -> bool {    /// init if use dtr by check env 
 
       void erase_ap(int device, uintptr_t addr);
 
-      void proactive_remat(int device, int remat_depth);
+      void record_evicted_tensors(int device, const weak& wcptc);
+
+      void push_batch_evicted_tensors(int device);
+
+      void clear_recorded_batch(int device);
+
+      void proactive_remat(int device, float remat_depth, bool erase=true);
 
 #ifdef MEM_FIRST_EVICT
       void update_ap(intrusive_ptr<AliasPool>& ap, uintptr_t new_addr);

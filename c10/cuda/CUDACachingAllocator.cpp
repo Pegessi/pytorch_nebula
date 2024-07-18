@@ -5,6 +5,7 @@
 #include <c10/cuda/CUDAFunctions.h>
 #include <c10/cuda/CUDAGuard.h>
 #include <c10/cuda/dtb/DTBManager.h>
+#include <c10/core/dtb/utils.h>
 #include <c10/util/CallOnce.h>
 #include <c10/util/UniqueVoidPtr.h>
 #include <c10/util/flat_hash_map.h>
@@ -1235,7 +1236,7 @@ public:
      * In fact, a suitable threshold of cost for early stop is beneficial to recude searching time
      * and it's enough for efficient eviction.
      * However, need_size bigger than the biggest size cannot be satisfied by evicting smaller segments.
-     * Then a bigger segment will cause the over budget so in the next eviction, gap_size is much larger than need_size.
+     * Then a bigger segment will cause the over budget(gap lag, gap_size is much larger than need_size)
      * In this case, reverse traversal is used to find some big and cheap tensor to evict and avoid from small but expensive tensor.
      * 
     */
@@ -1261,7 +1262,6 @@ public:
       }
     } else {
       for(auto size_it=size_map.lower_bound(need_size); size_it!=size_map.end(); size_it++){
-        // if(size_it->first>check_scale*need_size) break;   // early stop
         if(cur_min_cost < stop_threshold) break;
         bool all_cannot_evict = true;
         for(auto &seg: size_it->second){
@@ -1272,10 +1272,10 @@ public:
             cur_min_cost = std::min(cur_min_cost, seg->max_evict_cost);
             if(seg->max_evict_cost < stop_threshold) {
               evict_strat = es;
-              low_cost_size += seg->can_free_size;
+              low_cost_size = seg->can_free_size;
             }
           }
-          if(low_cost_size > gap_size) 
+          if(low_cost_size > need_size) 
             break;
         }
       }
@@ -1292,13 +1292,16 @@ public:
           if(res.second) {
             if(auto sap = res.first.lock()) {
               if(sap->evictable()){
-              // #ifdef DEBUG_MODE
-              //   if(c10::dtb::trace_evicted_tensor){
-              //     printf("[expected total:%lf]evict cost:%lf mem:%ld|", to_evict->max_evict_cost*1e9, sap->cost(pre)*1e9, sap->memory);
-              //     released_size += sap->memory;
-              //   }
-              // #endif
                 sap->evict(0);
+              #ifdef PROACTIVE_REMAT
+                for(auto it = sap->tensors.rbegin(); it != sap->tensors.rend(); ++it){
+                  if(it->lock()){
+                    pm->record_evicted_tensors(c10::cuda::current_device(), (*it));
+                    break;
+                  }
+                }
+              #endif
+                // pm->record_evicted_tensors(sap->tensors.back()); // 这里的问题在于，释放时用的是ap，而不是cptc，怎么去拿这个cptc？
                 if((c10::dtb::current_memory(device)+need_size) < c10::dtb::memory_budget)  // need_size is satisfied
                   return true;
               }
@@ -1345,6 +1348,14 @@ public:
                 }
               #endif
                 sap->evict(0);
+              #ifdef PROACTIVE_REMAT
+                for(auto it = sap->tensors.rbegin(); it != sap->tensors.rend(); ++it){
+                  if(it->lock()){
+                    pm->record_evicted_tensors(c10::cuda::current_device(), (*it));
+                    break;
+                  }
+                }
+              #endif
                 if((c10::dtb::current_memory(device)+need_size) < c10::dtb::memory_budget) break;
               }
               // }
@@ -2355,10 +2366,6 @@ class DeviceCachingAllocator {
       // }
       #endif
     }
-// #ifdef GMLAKE_ENABLE
-//     params.stat_types[static_cast<size_t>(StatType::AGGREGATE)] = true;
-//     params.stat_types[static_cast<size_t>(get_stat_type_for_pool(pool))] = true;
-// #endif
 
     // First, try to get a block from the existing pool.
     bool block_found =
@@ -4367,6 +4374,15 @@ class DeviceCachingAllocator {
         ++b->gc_count;
       }
     }
+    // if(!pool.blocks.empty()) {
+    //   auto it = pool.blocks.begin();
+    //   if(p.stream()!=(*it)->stream) {
+    //     printf("which stream is default? %d %d\n", p.stream()==cudaStreamDefault ? 1 : 0, (*it)->stream==cudaStreamDefault ? 1 : 0);
+    //     p.search_key.stream = (*it)->stream;
+    //   }
+    // }
+    if(c10::dtb::getStreamLabel(p.stream())!=-1)
+      p.search_key.stream = cudaStreamDefault;
     auto it = pool.blocks.lower_bound(&p.search_key);     // return first ge search_key container
 #ifdef GMLAKE_ENABLE
     if (it == pool.blocks.end() || (*it)->stream != p.stream()) {

@@ -38,6 +38,66 @@ void CheckpointPool::add(const intrusive_ptr<AliasPool>& p) {
   }
 }
 
+void CheckpointPool::add_evited_tensor(const weak& wcptc) {
+  if(!c10::dtb::during_backward)  // only record activation evicted during forward
+    cur_batch_evicted_tensors.emplace_back(wcptc);
+  // if(last_flag!=c10::dtb::during_backward){
+  //   if(!last_flag&&c10::dtb::during_backward) {// backward begin
+  //     evicted_tensors.emplace_back(cur_batch_evicted_tensors);
+  //     cur_batch_evicted_tensors.clear();
+  //   }
+  //   else {  // backward end
+
+  //   }
+  //   last_flag = c10::dtb::during_backward;
+  // }
+}
+
+bool CheckpointPool::push_single_batch_ets() {
+  bool inserted = false;
+  if(!cur_batch_evicted_tensors.empty()) {
+    evicted_batch_tensors.emplace_back(cur_batch_evicted_tensors);
+    inserted = true;
+  }
+  cur_batch_evicted_tensors.clear();
+  return inserted;
+}
+
+void CheckpointPool::clear_recorded_batch() {
+  cur_batch_evicted_tensors.clear();
+  evicted_batch_tensors.clear();
+}
+
+void CheckpointPool::remat_front_batch(float scale, bool erase) {
+  auto fit = evicted_batch_tensors.begin();
+  auto gap_mem = c10::dtb::memory_budget - c10::dtb::current_memory(c10::cuda::current_device());
+  size_t remated_mem = 0;
+  if(fit!=evicted_batch_tensors.end()) {
+    // for(const auto& wcptc: *fit){
+    //   if(auto scptc = wcptc.lock()) {
+    //     if(scptc->pool->external_count>0){
+    //       scptc->get();
+    //       remated_mem += scptc->pool->memory;
+    //     }
+    //   }
+    //   if(remated_mem>(0.5 * gap_mem)) break;
+    // }
+    size_t front_batch_size = fit->size();
+    while(!fit->empty()) {
+      auto cptcit = fit->back();
+      if(auto scptc = cptcit.lock()){
+        scptc->get();
+        remated_mem += scptc->pool->memory;
+      }
+      fit->pop_back();
+      if(fit->size() < (1-scale)*front_batch_size) {
+        break;
+      }
+    }
+    if(erase)
+      fit = evicted_batch_tensors.erase(fit);
+  }
+}
 
 #ifdef DEBUG_MODE
 void log_cur_mem_statics(){ /// single mode use
