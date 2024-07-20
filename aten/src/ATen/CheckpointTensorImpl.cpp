@@ -264,10 +264,10 @@ void set_backward_flag(){
 //   pm->set_during_backward(true);
 // #else
   during_backward = true;
-#ifdef PROACTIVE_REMAT
-  auto *pm = getDTBPoolManager();
-  pm->push_batch_evicted_tensors(c10::cuda::current_device());
-#endif
+// #ifdef PROACTIVE_REMAT //[deprecated]
+  // auto *pm = getDTBPoolManager();
+  // pm->push_batch_evicted_tensors(c10::cuda::current_device());
+// #endif
 // #endif
   // printf("SET_BACKWARD_FALG TRIGGER\n");
 }

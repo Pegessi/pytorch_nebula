@@ -1,18 +1,3 @@
-// File: graph_binary.cpp
-// -- graph handling source
-//-----------------------------------------------------------------------------
-// Community detection 
-// Based on the article "Fast unfolding of community hierarchies in large networks"
-// Copyright (C) 2008 V. Blondel, J.-L. Guillaume, R. Lambiotte, E. Lefebvre
-//
-// This program must not be distributed without agreement of the above mentionned authors.
-//-----------------------------------------------------------------------------
-// Author   : E. Lefebvre, adapted by J.-L. Guillaume
-// Email    : jean-loup.guillaume@lip6.fr
-// Location : Paris, France
-// Time	    : February 2008
-//-----------------------------------------------------------------------------
-// see readme.txt for more details
 
 #include <sys/mman.h>
 #include <fstream>
@@ -21,6 +6,43 @@
 
 namespace c10 {
 namespace dtb {
+
+SingletonDGNode::SingletonDGNode(const weak& weak_cell) : value(weak_cell) {}
+
+void SingletonDGNode::lock_value(){
+  if(!is_lock){
+    if(auto cell = value.lock()){
+      store_in_special_pool[cell->pool->device_id] = true;
+      if(cell->defined)  // remove cell firstly
+      {
+        auto t_ = cell->t->clone(); 
+        cell->pool->evict(0);
+        cell->fill(t_);
+      }else{
+        cell->get();
+      }
+      store_in_special_pool[cell->pool->device_id] = false;
+      cell->pool->is_retain = true;
+      cell->pool->lock();
+      is_lock = true;
+    }
+  }
+}
+
+void SingletonDGNode::unlock_value() {
+  if(is_lock){
+    if(auto cell = value.lock()){
+      cell->pool->is_retain = false;
+      is_lock = false;
+      cell->pool->unlock();
+    }
+  }
+}
+
+void SingletonDGNode::release_resources() {
+  unlock_value();
+  value.reset();
+}
 
 DynamicGraph::DynamicGraph() {
   nb_nodes     = 0;
@@ -85,7 +107,14 @@ DynamicGraph::DynamicGraph(int n, int m, double t, int *d, int *l, float *w) {
   weights      = w;*/
 }
 
+DynamicGraph::DynamicGraph(int type) {
+  if(type==WEIGHTED) weighted = true;
+  nb_nodes     = 0;
+  nb_edges     = 0;
+  total_weight = 0; 
+}
 
+/*
 void DynamicGraph::init_from_edges(char *filename, int start_batch, int end_batch, int type){
   // 打开文件
   std::ifstream file(filename);
@@ -207,7 +236,7 @@ bool DynamicGraph::check_symmetry() {
   }
   return (error==0);
 }
-
+ */
 
 void DynamicGraph::display_binary(char *outfile) {
   ofstream foutput;
@@ -218,25 +247,26 @@ void DynamicGraph::display_binary(char *outfile) {
   foutput.write((char *)(&links[0]),8*nb_edges);
 }
 
-void DynamicGraph::insert_edge(nid_t s, nid_t e, float w) {
-  add_single_directed_edge(s, e, w);
-  add_single_directed_edge(e, s, w);
+void DynamicGraph::insert_edge(nid_t s, nid_t e, const weak& s_cell, const weak& e_cell, float w) {
+  add_single_directed_edge(s, e, s_cell, e_cell, w);
+  add_single_directed_edge(e, s, e_cell, s_cell, w);
 }
 
-void DynamicGraph::insert_node_with_edges(nid_t new_node, const vector<nid_t>& ends, const vector<float>& new_weights) {
+void DynamicGraph::insert_node_with_edges(nid_t new_node, const weak& s_cell, const vector<nid_t>& ends, const vector<weak>& e_cells, const vector<float>& new_weights) {
   assert(new_node>=nb_nodes);
-  add_single_node(new_node);
+  add_single_node(new_node, s_cell);
   for(int i=0; i<ends.size(); i++){
-    if(new_weights.empty()){
-      add_single_directed_edge(new_node, ends[i]);
-      add_single_directed_edge(ends[i], new_node);
+    if(!weighted){
+      add_single_directed_edge(new_node, ends[i], s_cell, e_cells[i]);
+      add_single_directed_edge(ends[i], new_node, e_cells[i], s_cell);
     }else{
-      add_single_directed_edge(new_node, ends[i], new_weights[i]);
-      add_single_directed_edge(ends[i], new_node, new_weights[i]);
+      add_single_directed_edge(new_node, ends[i], s_cell, e_cells[i], new_weights[i]);
+      add_single_directed_edge(ends[i], new_node, e_cells[i], s_cell, new_weights[i]);
     }
   }
 }
 
+/*
 void DynamicGraph::add_from_edges(char *filename, int start_batch, int end_batch, int type){
   // 打开文件
   std::ifstream file(filename);
@@ -273,6 +303,24 @@ void DynamicGraph::add_from_edges(char *filename, int start_batch, int end_batch
   file.close();
 
 }
+*/
+
+
+bool DynamicGraph::is_border_node(nid_t node) {
+  size_t cur_c = n2c[node];
+  auto dg_node = cptcs[node];
+  if(auto scptc = dg_node->value.lock()) {
+    for(auto neigh_cell: scptc->pool->neighbors) {
+      if(auto cell = neigh_cell.lock()) {
+        TORCH_INTERNAL_ASSERT(cell->dg_id<n2c.size());
+        size_t n_c = n2c[cell->dg_id];
+        if(n_c != cur_c) return true;
+      }
+    }
+  }
+  return false;
+}
+
 
 }
 }

@@ -6,54 +6,44 @@ namespace dtb {
 
 using namespace std;
 
-Community::Community(char * filename, char * filename_w, int type, int nbp, double minm) {
-  g = DynamicGraph(filename, filename_w, type);
-  size = g.nb_nodes;
-
-  neigh_weight.resize(size,-1);
-  neigh_pos.resize(size);
-  neigh_last=0;
-
-  n2c.resize(size);
-  in.resize(size);
-  tot.resize(size);
-
-  for (int i=0 ; i<size ; i++) {
-    n2c[i] = i;
-    tot[i] = g.weighted_degree(i);
-    in[i]  = g.nb_selfloops(i);
+void SingletonCommunity::add_node(const StrongDGNode& new_node, bool is_border) {
+  if(is_border) {
+    border_nodes.insert(new_node);
+    border_marker[new_node] = true;
+  } else {
+    inner_nodes.insert(new_node);
+    border_marker[new_node] = false;
   }
-
-  nb_pass = nbp;
-  min_modularity = minm;
 }
 
-Community::Community (char *filename, int start_batch, int end_batch, int type, int nbp, double minm){
-  g = DynamicGraph();
-  g.init_from_edges(filename, start_batch, end_batch, type);
-
-  size = g.nb_nodes;
-  min_modularity = minm;
-  nb_pass = nbp;
-
-  neigh_weight.resize(size,-1);
-  neigh_pos.resize(size);
-  neigh_last=0;
-
-  n2c.resize(size);
-  in.resize(size);
-  tot.resize(size);
-
-  for (int i=0 ; i<size ; i++) {
-    n2c[i] = i;
-    tot[i] = g.weighted_degree(i);
-    in[i]  = g.nb_selfloops(i);
+void SingletonCommunity::remove_node(const StrongDGNode& node) {
+  auto it = border_marker.find(node);
+  if(it!=border_marker.end()) {
+    if(it->second) border_nodes.erase(node);
+    else inner_nodes.erase(node);
   }
-
-  
 }
 
-Community::Community(DynamicGraph gc, int nbp, double minm) {
+void SingletonCommunity::lock_borders() {
+  // TODO: 增加剪枝条件
+  if(!is_lock){
+    for(auto& dgnode: border_nodes) {
+      dgnode->lock_value();
+    }
+    is_lock = true;
+  }
+}
+
+void SingletonCommunity::unlock_borders() {
+  if(is_lock) {
+    for(auto& dgnode: border_nodes) {
+      dgnode->unlock_value();
+    }
+    is_lock = false;
+  }
+}
+
+Community::Community(DynamicGraph gc, int nbp, double minm) : nb_pass(nbp), min_modularity(minm){
   g = gc;
   size = g.nb_nodes;
 
@@ -73,158 +63,195 @@ Community::Community(DynamicGraph gc, int nbp, double minm) {
 
   g.n2c = n2c;
 
-  nb_pass = nbp;
-  min_modularity = minm;
 }
 
-void
-Community::init_partition(char * filename) {
-  ifstream finput;
-  finput.open(filename,fstream::in);
 
-  // read partition
-  while (!finput.eof()) {
-    unsigned int node, comm;
-    finput >> node >> comm;
+void Community::insert_edge(nid_t start, nid_t end, const weak& s_cell, const weak& e_cell, const StrongDG& og, float w) {
+  // 执行前必须首先对og进行边的插入
+  TORCH_INTERNAL_ASSERT(start < og->n2c.size())
+  TORCH_INTERNAL_ASSERT(end   < og->n2c.size())
+
+  auto s_c = og->n2c[start];
+  auto e_c = og->n2c[end];
+
+  auto graph_add = [&](const int& snode, const int& enode){
+    // 限制新增节点的编号为新增单例社区，并插入到comm graph中， nb_nodes实际上比Node数目多1个
+    auto renum_snode = snode < g.nb_nodes ? snode : g.nb_nodes;
+    auto renum_enode = enode < g.nb_nodes ? enode : g.nb_nodes;
+    renum_enode = (renum_enode==renum_snode)&&(snode!=enode) ? renum_snode+1 : renum_enode;
+    // 更新原图中的社区归属
+    og->n2c[start] = renum_snode;
+    og->n2c[end] = renum_enode;
+    // 插入社区图节点
+    // cerr << "before insert" << (renum_snode) << "-" << renum_enode << " total_weight:" << g.total_weight << endl;
+    g.insert_edge(renum_snode, renum_enode, s_cell, e_cell, w);
+    // cerr << "after insert" << (renum_snode) << "-" << renum_enode << " total_weight:" << g.total_weight << endl;
+    return std::pair<int, int>{renum_snode, renum_enode};
+  };
+
+  auto c_se_pair = graph_add(s_c, e_c);
+
+  /**
+   * 这里接收的node是一个社区图中的node，原图的node id不能直接作为Community中的node使用
+   * @param neighbors: node's neighbors in comm graph
+   * @param node: node id in comm graph(comm id)
+  */
+  auto community_add = [&](const int& node, const int comm){
     
-    if (finput) {
-      int old_comm = n2c[node];
-      neigh_comm(node);
-
-      remove(node, old_comm, neigh_weight[old_comm]);
-
-      unsigned int i=0;
-      for ( i=0 ; i<neigh_last ; i++) {
-	unsigned int best_comm     = neigh_pos[i];
-	float best_nblinks  = neigh_weight[neigh_pos[i]];
-	if (best_comm==comm) {
-	  insert(node, best_comm, best_nblinks);
-	  break;
-	}
-      }
-      if (i==neigh_last)
-	insert(node, comm, 0);
-    }
-  }
-  finput.close();
-}
-
-void Community::add_from_edges(char *filename, int start_batch, int end_batch, int type, DynamicGraph* og){
-  // 完成原始图的添加，单例社区的初始化
-  og->add_from_edges(filename, start_batch, end_batch, type);
-
-  // 打开文件
-  std::ifstream file(filename);
-  
-  // 检查文件是否成功打开
-  if (!file) {
-      std::cerr << "无法打开文件" << std::endl;
-      return;
-  }
-  
-  std::string line;
-  int cur_line_num = 0;
-  // 逐行读取
-  while (getline(file, line)) {
-    cur_line_num++;
-    if(cur_line_num < start_batch) continue;
-    if(end_batch != -1 && cur_line_num >= end_batch) break;
-    std::istringstream iss(line);
-    int start, end, w;
-    
-    if(type==UNWEIGHTED){
-      if (iss >> start >> end) {
-        auto s_c = og->n2c[start];
-        auto e_c = og->n2c[end];
-        // auto neigh_start = og->neighbors(start).first;
-        // auto neigh_end = og->neighbors(end).first;
-        // cerr << start << "(" << s_c << ")-" << end << "(" << e_c << ") " 
-        //      << n2c.size() << " " << g.n2c.size() << endl;
-            // << " cs:" <<  c_se_pair.first <<" ce:" << c_se_pair.second << " trigger\n";
-
-        auto graph_add = [&](const int& snode, const int& enode){
-          // 限制新增节点的编号为新增单例社区，并插入到comm graph中， nb_nodes实际上比Node数目多1个
-          auto renum_snode = snode < g.nb_nodes ? snode : g.nb_nodes;
-          auto renum_enode = enode < g.nb_nodes ? enode : g.nb_nodes;
-          renum_enode = (renum_enode==renum_snode)&&(snode!=enode) ? renum_snode+1 : renum_enode;
-          // 更新原图中的社区归属
-          og->n2c[start] = renum_snode;
-          og->n2c[end] = renum_enode;
-          // 插入社区图节点
-          // cerr << "before insert" << (renum_snode) << "-" << renum_enode << " total_weight:" << g.total_weight << endl;
-          g.insert_edge(renum_snode, renum_enode);
-          // cerr << "after insert" << (renum_snode) << "-" << renum_enode << " total_weight:" << g.total_weight << endl;
-          return std::pair<int, int>{renum_snode, renum_enode};
-        };
-
-        auto c_se_pair = graph_add(s_c, e_c);
-
-        /**
-         * 这里接收的node是一个社区图中的node，原图的node id不能直接作为Community中的node使用
-         * @param neighbors: node's neighbors in comm graph
-         * @param node: node id in comm graph(comm id)
-        */
-        auto community_add = [&](const int& node, const int comm){
-          
-          if(node >= size){
-            /// 新增为单例社区
-            insert_new(node, comm, g.nb_neighbors(node)); // 无向图这一项即为邻居的个数
-          }else{
-            insert(node, comm, g.nb_neighbors(node));
-          }
-
-          /// 新增的节点如果没有关联边，则作为单例社区
-          // if(neigbors.empty()){
-          //   insert_new(node, node, 0.);     // 单例社区内部权重为0
-          //   return;
-          // }
-          // /// 新增的节点如果所有的边都关联到同一社区，则设置其归属到对应社区
-          // bool all_same_comm = true;
-          // nid_t last_comm = neigbors[0];
-          // for(const auto& neigh: neigbors){
-          //   if(og->n2c[neigh]!=last_comm){
-          //     all_same_comm = false;
-          //     break;
-          //   }
-          // }
-          // if(all_same_comm){
-          //   og->n2c[start] = last_comm;
-          //   insert(node, last_comm, g.weighted_degree(node));
-          // }
-          /// 如果关联到了不同社区，设置其归属到边权重连接最大的社区（隐患：对于无权重图，和哪个社区连接多就取哪个，是否会导致某一社区不断扩张，可能效果不如直接连接为单例社区？
-          ////// 1: 直接连接到边权重最大的社区
-          ////// 2: 关联到最大社区
-        };
-        community_add(c_se_pair.first, g.n2c[c_se_pair.first]);
-        community_add(c_se_pair.second, g.n2c[c_se_pair.second]);
-      }
+    if(node >= size){
+      /// 新增为单例社区
+      insert_new(node, comm, g.nb_neighbors(node)); // 无向图这一项即为邻居的个数
     }else{
-      if (iss >> start >> end >> w) {
-        auto s_c = og->n2c[start];
-        auto e_c = og->n2c[end];
-        auto neigh_start = og->neighbors(start).first;
-        auto neigh_end = og->neighbors(end).first;
-
-        auto graph_add = [&](const int& snode, const int& enode){
-          // 限制新增节点的编号为新增单例社区，并插入到comm graph中
-          auto renum_snode = snode < n2c.back() ? snode : n2c.back()+1;
-          auto renum_enode = enode < n2c.back() ? enode : n2c.back()+1;
-          renum_enode = renum_enode==renum_snode ? renum_enode+1 : renum_enode;
-          // 更新原图中的社区归属
-          og->n2c[start] = renum_snode;
-          og->n2c[end] = renum_enode;
-          // 插入社区图节点
-          g.insert_edge(renum_snode, renum_enode, w);
-          g.insert_edge(renum_enode, renum_snode, w);
-        };
-
-        graph_add(s_c, e_c);
-      }
+      insert(node, comm, g.nb_neighbors(node));
     }
-  }
+
+    /// TODO: 下面这一部分是有待检验的，目前仅将新节点作为单例社区
+    /// 新增的节点如果没有关联边，则作为单例社区
+    // if(neigbors.empty()){
+    //   insert_new(node, node, 0.);     // 单例社区内部权重为0
+    //   return;
+    // }
+    // /// 新增的节点如果所有的边都关联到同一社区，则设置其归属到对应社区
+    // bool all_same_comm = true;
+    // nid_t last_comm = neigbors[0];
+    // for(const auto& neigh: neigbors){
+    //   if(og->n2c[neigh]!=last_comm){
+    //     all_same_comm = false;
+    //     break;
+    //   }
+    // }
+    // if(all_same_comm){
+    //   og->n2c[start] = last_comm;
+    //   insert(node, last_comm, g.weighted_degree(node));
+    // }
+    /// 如果关联到了不同社区，设置其归属到边权重连接最大的社区（隐患：对于无权重图，和哪个社区连接多就取哪个，是否会导致某一社区不断扩张，可能效果不如直接连接为单例社区？
+    ////// 1: 直接连接到边权重最大的社区
+    ////// 2: 关联到最大社区
+  };
+  community_add(c_se_pair.first, g.n2c[c_se_pair.first]);
+  community_add(c_se_pair.second, g.n2c[c_se_pair.second]);
+}
+
+/**
+ * @param og: og maintain the orginal nodes and their community id
+ */
+void Community::add_from_edges(char *filename, int start_batch, int end_batch, int type, DynamicGraph* og){
+
+  // 完成原始图的添加，单例社区的初始化
+  // og->add_from_edges(filename, start_batch, end_batch, type);
+
+  // // 打开文件
+  // std::ifstream file(filename);
   
-  // 关闭文件
-  file.close();
+  // // 检查文件是否成功打开
+  // if (!file) {
+  //     std::cerr << "无法打开文件" << std::endl;
+  //     return;
+  // }
+  
+  // std::string line;
+  // int cur_line_num = 0;
+  // // 逐行读取
+  // while (getline(file, line)) {
+  //   cur_line_num++;
+  //   if(cur_line_num < start_batch) continue;
+  //   if(end_batch != -1 && cur_line_num >= end_batch) break;
+  //   std::istringstream iss(line);
+  //   int start, end, w;
+    
+  //   if(type==UNWEIGHTED){
+  //     if (iss >> start >> end) {
+  //       auto s_c = og->n2c[start];
+  //       auto e_c = og->n2c[end];
+  //       // auto neigh_start = og->neighbors(start).first;
+  //       // auto neigh_end = og->neighbors(end).first;
+  //       // cerr << start << "(" << s_c << ")-" << end << "(" << e_c << ") " 
+  //       //      << n2c.size() << " " << g.n2c.size() << endl;
+  //           // << " cs:" <<  c_se_pair.first <<" ce:" << c_se_pair.second << " trigger\n";
+
+  //       auto graph_add = [&](const int& snode, const int& enode){
+  //         // 限制新增节点的编号为新增单例社区，并插入到comm graph中， nb_nodes实际上比Node数目多1个
+  //         auto renum_snode = snode < g.nb_nodes ? snode : g.nb_nodes;
+  //         auto renum_enode = enode < g.nb_nodes ? enode : g.nb_nodes;
+  //         renum_enode = (renum_enode==renum_snode)&&(snode!=enode) ? renum_snode+1 : renum_enode;
+  //         // 更新原图中的社区归属
+  //         og->n2c[start] = renum_snode;
+  //         og->n2c[end] = renum_enode;
+  //         // 插入社区图节点
+  //         // cerr << "before insert" << (renum_snode) << "-" << renum_enode << " total_weight:" << g.total_weight << endl;
+  //         g.insert_edge(renum_snode, renum_enode);
+  //         // cerr << "after insert" << (renum_snode) << "-" << renum_enode << " total_weight:" << g.total_weight << endl;
+  //         return std::pair<int, int>{renum_snode, renum_enode};
+  //       };
+
+  //       auto c_se_pair = graph_add(s_c, e_c);
+
+  //       /**
+  //        * 这里接收的node是一个社区图中的node，原图的node id不能直接作为Community中的node使用
+  //        * @param neighbors: node's neighbors in comm graph
+  //        * @param node: node id in comm graph(comm id)
+  //       */
+  //       auto community_add = [&](const int& node, const int comm){
+          
+  //         if(node >= size){
+  //           /// 新增为单例社区
+  //           insert_new(node, comm, g.nb_neighbors(node)); // 无向图这一项即为邻居的个数
+  //         }else{
+  //           insert(node, comm, g.nb_neighbors(node));
+  //         }
+
+  //         /// 新增的节点如果没有关联边，则作为单例社区
+  //         // if(neigbors.empty()){
+  //         //   insert_new(node, node, 0.);     // 单例社区内部权重为0
+  //         //   return;
+  //         // }
+  //         // /// 新增的节点如果所有的边都关联到同一社区，则设置其归属到对应社区
+  //         // bool all_same_comm = true;
+  //         // nid_t last_comm = neigbors[0];
+  //         // for(const auto& neigh: neigbors){
+  //         //   if(og->n2c[neigh]!=last_comm){
+  //         //     all_same_comm = false;
+  //         //     break;
+  //         //   }
+  //         // }
+  //         // if(all_same_comm){
+  //         //   og->n2c[start] = last_comm;
+  //         //   insert(node, last_comm, g.weighted_degree(node));
+  //         // }
+  //         /// 如果关联到了不同社区，设置其归属到边权重连接最大的社区（隐患：对于无权重图，和哪个社区连接多就取哪个，是否会导致某一社区不断扩张，可能效果不如直接连接为单例社区？
+  //         ////// 1: 直接连接到边权重最大的社区
+  //         ////// 2: 关联到最大社区
+  //       };
+  //       community_add(c_se_pair.first, g.n2c[c_se_pair.first]);
+  //       community_add(c_se_pair.second, g.n2c[c_se_pair.second]);
+  //     }
+  //   }else{
+  //     if (iss >> start >> end >> w) {
+  //       auto s_c = og->n2c[start];
+  //       auto e_c = og->n2c[end];
+  //       auto neigh_start = og->neighbors(start).first;
+  //       auto neigh_end = og->neighbors(end).first;
+
+  //       auto graph_add = [&](const int& snode, const int& enode){
+  //         // 限制新增节点的编号为新增单例社区，并插入到comm graph中
+  //         auto renum_snode = snode < n2c.back() ? snode : n2c.back()+1;
+  //         auto renum_enode = enode < n2c.back() ? enode : n2c.back()+1;
+  //         renum_enode = renum_enode==renum_snode ? renum_enode+1 : renum_enode;
+  //         // 更新原图中的社区归属
+  //         og->n2c[start] = renum_snode;
+  //         og->n2c[end] = renum_enode;
+  //         // 插入社区图节点
+  //         g.insert_edge(renum_snode, renum_enode, w);
+  //         g.insert_edge(renum_enode, renum_snode, w);
+  //       };
+
+  //       graph_add(s_c, e_c);
+  //     }
+  //   }
+  // }
+  
+  // // 关闭文件
+  // file.close();
 }
 
 void
@@ -326,8 +353,11 @@ nid_t max_c(vector<nid_t> n2c){
   return res;
 }
 
-
-DynamicGraph Community::partition2graph_binary(DynamicGraph* og) {
+/**
+ * @param og: og maintain the orginal nodes and their community id
+ * 将新的社区关系转换成一个新的DynamicGraph，并维护og的社区关系变更
+ */
+DynamicGraph Community::partition2graph_binary(const StrongDG& og) {
   // Renumber communities
   vector<int> renumber(size, -1);   // 同一社区id归约
   for (int node=0 ; node<size ; node++) {

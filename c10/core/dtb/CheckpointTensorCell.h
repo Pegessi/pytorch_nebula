@@ -26,6 +26,7 @@ struct CheckpointTensorCell : intrusive_ptr_target {
     return std::string("x") + std::to_string(id);
   }
 #endif
+  size_t dg_id;                 // 动态graph中的node id
   std::unique_ptr<Tensor> t;
   bool defined = false;         // 标记cell是否存在
   bool is_undefined_tensor;     // 标记是否是空张量

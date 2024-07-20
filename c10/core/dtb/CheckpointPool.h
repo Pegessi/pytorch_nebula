@@ -4,7 +4,8 @@
 #include <c10/core/dtb/AliasPool.h>
 #include <c10/core/dtb/External.h>
 #include <c10/core/dtb/ResidualChain.h>
-// #include <c10/core/dtb/MemGraph.h>
+#include <c10/core/dtb/DynamicGraph.h>
+#include <c10/core/dtb/DynamicClusterManager.h>
 
 
 namespace c10 {
@@ -17,7 +18,7 @@ struct CheckpointPool : intrusive_ptr_target {
 
   std::vector<weak_intrusive_ptr<External>> exts;
   std::vector<weak> temp_cptc;            // during forward&backward, mark those input tensors is created casually
-  std::vector<weak> candidates;           // candidates for end point [deprecated]
+  std::vector<weak> candidates;           // candidates for end point      [deprecated]
   std::vector<ResidualChainRef> chains; 
   std::vector<weak> cur_batch_evicted_tensors;
   std::vector<std::vector<weak>> evicted_batch_tensors; // record private evicted tensors

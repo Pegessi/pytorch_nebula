@@ -7,6 +7,7 @@
 #include <fstream>
 #include <vector>
 #include <map>
+#include <c10/core/dtb/comm_heads.h>
 
 #include "DynamicGraph.h"
 
@@ -15,7 +16,30 @@ namespace dtb {
 
 using namespace std;
 
-class Community {
+class SingletonCommunity : intrusive_ptr_target {
+  private:
+    std::unordered_map<StrongDGNode, bool> border_marker;
+    bool is_lock=false;
+
+  public:
+    SingletonCommunity() {}
+
+    std::set<StrongDGNode> inner_nodes;
+    std::set<StrongDGNode> border_nodes;
+
+    void add_node(const StrongDGNode& new_node, bool is_border);
+    void remove_node(const StrongDGNode& new_node);
+    void lock_borders();
+    void unlock_borders();
+
+};
+
+using StrongSingleCOM = intrusive_ptr<SingletonCommunity>;
+
+
+class Community : intrusive_ptr_target {
+private:
+
  public:
   vector<double> neigh_weight;
   vector<unsigned int> neigh_pos;
@@ -30,31 +54,22 @@ class Community {
   // number of pass for one level computation
   // if -1, compute as many pass as needed to increase modularity
   int nb_pass;
+  
 
   // a new pass is computed if the last one has generated an increase 
   // greater than min_modularity
   // if 0. even a minor increase is enough to go for one more pass
   double min_modularity;
 
-  // constructors:
-  // reads graph from file using graph constructor
-  // type defined the weighted/unweighted status of the graph file
-  Community (char *filename, char *filename_w, int type, int nb_pass, double min_modularity);
-  /**
-   * Read graph from file which has rows owning a pair of vertex expressing a edge
-   * start and end batch determine the reading range
-  */
-  Community (char *filename, int start_batch, int end_batch, int type=UNWEIGHTED, int nb_pass=-1, double min_modularity=0.000001);
-  // copy graph
+  // init community from a graph with graph copy constructor
   Community (DynamicGraph g, int nb_pass, double min_modularity);
-
-  // initiliazes the partition with something else than all nodes alone
-  void init_partition(char *filename_part);
 
   /**
    * Extend community with initial state and extend graph from file
   */
   void add_from_edges(char *filename, int start_batch, int end_batch, int type, DynamicGraph* og);
+
+  void insert_edge(nid_t s, nid_t e, const weak& s_cell, const weak& e_cell, const StrongDG& og, float w=1.);
 
   // display the community of each node
   void display();
@@ -94,12 +109,14 @@ class Community {
   void display_partition();
 
   // generates the binary graph of communities as computed by one_level
-  DynamicGraph partition2graph_binary(DynamicGraph* og);
+  DynamicGraph partition2graph_binary(const StrongDG& og);
 
   // compute communities of the graph for one level
   // return true if some nodes have been moved
   bool one_level();
 };
+
+using StrongCOM = intrusive_ptr<Community>;
 
 inline void Community::remove(int node, int comm, double dnodecomm) {
   assert(node>=0 && node<size);

@@ -165,6 +165,9 @@ namespace at
 namespace c10{
 namespace dtb{
 
+#define WEIGHTED   0
+#define UNWEIGHTED 1
+
 using at::Tensor;
 
 class CheckpointTensorCell;

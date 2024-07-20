@@ -270,12 +270,15 @@ void DTBCheckpointPool::erase_ap(int device, uintptr_t addr){
  * Proactive remat tensors started from the first locked nodes.
  * remat_depth is the remat length num, 1 means remat it's neighbors
  * 2 means remat neighbors of neighors (second layer nodes)
+ * Here float is just created by historical reason, acctually it is a int
  */
 void DTBCheckpointPool::proactive_remat(int device, float remat_depth, bool erase) {
   init_check();
   auto pool = device_dtbpool[device].get();
   /**
    * 下面是以保留节点为起始的恢复，但不易查询到驱逐节点
+   * TODO: 递归有点耗时，改为非递归写法，或者异步发起
+  */
   auto it = pool->chains.begin();
   while(it != pool->chains.end() && !(*it) -> is_locked){   // find the first locked chain
     it = pool->chains.erase(it);
@@ -283,22 +286,28 @@ void DTBCheckpointPool::proactive_remat(int device, float remat_depth, bool eras
   if(it != pool->chains.end()) {
     for(auto& cn: (*it)->members) {
       if(auto scptc = cn->value.lock()) {
-        scptc->remat_neghibors(remat_depth);
+        scptc->remat_neghibors(static_cast<int>(remat_depth));
       }
     }
   }
-   */
-  pool->remat_front_batch(remat_depth, erase);
+  
+  // pool->remat_front_batch(remat_depth, erase);
 }
 
 /**
+ [deprecated]
  * record evicted tensors in eviction strageties.
+  Invalid for multi batch situation because of cptc with no batch info
  */
 void DTBCheckpointPool::record_evicted_tensors(int device, const weak& wcptc) {
   auto pool = device_dtbpool[device].get();
   pool->add_evited_tensor(wcptc);
 }
 
+/**
+  [deprecated]
+  Invalid for multi batch situation because of cptc with no batch info
+ */
 void DTBCheckpointPool::push_batch_evicted_tensors(int device) {
   if(device_dtbpool.empty()) return;
   auto pool = device_dtbpool[device].get();
@@ -322,6 +331,10 @@ void DTBCheckpointPool::push_batch_evicted_tensors(int device) {
 #endif
 }
 
+/**
+  [deprecated]
+  Invalid for multi batch situation because of cptc with no batch info
+ */
 void DTBCheckpointPool::clear_recorded_batch(int device) {
   if(device_dtbpool.empty()) return;
   auto pool = device_dtbpool[device].get();
