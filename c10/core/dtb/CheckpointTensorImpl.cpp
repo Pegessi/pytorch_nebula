@@ -86,6 +86,10 @@ void CheckpointTensorImpl::shallow_copy_from(const c10::intrusive_ptr<TensorImpl
 long CheckpointTensorCell::counter = 0;
 #endif
 
+#ifdef DCR_MANAGE
+size_t CheckpointTensorCell::pool_counter = 0;
+#endif
+
 bool is_alias(const Tensor& l, const Tensor& r) {
   return l.defined() && r.defined() && l.is_alias_of(r);
 }
@@ -350,8 +354,22 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
       if (!is_alias(raw_inputs[i], raw_outputs[j])) {
         add_neighbor(inputs[i], outputs[j]->value);
       }
+
+#ifdef DCR_MANAGE
+      if(!during_backward&&pm->if_train_mode[device_id]) {  // during forward
+        pm->insert_dcm(device_id, inputs[i]->dg_id, outputs[j]->value->dg_id, weak(inputs[i]), weak(outputs[j]->value));  // TODO: maybe weight add?
+      }
+#endif
+
     }
   }
+#ifdef DCR_MANAGE
+  if(during_backward&&pm->if_train_mode[device_id]) {
+    // 反向且tmp dcm非空，加入dcms
+    pm->add_dcm_into_queue(device_id);
+  }
+#endif
+
   for (const strong& s : inputs) {
     s->pool->unlock();
     // release_external_of_nosource_tensor(s, name);

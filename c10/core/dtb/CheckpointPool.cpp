@@ -662,7 +662,12 @@ void CheckpointPool::show_exts() {
 }
 
 
-CheckpointPool::CheckpointPool() { }
+CheckpointPool::CheckpointPool() {}
+
+// void CheckpointPool::release_resources() {
+//   tmp_dcm.reset();
+//   dcms.clear();
+// }
 
 #pragma endregion
 

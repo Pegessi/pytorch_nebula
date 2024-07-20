@@ -278,6 +278,9 @@ void unset_backward_flag(){
 //   pm->set_during_backward(false);
 // #else
   during_backward = false;
+#ifdef DCR_MANAGE
+  c10::dtb::CheckpointTensorCell::reset_pool_counter();
+#endif
 // #endif
   // printf("UNSET_BACKWARD_FALG TRIGGER\n");
 }

@@ -6,7 +6,13 @@ namespace dtb {
 
 using namespace std;
 
-void SingletonCommunity::add_node(const StrongDGNode& new_node, bool is_border) {
+void SingletonCommunity::insert_node(const StrongDGNode& new_node, bool is_border) {
+  auto it = border_marker.find(new_node);
+  if(it!=border_marker.end()) {
+    bool past_is_border = it->second;
+    if(past_is_border==is_border) return;
+    else erase_node(new_node);
+  }
   if(is_border) {
     border_nodes.insert(new_node);
     border_marker[new_node] = true;
@@ -16,7 +22,7 @@ void SingletonCommunity::add_node(const StrongDGNode& new_node, bool is_border) 
   }
 }
 
-void SingletonCommunity::remove_node(const StrongDGNode& node) {
+void SingletonCommunity::erase_node(const StrongDGNode& node) {
   auto it = border_marker.find(node);
   if(it!=border_marker.end()) {
     if(it->second) border_nodes.erase(node);
@@ -40,6 +46,27 @@ void SingletonCommunity::unlock_borders() {
       dgnode->unlock_value();
     }
     is_lock = false;
+  }
+}
+
+void SingletonCommunity::clear_outers(const StrongDG& og, int cid) {
+  for(auto it=inner_nodes.begin(); it!=inner_nodes.end(); ) {
+    auto& nid = (*it)->nid;
+    if(og->n2c[nid] != cid) {
+      it = inner_nodes.erase(it);
+      border_marker.erase((*it));
+    }else{
+      it++;
+    }
+  }
+  for(auto it=border_nodes.begin(); it!=border_nodes.end(); ) {
+    auto& nid = (*it)->nid;
+    if(og->n2c[nid] != cid) {
+      it = border_nodes.erase(it);
+      border_marker.erase((*it));
+    }else{
+      it++;
+    }
   }
 }
 

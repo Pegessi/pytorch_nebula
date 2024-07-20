@@ -8,7 +8,7 @@ DCManager::DCManager(int init_size, int inteval, int nbp, double minm, int type)
     original_dg = StrongDG::make(type);
 }
 
-void DCManager::insert_single_edge(nid_t s, nid_t e, const weak& s_cell, const weak& e_cell, float w=1) {
+void DCManager::insert_single_edge(nid_t s, nid_t e, const weak& s_cell, const weak& e_cell, float w) {
     auto orig_nb_nodes = original_dg->nb_nodes;
     original_dg->insert_edge(s, e, s_cell, e_cell, w);
     if(com.defined())
@@ -17,16 +17,19 @@ void DCManager::insert_single_edge(nid_t s, nid_t e, const weak& s_cell, const w
     if(original_dg->nb_nodes > orig_nb_nodes) {
         grow_size++;
     }
-
-    if(C10_UNLIKELY(!com.defined())) {
-        if(grow_size >= cluster_init_size) {
-            com = StrongCOM::make(*(original_dg.get()), nb_pass, min_modularity);
-            // run_Louvain_Detection(...);      // 这里的参数需要考虑如何传
+    // TODO: 增添维护single com的逻辑
+    if(C10_LIKELY(com.defined())) {
+        if(grow_size >= cluster_interval) {
+            run_Louvain_Detection();
+            flush_community_singleton();
             grow_size = 0;
         }
     } else {
-        if(grow_size >= cluster_interval) {
-            // run_Louvain_Detection(...);      // 这里的参数需要考虑如何传
+        if(grow_size >= cluster_init_size) {
+            DynamicGraph g = *original_dg;
+            com = StrongCOM::make(g, nb_pass, min_modularity);
+            run_Louvain_Detection();
+            flush_community_singleton();
             grow_size = 0;
         }
     }
@@ -62,9 +65,9 @@ void DCManager::run_Louvain_Detection(){
         {
             cerr << "  modularity increased from " << cur_modularity << " to " << new_mod << endl;
             cerr << "  network size: " 
-                << c.g.nb_nodes << " nodes, " 
-                << c.g.nb_edges << " links, "
-                << c.g.total_weight << " weight." << endl;
+                << com->g.nb_nodes << " nodes, " 
+                << com->g.nb_edges << " links, "
+                << com->g.total_weight << " weight." << endl;
         }
 
         cur_modularity = new_mod;
@@ -75,6 +78,24 @@ void DCManager::run_Louvain_Detection(){
 }
 
 
+void DCManager::flush_community_singleton() {
+    if(singleton_comms.size()!=com->size)
+        singleton_comms.resize(com->size);
+    for(size_t nid=0; nid<original_dg->nb_nodes; nid++) {
+        auto cid = original_dg->n2c[nid];
+        bool is_border = original_dg->is_border_node(nid);
+        singleton_comms[cid].insert_node(original_dg->cptcs[nid], is_border);
+    }
+    for(size_t cid=0; cid<singleton_comms.size(); cid++) {
+        singleton_comms[cid].clear_outers(original_dg, cid);
+    }
+}
+
+void DCManager::release_resources() {
+    original_dg.reset();
+    com.reset();
+    singleton_comms.clear();
+}
 
 }
 }

@@ -290,6 +290,9 @@ void DTBCheckpointPool::proactive_remat(int device, float remat_depth, bool eras
       }
     }
   }
+#ifdef DCR_MANAGE
+
+#endif
   
   // pool->remat_front_batch(remat_depth, erase);
 }
@@ -478,6 +481,31 @@ void DTBCheckpointPool::add_into_keychain(int device, const weak& new_key, const
   }
 #endif
 }
+
+#ifdef DCR_MANAGE
+
+void DTBCheckpointPool::insert_dcm(int device, nid_t s, nid_t e, const weak& s_cell, const weak& e_cell, float w) {
+  init_check();
+  auto pool = device_dtbpool[device].get();
+  /// BUG
+  if(!pool->tmp_dcm.defined()) {
+    auto new_dcm = StrongDCM::make(DCR_INIT_SIZE, DCR_INTERVAL, DCR_NB_PASS, MIN_MODULARITY, DCR_TYPE);
+    pool->tmp_dcm = new_dcm;
+  }
+  pool->tmp_dcm->insert_single_edge(s, e, s_cell, e_cell, w);
+}
+
+void DTBCheckpointPool::add_dcm_into_queue(int device) {
+  init_check();
+  auto pool = device_dtbpool[device].get();
+  if(!pool->tmp_dcm.defined()) return;
+  // BUG
+  pool->dcms.push_back(pool->tmp_dcm);
+  pool->tmp_dcm.reset();
+  
+}
+
+#endif
 
 
 void DTBCheckpointPool::toggle_sampling(bool if_sampling){

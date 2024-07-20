@@ -7,7 +7,7 @@
 namespace c10 {
 namespace dtb {
 
-SingletonDGNode::SingletonDGNode(const weak& weak_cell) : value(weak_cell) {}
+SingletonDGNode::SingletonDGNode(nid_t id, const weak& weak_cell) : nid(id), value(weak_cell) {}
 
 void SingletonDGNode::lock_value(){
   if(!is_lock){
@@ -321,6 +321,9 @@ bool DynamicGraph::is_border_node(nid_t node) {
   return false;
 }
 
+void DynamicGraph::release_resources() {
+  
+}
 
 }
 }

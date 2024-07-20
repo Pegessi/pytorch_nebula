@@ -23,9 +23,10 @@ using namespace std;
 
 
 struct SingletonDGNode : intrusive_ptr_target {
+  nid_t nid;
   weak value;
   bool is_lock = false;
-  SingletonDGNode(const weak& weak_cell);
+  SingletonDGNode(nid_t id, const weak& weak_cell);
 
   // bool is_equal(const StrongDGNode& other) const {
   //     return value == other->value;
@@ -42,7 +43,7 @@ struct SingletonDGNode : intrusive_ptr_target {
 using StrongDGNode = intrusive_ptr<SingletonDGNode>;
 
 
-class DynamicGraph : intrusive_ptr_target {
+struct DynamicGraph : public intrusive_ptr_target {
  private:
   bool weighted=false;
 
@@ -61,7 +62,7 @@ class DynamicGraph : intrusive_ptr_target {
       // n2c[i] = i;
       n2c[i] = new_node;  // 将空结点归属到新节点上
       if(weighted) weights.push_back({});
-      cptcs[i] = StrongDGNode::make(wcptc);
+      cptcs[i] = StrongDGNode::make(new_node, wcptc);
 
     }
     nb_nodes = edges.size();    /// [TAG] edges[0]是空载的，如果有node id是0，那么不空载
@@ -141,6 +142,8 @@ class DynamicGraph : intrusive_ptr_target {
 
   // return pointers to the first neighbor and first weight of the node
   inline pair<vector<nid_t>&, vector<float>&> neighbors(nid_t node);
+
+  void release_resources() override;
 };
 
 using StrongDG = intrusive_ptr<DynamicGraph>;

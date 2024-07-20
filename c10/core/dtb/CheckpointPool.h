@@ -12,7 +12,7 @@ namespace c10 {
 namespace dtb {
 
 // CheckpointPool keep a list of AliasPool, and search over them to choose the best one to evict.
-struct CheckpointPool : intrusive_ptr_target {
+struct CheckpointPool {
   std::vector<weak_intrusive_ptr<AliasPool>> aps;
   std::map<uintptr_t, weak_intrusive_ptr<AliasPool>> mem_ordered_aps;   // [deprecated]
 
@@ -20,6 +20,8 @@ struct CheckpointPool : intrusive_ptr_target {
   std::vector<weak> temp_cptc;            // during forward&backward, mark those input tensors is created casually
   std::vector<weak> candidates;           // candidates for end point      [deprecated]
   std::vector<ResidualChainRef> chains; 
+  StrongDCM tmp_dcm;
+  std::vector<StrongDCM> dcms;            // for dcr
   std::vector<weak> cur_batch_evicted_tensors;
   std::vector<std::vector<weak>> evicted_batch_tensors; // record private evicted tensors
 

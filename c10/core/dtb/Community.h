@@ -16,7 +16,7 @@ namespace dtb {
 
 using namespace std;
 
-class SingletonCommunity : intrusive_ptr_target {
+class SingletonCommunity {
   private:
     std::unordered_map<StrongDGNode, bool> border_marker;
     bool is_lock=false;
@@ -27,20 +27,19 @@ class SingletonCommunity : intrusive_ptr_target {
     std::set<StrongDGNode> inner_nodes;
     std::set<StrongDGNode> border_nodes;
 
-    void add_node(const StrongDGNode& new_node, bool is_border);
-    void remove_node(const StrongDGNode& new_node);
+    void insert_node(const StrongDGNode& new_node, bool is_border);
+    void erase_node(const StrongDGNode& new_node);
     void lock_borders();
     void unlock_borders();
+    void clear_outers(const StrongDG& og, int cid);
 
 };
 
-using StrongSingleCOM = intrusive_ptr<SingletonCommunity>;
+// using StrongSingleCOM = intrusive_ptr<SingletonCommunity>;
 
 
-class Community : intrusive_ptr_target {
-private:
+struct Community : intrusive_ptr_target {
 
- public:
   vector<double> neigh_weight;
   vector<unsigned int> neigh_pos;
   unsigned int neigh_last;
