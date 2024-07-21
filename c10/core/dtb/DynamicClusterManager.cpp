@@ -42,7 +42,7 @@ void DCManager::run_Louvain_Detection(){
     double new_mod;
     // DynamicGraph g = c.g;
     do {
-        if(0) {
+        if(1) {
             cerr << "Continue Level:" << ++accum_run_level << endl;
             cerr << "  Before Louvain, network size: " 
                 << com->g.nb_nodes << " nodes, " 
@@ -61,7 +61,7 @@ void DCManager::run_Louvain_Detection(){
         DynamicGraph new_g = com->partition2graph_binary(original_dg);   // 生成社区为新结点的新图，进行下一轮合并
         com = StrongCOM::make(new_g, nb_pass, min_modularity);
 
-        if (0)
+        if (1)
         {
             cerr << "  modularity increased from " << cur_modularity << " to " << new_mod << endl;
             cerr << "  network size: " 
@@ -71,7 +71,7 @@ void DCManager::run_Louvain_Detection(){
         }
 
         cur_modularity = new_mod;
-        if (0)
+        if (1)
             cerr << "  end computation\n";
 
     } while(improvement);
@@ -88,6 +88,8 @@ void DCManager::flush_community_singleton() {
     }
     for(size_t cid=0; cid<singleton_comms.size(); cid++) {
         singleton_comms[cid].clear_outers(original_dg, cid);
+        if(singleton_comms[cid].inner_nodes.size()>0)
+            std::cout<< "flush singleton[" << cid << "] inners:" << singleton_comms[cid].inner_nodes.size() << " borders:" << singleton_comms[cid].border_nodes.size() << "\n";
     }
 }
 

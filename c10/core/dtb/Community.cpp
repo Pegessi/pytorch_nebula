@@ -320,7 +320,7 @@ void Community::neigh_comm(unsigned int node) {
   for (unsigned int i=0 ; i<deg ; i++) {
     unsigned int neigh        = p.first[i];
     unsigned int neigh_comm   = n2c[neigh];
-    double neigh_w = (g.weights.empty()) ? 1. : p.second[i];
+    double neigh_w = p.second[i];
     
     if (neigh!=node) {
       if (neigh_weight[neigh_comm]==-1) {
@@ -416,6 +416,7 @@ DynamicGraph Community::partition2graph_binary(const StrongDG& og) {
   g2.nb_nodes = comm_nodes.size();
   g2.degrees.resize(comm_nodes.size());
   g2.edges.resize(comm_nodes.size());
+  // if(og->is_weighted_graph())
   g2.weights.resize(comm_nodes.size());
   g2.total_weight = 0;
   // g2.n2c = renumber;
@@ -432,7 +433,7 @@ DynamicGraph Community::partition2graph_binary(const StrongDG& og) {
       for (int i=0 ; i<deg ; i++) {
         int neigh        = p.first[i];
         int neigh_comm   = renumber[n2c[neigh]];
-        double neigh_weight = (g.weights.empty()) ? 1. : p.second[i];
+        double neigh_weight = p.second[i];
 
         it = m.find(neigh_comm);
         if (it==m.end())

@@ -312,7 +312,12 @@ bool DynamicGraph::is_border_node(nid_t node) {
   if(auto scptc = dg_node->value.lock()) {
     for(auto neigh_cell: scptc->pool->neighbors) {
       if(auto cell = neigh_cell.lock()) {
-        TORCH_INTERNAL_ASSERT(cell->dg_id<n2c.size());
+        // 这里存在邻居是上一个图的节点的情况？
+        if(cell->dg_id >= n2c.size()) {
+          // std::cout << "dg id out of n2c size! [" << cell->dg_id << ", " << n2c.size() << "] where nb_nodes=" << nb_nodes << "\n";
+          return true;
+        }
+        // TORCH_INTERNAL_ASSERT(cell->dg_id<n2c.size());
         size_t n_c = n2c[cell->dg_id];
         if(n_c != cur_c) return true;
       }

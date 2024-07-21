@@ -53,7 +53,8 @@ struct DynamicGraph : public intrusive_ptr_target {
     // cerr << "before add info ---- new node:" << new_node << " nb_nodes:" << nb_nodes << "|" << edges.size() << endl;
     n2c.resize(new_node+1);
     cptcs.resize(new_node+1);
-    if(weighted) weights.resize(new_node+1);
+    // if(weighted) weights.resize(new_node+1);
+    weights.resize(new_node+1);
 
     // 原有的nb_nodes逻辑上是number of nodes + 1，因此这里从nb_nodes开始计算是合理的
     for(int i = nb_nodes; i <= new_node; i++){
@@ -61,7 +62,8 @@ struct DynamicGraph : public intrusive_ptr_target {
       edges.push_back({});
       // n2c[i] = i;
       n2c[i] = new_node;  // 将空结点归属到新节点上
-      if(weighted) weights.push_back({});
+      // if(weighted) weights.push_back({});
+      weights.push_back({});
       cptcs[i] = StrongDGNode::make(new_node, wcptc);
 
     }
@@ -74,10 +76,10 @@ struct DynamicGraph : public intrusive_ptr_target {
     add_single_node(s, s_cell);
     add_single_node(e, e_cell);
     edges[s].emplace_back(e);
-    if(weighted){
-      TORCH_INTERNAL_ASSERT(s < weights.size())
-      weights[s].emplace_back(w);
-    }
+    // if(weighted){
+    TORCH_INTERNAL_ASSERT(s < weights.size())
+    weights[s].emplace_back(w);
+    // }
 
     nb_edges += 1;
     total_weight += w;
@@ -124,7 +126,7 @@ struct DynamicGraph : public intrusive_ptr_target {
   bool check_symmetry();
 
   bool is_border_node(nid_t node);
-  
+  inline bool is_weighted_graph() { return weighted; }
   // insert a new edge between existed two nodes
   void insert_edge(nid_t s, nid_t e, const weak& s_cell, const weak& e_cell, float w=1.);
 
@@ -159,7 +161,7 @@ inline double DynamicGraph::nb_selfloops(nid_t node) {
   double nb_loop = 0.;
   for (nid_t i=0 ; i<nb_neighbors(node) ; i++) {
     if(p.first[i]==node){
-        nb_loop += weights.empty() ? 1. : static_cast<double>(p.second[i]);
+        nb_loop += static_cast<double>(p.second[i]);
     }
   }
   return nb_loop;
@@ -168,16 +170,16 @@ inline double DynamicGraph::nb_selfloops(nid_t node) {
 inline double DynamicGraph::weighted_degree(nid_t node) {
   assert(node>=0 && node<nb_nodes);
 
-  if (weights.empty())
-    return (double)nb_neighbors(node);
-  else {
-    auto p = neighbors(node);
-    double res = 0;
-    for (nid_t i=0 ; i<nb_neighbors(node) ; i++) {
-      res += static_cast<double>(p.second[i]);
-    }
-    return res;
+  // if (!weighted)
+  //   return (double)nb_neighbors(node);
+  // else {
+  auto p = neighbors(node);
+  double res = 0;
+  for (nid_t i=0 ; i<nb_neighbors(node) ; i++) {
+    res += static_cast<double>(p.second[i]);
   }
+  return res;
+  // }
 }
 
 inline pair<vector<nid_t>&, vector<float>&> DynamicGraph::neighbors(nid_t node) {

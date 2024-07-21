@@ -166,8 +166,8 @@ namespace at
 namespace c10{
 namespace dtb{
 
-#define WEIGHTED   0
-#define UNWEIGHTED 1
+#define WEIGHTED   1
+#define UNWEIGHTED 0
 
 constexpr const int DCR_INIT_SIZE = 1000;      // nb_nodes > cluster_init_size, then initial com
 constexpr const int DCR_INTERVAL  = 200;       // △nb_nodes > cluster_interval, then dynamic change com
