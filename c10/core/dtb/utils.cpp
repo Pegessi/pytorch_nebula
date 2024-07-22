@@ -41,17 +41,21 @@ std::unordered_map<cudaStream_t, int>* stream_to_label = new std::unordered_map<
 bool store_in_special_pool[8] = {false};
 
 #ifdef DEBUG_MODE
-bool record_er_counts = false;        // 驱逐&重物化次数
+constexpr const bool record_er_counts = false;        // 驱逐&重物化次数
+constexpr const bool record_op_recs = false;          // 是否记录op历史
+constexpr const bool record_fragmentation = false;    // 记录碎片化和内存占用数据
+constexpr const bool record_lifecycle = false;        // 记录ap生命周期计数分布
+constexpr const bool record_ap_cost = false;          // 记录ap的cost分布
+constexpr const bool record_dependcy = false;
+constexpr const bool record_key_chain = false;
+constexpr const bool trace_register_and_release = false;
+constexpr const bool trace_evicted_tensor = false;
+constexpr const bool record_dcr_process = false;       // 记录dcr的聚类过程
+
+size_t dcr_lock_counts = 0;
+
 bool record_mem_addr = false;         // 是否记录内存地址
-bool record_op_recs = false;          // 是否记录op历史
-bool record_fragmentation = false;    // 记录碎片化和内存占用数据
-bool record_lifecycle = false;        // 记录ap生命周期计数分布
-bool record_ap_cost = false;          // 记录ap的cost分布
-bool record_dependcy = false;
-bool record_key_chain = false;
 bool current_if_any_evicted = false;
-bool trace_register_and_release = false;
-bool trace_evicted_tensor = false;
 
 std::atomic<size_t> evict_counts = 0;
 std::atomic<size_t> tensor_evict_counts = 0;

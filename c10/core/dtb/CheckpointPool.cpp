@@ -548,6 +548,9 @@ void CheckpointPool::mem_first_evict(bool &if_cleared) {
 
 }
 
+/**
+ * clear_checkpointpool finally call this
+ */
 void CheckpointPool::clear_exts(bool last_iter){
   candidates.clear();
   // DTRLogAlias("[clear exts and if last iter]", last_iter?1:0);
@@ -556,6 +559,11 @@ void CheckpointPool::clear_exts(bool last_iter){
       chain->clear_members();
     }
     chains.clear();
+    // clear dcm records
+    for(auto &dcm: dcms) {
+      dcm->clear_comms();
+    }
+    dcms.clear();
   }else{
     auto it = chains.begin();         // 1F1B, release locked nodes like a stack order
     while(it!=chains.end()&&!(*it)->is_locked){
@@ -564,6 +572,12 @@ void CheckpointPool::clear_exts(bool last_iter){
     if(it != chains.end()) {
       (*it)->clear_members();
       chains.erase(it);
+    }
+
+    auto dit = dcms.begin();         // 1F1B, release locked nodes like a stack order
+    if(dit != dcms.end()) {
+      (*dit)->clear_comms();
+      dcms.erase(dit);
     }
   }
   
@@ -589,6 +603,12 @@ void CheckpointPool::clear_exts(bool last_iter){
   // show_exts();
 #endif
 
+}
+
+void CheckpointPool::clear_dcr_records() {
+  for(auto& dcm: dcms) {
+    dcm->clear_comms();
+  }
 }
 
 static int count = 0, pool_count = 0;

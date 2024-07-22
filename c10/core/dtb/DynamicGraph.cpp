@@ -1,30 +1,41 @@
 
 #include <sys/mman.h>
 #include <fstream>
-#include "DynamicGraph.h"
+#include <c10/core/dtb/DynamicGraph.h>
 #include "math.h"
 
 namespace c10 {
 namespace dtb {
 
-SingletonDGNode::SingletonDGNode(nid_t id, const weak& weak_cell) : nid(id), value(weak_cell) {}
+SingletonDGNode::SingletonDGNode(nid_t id, const weak& weak_cell) : nid(id), value(weak_cell) {
+  if(auto scptc = weak_cell.lock()) {
+    if(scptc->pool->evictable()&&!scptc->pool->if_temp)
+      cm_val = (scptc->remat->compute_cost.count() * scptc->degree) / static_cast<float>(scptc->pool->memory);
+    else
+      cm_val = CANNOT_EVICT_CM_VAL;
+    mem = scptc->pool->memory;
+  }
+}
 
 void SingletonDGNode::lock_value(){
   if(!is_lock){
     if(auto cell = value.lock()){
-      store_in_special_pool[cell->pool->device_id] = true;
-      if(cell->defined)  // remove cell firstly
-      {
-        auto t_ = cell->t->clone(); 
-        cell->pool->evict(0);
-        cell->fill(t_);
-      }else{
+      if(cell->pool->evictable()&&!cell->pool->if_temp&&cell->pool->memory <= 67108864) {
+        // store_in_special_pool[cell->pool->device_id] = true;
+        // if(cell->defined)  // remove cell firstly
+        // {
+        //   auto t_ = cell->t->clone(); 
+        //   cell->pool->evict(0);
+        //   cell->fill(t_);
+        // }else{
+        //   cell->get();
+        // }
+        // store_in_special_pool[cell->pool->device_id] = false;
         cell->get();
+        cell->pool->is_retain = true;
+        cell->pool->lock();
+        is_lock = true;
       }
-      store_in_special_pool[cell->pool->device_id] = false;
-      cell->pool->is_retain = true;
-      cell->pool->lock();
-      is_lock = true;
     }
   }
 }
@@ -34,6 +45,7 @@ void SingletonDGNode::unlock_value() {
     if(auto cell = value.lock()){
       cell->pool->is_retain = false;
       is_lock = false;
+      // if(cell->pool->evictable()&&!cell->pool->if_temp)
       cell->pool->unlock();
     }
   }

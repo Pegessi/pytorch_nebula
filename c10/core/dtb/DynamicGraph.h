@@ -21,10 +21,13 @@ namespace dtb {
 using nid_t = unsigned int;
 using namespace std;
 
+#define CANNOT_EVICT_CM_VAL 1e-36
 
 struct SingletonDGNode : intrusive_ptr_target {
   nid_t nid;
   weak value;
+  float cm_val=CANNOT_EVICT_CM_VAL;   // c/m
+  size_t mem=0;
   bool is_lock = false;
   SingletonDGNode(nid_t id, const weak& weak_cell);
 

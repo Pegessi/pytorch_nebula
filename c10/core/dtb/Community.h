@@ -16,20 +16,27 @@ namespace dtb {
 
 using namespace std;
 
+typedef bool (*Comparison)(const StrongDGNode, const StrongDGNode);
+static bool DGNodeComparator(const StrongDGNode a, const StrongDGNode b) {
+  if(a->mem!=b->mem)
+    return a->mem < b->mem;
+  return a->cm_val > b->cm_val;   // cm_val bigger, order higher
+}
+
 class SingletonCommunity {
   private:
     std::unordered_map<StrongDGNode, bool> border_marker;
     bool is_lock=false;
 
   public:
-    SingletonCommunity() {}
+    SingletonCommunity() : border_nodes(DGNodeComparator) {}
 
     std::set<StrongDGNode> inner_nodes;
-    std::set<StrongDGNode> border_nodes;
+    std::set<StrongDGNode, Comparison> border_nodes;
 
     void insert_node(const StrongDGNode& new_node, bool is_border);
     void erase_node(const StrongDGNode& new_node);
-    void lock_borders();
+    size_t lock_borders();
     void unlock_borders();
     void clear_outers(const StrongDG& og, int cid);
 

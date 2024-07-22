@@ -356,18 +356,20 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
       }
 
 #ifdef DCR_MANAGE
-      if(!during_backward&&pm->if_train_mode[device_id]) {  // during forward
-        pm->insert_dcm(device_id, inputs[i]->dg_id, outputs[j]->value->dg_id, weak(inputs[i]), weak(outputs[j]->value));  // TODO: maybe weight add?
-      }
+      if(DCR_LOCK_ENABLE)
+        if(!during_backward&&pm->if_train_mode[device_id]) {  // during forward
+          pm->insert_dcm(device_id, inputs[i]->dg_id, outputs[j]->value->dg_id, weak(inputs[i]), weak(outputs[j]->value));  // TODO: maybe weight add?
+        }
 #endif
 
     }
   }
 #ifdef DCR_MANAGE
-  if(during_backward&&pm->if_train_mode[device_id]) {
-    // 反向且tmp dcm非空，加入dcms
-    pm->add_dcm_into_queue(device_id);
-  }
+  if(DCR_LOCK_ENABLE)
+    if(during_backward&&pm->if_train_mode[device_id]) {
+      // 反向且tmp dcm非空，加入dcms
+      pm->add_dcm_into_queue(device_id);
+    }
 #endif
 
   for (const strong& s : inputs) {

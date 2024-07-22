@@ -51,6 +51,7 @@ struct CheckpointPool {
   bool push_single_batch_ets();
   void clear_recorded_batch();
   void remat_front_batch(float scale=0.5, bool erase=true);
+  void clear_dcr_records();
   // void add_chain(const intrusive_ptr<KeyChain>&);
   // void erase_chain(intrusive_ptr<KeyChain>&);
   CheckpointPool();

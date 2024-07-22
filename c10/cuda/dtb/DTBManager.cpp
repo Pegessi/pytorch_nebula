@@ -492,7 +492,6 @@ void DTBCheckpointPool::insert_dcm(int device, nid_t s, nid_t e, const weak& s_c
     auto new_dcm = StrongDCM::make(DCR_INIT_SIZE, DCR_INTERVAL, DCR_NB_PASS, MIN_MODULARITY, DCR_TYPE);
     pool->tmp_dcm = new_dcm;
   }
-  // std::cout << "[LOG DCR]" << "insert" << s << "-" << e << "\n";
   pool->tmp_dcm->insert_single_edge(s, e, s_cell, e_cell, w);
 }
 
@@ -579,6 +578,7 @@ void DTBCheckpointPool::clear_checkpointpool(int device, bool last_iter){
     // }
   #endif
     pool->clear_exts(last_iter);
+    
   }
 }
 

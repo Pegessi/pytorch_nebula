@@ -30,14 +30,21 @@ void SingletonCommunity::erase_node(const StrongDGNode& node) {
   }
 }
 
-void SingletonCommunity::lock_borders() {
+size_t SingletonCommunity::lock_borders() {
   // TODO: 增加剪枝条件
+  size_t res = 0;
   if(!is_lock){
+    int count = 0;
     for(auto& dgnode: border_nodes) {
+      count++;
+      if(count>DCR_LOCK_TOPS) break;
       dgnode->lock_value();
+      dcr_lock_counts++;
+      res += dgnode->value.lock()->pool->memory;
     }
     is_lock = true;
   }
+  return res;
 }
 
 void SingletonCommunity::unlock_borders() {

@@ -21,6 +21,8 @@ private:
     size_t grow_size=0;           // The number of nodes that have increased since the last clustering
     double cur_modularity;
     size_t accum_run_level=0;
+
+    size_t accum_lock_mem = 0;
 public:
     explicit DCManager(int init_size, int inteval, int nbp, double minm, int type);
 
@@ -29,6 +31,8 @@ public:
     void run_Louvain_Detection();
 
     void flush_community_singleton();
+
+    void clear_comms();
 
     void release_resources() override;
     

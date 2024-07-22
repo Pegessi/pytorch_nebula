@@ -1294,12 +1294,13 @@ public:
               if(sap->evictable()){
                 sap->evict(0);
               #ifdef PROACTIVE_REMAT
-                for(auto it = sap->tensors.rbegin(); it != sap->tensors.rend(); ++it){
-                  if(it->lock()){
-                    pm->record_evicted_tensors(c10::cuda::current_device(), (*it));
-                    break;
-                  }
-                }
+                // [deprecated]
+                // for(auto it = sap->tensors.rbegin(); it != sap->tensors.rend(); ++it){
+                //   if(it->lock()){
+                //     pm->record_evicted_tensors(c10::cuda::current_device(), (*it));
+                //     break;
+                //   }
+                // }
               #endif
                 // pm->record_evicted_tensors(sap->tensors.back()); // 这里的问题在于，释放时用的是ap，而不是cptc，怎么去拿这个cptc？
                 if((c10::dtb::current_memory(device)+need_size) < c10::dtb::memory_budget)  // need_size is satisfied
@@ -1349,12 +1350,13 @@ public:
               #endif
                 sap->evict(0);
               #ifdef PROACTIVE_REMAT
-                for(auto it = sap->tensors.rbegin(); it != sap->tensors.rend(); ++it){
-                  if(it->lock()){
-                    pm->record_evicted_tensors(c10::cuda::current_device(), (*it));
-                    break;
-                  }
-                }
+                // [deprecated]
+                // for(auto it = sap->tensors.rbegin(); it != sap->tensors.rend(); ++it){
+                //   if(it->lock()){
+                //     pm->record_evicted_tensors(c10::cuda::current_device(), (*it));
+                //     break;
+                //   }
+                // }
               #endif
                 if((c10::dtb::current_memory(device)+need_size) < c10::dtb::memory_budget) break;
               }
