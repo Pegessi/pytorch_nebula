@@ -1212,7 +1212,7 @@ public:
     long search_time_ = 0, search_size = 0;
     size_t before_allocated = c10::dtb::current_memory(device);
     time_t pre = std::chrono::system_clock::now();
-    size_t gap_size = c10::dtb::memory_budget - before_allocated;
+    size_t gap_size = c10::dtb::memory_budget > before_allocated ? (c10::dtb::memory_budget - before_allocated) : (before_allocated - c10::dtb::memory_budget);
     size_t low_cost_size = 0;
     bool gap_flag = false;
     Block* evict_strat = nullptr;
@@ -1222,8 +1222,7 @@ public:
 
     std::vector<SegmentTwin*> to_evict_segments;
     
-    constexpr const size_t topk = 6;
-    constexpr const size_t check_scale = 8;
+    constexpr const size_t check_scale = 5;
     constexpr const double stop_threshold = 1e-10;
 
     // a new huge need_size, regard it as gap_size
@@ -1241,11 +1240,9 @@ public:
      * 
     */
     double cur_min_cost = 1e5;
-    if(gap_size > need_size*100) {
+    if(gap_size > need_size*check_scale) {
       gap_flag = true;
       for(auto size_it=size_map.rbegin(); size_it!=size_map.rend(); ++size_it){
-        // if(size_it->first>check_scale*need_size) break;   // early stop
-        if(cur_min_cost < stop_threshold) break;
         bool all_cannot_evict = true;
         for(auto &seg: size_it->second){
           search_size++;
@@ -1262,7 +1259,6 @@ public:
       }
     } else {
       for(auto size_it=size_map.lower_bound(need_size); size_it!=size_map.end(); size_it++){
-        if(cur_min_cost < stop_threshold) break;
         bool all_cannot_evict = true;
         for(auto &seg: size_it->second){
           search_size++;
@@ -1328,7 +1324,7 @@ public:
         if(c10::dtb::trace_evicted_tensor){
           time_t post = std::chrono::system_clock::now();
           search_time_ += (post - pre).count();
-          printf("need size:%ld single search time:%ld, segs:%ld, before alloc:%ld, release:%ld\n", need_size, search_time_, search_size,
+          printf("Use Set to Evict, need size:%ld single search time:%ld, segs:%ld, before alloc:%ld, release:%ld\n", need_size, search_time_, search_size,
             before_allocated, released_size);
         }
       #endif
@@ -2333,40 +2329,14 @@ class DeviceCachingAllocator {
     const size_t alloc_size = get_allocation_size(size);
     AllocParams params(device, size, stream, &pool, alloc_size, stats);
     params.stat_types = get_stat_types_for_pool(pool);
-    // if(c10::dtb::USE_DTR&&(getStats().active_bytes[device].current + size) > c10::dtb::memory_budget){
+
     if(c10::dtb::USE_DTR){
       if(COST_FIRST_EVICT){
         auto *pm = c10::dtb::getDTBPoolManager();
-        auto if_evict = pm->auto_evict(device, size);
+        bool if_evict = pm->auto_evict(device, size);
       }else{  // UNIFIED_EVICT
         auto if_evict = segManager.auto_evict(size, device, stream);
       }
-
-      // if(UNIFIED_EVICT){
-      //   auto if_evict = segManager.auto_evict(size, device, stream);
-      // }
-
-
-// #if defined(MEM_TWIN_REC) && defined(MEM_FIRST_EVICT) 
-//       // if((c10::dtb::current_memory(device)+size) > c10::dtb::memory_budget){
-//       auto if_evict = segManager.auto_evict(size, device, stream);
-//         // if(if_evict) 
-//         // {
-//         //   getSegmentTwins();
-//         // }
-//       // }
-// #else
-//       auto *pm = c10::dtb::getDTBPoolManager();
-//       auto if_evict = pm->auto_evict(device, size);
-// #endif
-
-      #ifdef MORE_POOL
-      // if(if_evict){     // for figure, actually exectution will release these free blocks when close to OOM
-      //   // release_blocks(ex1_blocks);
-      //   // release_blocks(ex2_blocks);
-      //   // release_blocks(large_blocks);
-      // }
-      #endif
     }
 
     // First, try to get a block from the existing pool.

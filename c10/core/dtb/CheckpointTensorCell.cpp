@@ -3,6 +3,7 @@
 #include <c10/cuda/dtb/DTBManager.h>
 #include <c10/cuda/CUDACachingAllocator.h>
 #include <queue>
+#include <stack>
 
 #define TORCH_CHECK(a, ...)   // replace original TORCH_CHECK  profile mode
 
@@ -176,17 +177,44 @@ int CheckpointTensorCell::precheck(){
  * Remat output of cptc'remater
  */
 void CheckpointTensorCell::remat_neghibors(int remat_depth) {
-  if(remat && pool->external_count>0)
-    get();  // remat self
-  if(remat_depth > 0) {
-    for(auto &wcptc: pool->neighbors) {
-      if(auto scptc = wcptc.lock()) {
-          // if(remat && pool->external_count>0)
-          //   scptc->get();
-          if(scptc->pool->is_evicted && scptc->pool->external_count>0) // 对被驱逐的需要的张量进行恢复
-            scptc->remat_neghibors(remat_depth-1);
+  // if(remat && pool->external_count>0)
+  //   get();  // remat self
+  // if(remat_depth > 0) {
+  //   for(auto &wcptc: pool->neighbors) {
+  //     if(auto scptc = wcptc.lock()) {
+  //         // if(remat && pool->external_count>0)
+  //         //   scptc->get();
+  //         if(scptc->pool->is_evicted && scptc->pool->external_count>0) // 对被驱逐的需要的张量进行恢复
+  //           scptc->remat_neghibors(remat_depth-1);
+  //     }
+  //   }
+  // }
+  std::stack<std::pair<CheckpointTensorCell*, int>> stack;
+  std::unordered_map<CheckpointTensorCell*, int> marker;
+  stack.push({this, 0});  // Start with this cell
+  marker[this] = 1;
+
+  while (!stack.empty()) {
+      auto [current, depth] = stack.top();
+      stack.pop();
+
+      // Rematerialize current if needed
+      if (current->remat && current->pool->external_count > 0)
+          current->get();
+
+      // Push neighbors to stack if depth limit is not reached
+      if (depth < remat_depth) {
+          for (auto &wcptc : current->pool->neighbors) {
+              if (auto scptc = wcptc.lock()) {
+                  if (scptc->pool->is_evicted && scptc->pool->external_count > 0) {
+                      if(marker.find(scptc.get())==marker.end()){
+                        stack.push({scptc.get(), depth + 1});
+                        marker[scptc.get()] = 1;
+                      }
+                  }
+              }
+          }
       }
-    }
   }
 }
 
