@@ -75,7 +75,7 @@ void CheckpointTensorCell::evict() {
   if(trace_register_and_release){
     printf("---|cptc evict, addr:%ld\n", reinterpret_cast<uintptr_t>(t->data_ptr()));
   }
-  if(record_op_recs) {
+  if(record_cpevict_recs) {
     if(t)
       DTRLogAddress("release "+counter_name() + " if_tmp:"+std::to_string(pool->if_temp?1:0) + " if_weight:" + std::to_string(pool->if_weight?1:0)
          + " if_retain:" + std::to_string(pool->is_retain?1:0)
@@ -103,8 +103,8 @@ Tensor CheckpointTensorCell::get(){
       // TORCH_CHECK(remat);
 #ifdef DEBUG_MODE
       if(!remat){
-        printf("[CHECK REMAT ERROR] tid:%s if_temp:%d device:%d tensors:%ld lc:%ld ec:%ld rc:%ld\n", counter_name().c_str(),
-          pool->if_temp ? 1 : 0, pool->device_id, pool->tensors.size(),
+        printf("[CHECK REMAT ERROR] tid:%s if_temp:%d device:%d tensors:%ld size:%ld dtype:%s lc:%ld ec:%ld rc:%ld\n", counter_name().c_str(),
+          pool->if_temp ? 1 : 0, pool->device_id, pool->tensors.size(), pool->memory, dtype_.name().data(),
           pool->lock_count, pool->external_count, pool->remat_count);
         printStackTrace();
       }
@@ -113,7 +113,7 @@ Tensor CheckpointTensorCell::get(){
 #ifdef DEBUG_MODE
       // if(record_er_counts)
       //   DTRLogRematEvents(counter_name(), 0);
-      if(record_op_recs)
+      if(record_cpevict_recs)
         DTRLogAddress("remat need "+counter_name(), pool->addr, pool->memory);
 #endif
       remat->remat();

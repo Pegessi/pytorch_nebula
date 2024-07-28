@@ -586,9 +586,9 @@ void CheckpointPool::clear_exts(bool last_iter){
     while(!temp_cptc.empty()){
       if(auto sext = temp_cptc.back().lock()){
   #ifdef DEBUG_MODE
-        if(record_op_recs)
-          DTRLogAddress("clear temp begin "+sext->counter_name() + " if_tmp:"+std::to_string(sext->pool->if_temp?1:0) + " " + std::to_string(sext->pool->external_count) + std::to_string(sext->pool->lock_count), 
-            reinterpret_cast<uintptr_t>(sext->pool->addr), sext->pool->memory);
+        if(record_cpevict_recs)
+          // DTRLogAddress("clear temp begin "+sext->counter_name() + " if_tmp:"+std::to_string(sext->pool->if_temp?1:0) + " " + std::to_string(sext->pool->external_count) + std::to_string(sext->pool->lock_count), 
+          //   reinterpret_cast<uintptr_t>(sext->pool->addr), sext->pool->memory);
   #endif
         sext->pool->unlock();
       }

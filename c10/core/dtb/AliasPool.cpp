@@ -82,7 +82,7 @@ void AliasPool::evict(int mode) { // 0 - evict | 1 - deconstruct | 2 - Irreversi
   for (const weak& w : tensors) {
     if (auto cell = w.lock()) {
 #ifdef DEBUG_MODE
-      if(record_op_recs){
+      if(record_cpevict_recs){
         DTRLogAlias("evict tid:" + cell->counter_name(), mode);
       }
       if(record_er_counts){

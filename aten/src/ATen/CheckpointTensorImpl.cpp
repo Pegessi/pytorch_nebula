@@ -40,6 +40,7 @@ using c10::dtb::use_profile_;
 using c10::dtb::record_er_counts;        // 驱逐&重物化次数
 using c10::dtb::record_mem_addr;         // 是否记录内存地址
 using c10::dtb::record_op_recs;          // 是否记录op历史
+using c10::dtb::record_cpevict_recs;
 using c10::dtb::record_fragmentation;    // 记录碎片化和内存占用数据
 using c10::dtb::record_lifecycle;        // 记录ap生命周期计数分布
 using c10::dtb::record_ap_cost;          // 记录ap的cost分布
@@ -264,6 +265,9 @@ void set_backward_flag(){
 //   pm->set_during_backward(true);
 // #else
   during_backward = true;
+  if(record_op_recs) {
+    c10::dtb::DTRLogAlias("begin_backward", 1);
+  }
 // #ifdef PROACTIVE_REMAT //[deprecated]
   // auto *pm = getDTBPoolManager();
   // pm->push_batch_evicted_tensors(c10::cuda::current_device());
@@ -278,6 +282,9 @@ void unset_backward_flag(){
 //   pm->set_during_backward(false);
 // #else
   during_backward = false;
+  if(record_op_recs) {
+    c10::dtb::DTRLogAlias("end_backward", 0);
+  }
 #ifdef DCR_MANAGE
   c10::dtb::CheckpointTensorCell::reset_pool_counter();
 #endif

@@ -1240,7 +1240,7 @@ public:
      * 
     */
     double cur_min_cost = 1e5;
-    if(gap_size > need_size*check_scale) {
+    if(gap_size > need_size*check_scale || need_size < 10485760) {
       gap_flag = true;
       for(auto size_it=size_map.rbegin(); size_it!=size_map.rend(); ++size_it){
         bool all_cannot_evict = true;

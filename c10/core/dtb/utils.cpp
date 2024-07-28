@@ -43,6 +43,7 @@ bool store_in_special_pool[8] = {false};
 #ifdef DEBUG_MODE
 constexpr const bool record_er_counts = false;        // 驱逐&重物化次数
 constexpr const bool record_op_recs = false;          // 是否记录op历史
+constexpr const bool record_cpevict_recs = false;
 constexpr const bool record_fragmentation = false;    // 记录碎片化和内存占用数据
 constexpr const bool record_lifecycle = false;        // 记录ap生命周期计数分布
 constexpr const bool record_ap_cost = false;          // 记录ap的cost分布
@@ -248,7 +249,7 @@ Tensors try_checkpoint(Tensors& inputs) {
       auto *pm = getDTBPoolManager();
       pm->lock_temp_ext(device_id, weak(cpti->unsafeGetTensorCell()));
 #ifdef DEBUG_MODE
-      if(record_op_recs) {
+      if(record_cpevict_recs) {
         DTRLogAddress("inner checkpoint "+cpti->unsafeGetTensorCell()->counter_name()+ " " + std::string(cpti->unsafeGetTensorCell()->dtype().name()) + " device:" + std::to_string(device_id), 
           cpti->unsafeGetTensorCell()->pool->addr, cpti->unsafeGetTensorCell()->pool->lock_count);
       }
