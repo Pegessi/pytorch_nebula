@@ -27,7 +27,9 @@ struct AliasPool : intrusive_ptr_target {
   size_t retain_count = 0;        // for retain long remat, |disabled| performance worse
   bool if_weight = false;         // flag for mark the tensors transformerd from weights
   bool if_temp = false;           // mark if this pool belongs to a temp_cptc
-
+  bool is_evicted = false;      // if pool is evicted(not in mem)
+  bool is_retain = false;       // if proactive lock
+  
   int dependency = 0;
   std::future<int> dep_future;
   // lock() && unlock() used for protect storage during tensor operations
@@ -93,9 +95,7 @@ struct AliasPool : intrusive_ptr_target {
     return lock_count == 0 && head_remat;
 #endif
   }
-  // if it is not evictable it must not be evicted.
-  bool is_evicted = false;
-  bool is_retain = false;
+
   size_t memory;
   time_t last_used_time;
   uintptr_t addr;               // address of tensor data ptr
@@ -109,6 +109,7 @@ struct AliasPool : intrusive_ptr_target {
   // if it is evicted, then hold the evicted tensor group.
   ecn_ptr ecn;
   double cost(time_t current_time);
+  double cost_dte(time_t current_time, size_t mem);
   void evict(int mode=0);
   int update_dep_task();
   void update_dependency();

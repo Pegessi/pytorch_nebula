@@ -37,7 +37,6 @@ static const bool USE_DTR = ([]() -> bool {    /// init if use dtr by check env 
       std::vector<size_t> peak_reserved_memory;
 #ifdef MEM_FIRST_EVICT
       ska::flat_hash_map<void*, weak_intrusive_ptr<AliasPool>> p2ap;
-      // std::unordered_map<void*, weak_intrusive_ptr<AliasPool>> p2ap;
 #endif
 
       void update_max_meminfo(int device_id){
@@ -106,6 +105,8 @@ static const bool USE_DTR = ([]() -> bool {    /// init if use dtr by check env 
 
       bool auto_evict(int device, size_t coming_bytes);
 
+      std::vector<weak_intrusive_ptr<AliasPool>>& get_ap(int device);
+
       void force_evict(int device, int mode);
 
       void add_into_keychain(int device, const weak& new_key, const weak& pre);
@@ -117,6 +118,8 @@ static const bool USE_DTR = ([]() -> bool {    /// init if use dtr by check env 
       void lock_temp_ext(int device, const weak& w_cptc);
 
       void erase_ap(int device, uintptr_t addr);
+
+      void proactive_remat(int device, int remat_depth);
 
 #ifdef MEM_FIRST_EVICT
       void update_ap(intrusive_ptr<AliasPool>& ap, uintptr_t new_addr);

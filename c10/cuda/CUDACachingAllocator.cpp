@@ -39,7 +39,7 @@
 TORCH_SDT_DEFINE_SEMAPHORE(malloc)
 TORCH_SDT_DEFINE_SEMAPHORE(free)
 
-#define MEM_TWIN_REC
+// #define MEM_TWIN_REC
 // #define MEM_TWIN_DEBUG
 
 // #define GMLAKE_ENABLE // GMLAKE history trace is unavailable(wrong history)
@@ -77,11 +77,6 @@ static const std::string mem_log_prefix = ([]() -> std::string {
     else    return ".";
 })();
 
-// static const bool COST_FIRST_EVICT = ([]() -> bool {
-//     const char* env = getenv("COST_FIRST_EVICT");
-//     if(env) return (atoi(env))==1;
-//     else    return false;
-// })();
 
 
 struct DTRLogger {
@@ -1200,12 +1195,12 @@ public:
 
   bool auto_evict(size_t need_size, int device, cudaStream_t stream) {
     if((c10::dtb::current_memory(device)+need_size) < c10::dtb::memory_budget) return false;
-    if(need_size > size_map.rbegin()->first) return false;
+    // if(need_size > size_map.rbegin()->first) return false;
 
     long search_time_ = 0, search_size = 0;
     size_t before_allocated = c10::dtb::current_memory(device);
     time_t pre = std::chrono::system_clock::now();
-    size_t gap_size = c10::dtb::memory_budget - before_allocated; // 30G 35G 1MB   5G
+    size_t gap_size = c10::dtb::memory_budget - before_allocated;
     size_t low_cost_size = 0;
     bool gap_flag = false;
     Block* evict_strat = nullptr;
@@ -1234,12 +1229,11 @@ public:
      * 
     */
     double cur_min_cost = 1e5;
-    // ① gap_size，超出的很大  ②没超need_size，gap_size  ③gap_size和need_size都很大
-    if(gap_size > need_size*100) {  // 存在隐患，need_size塞到大的segment里面去了
+    if(gap_size > need_size*100) {
       gap_flag = true;
       for(auto size_it=size_map.rbegin(); size_it!=size_map.rend(); ++size_it){
         // if(size_it->first>check_scale*need_size) break;   // early stop
-        // if(cur_min_cost < stop_threshold) break;
+        if(cur_min_cost < stop_threshold) break;
         bool all_cannot_evict = true;
         for(auto &seg: size_it->second){
           search_size++;
@@ -1250,14 +1244,14 @@ public:
             if(seg->max_evict_cost < stop_threshold) low_cost_size += seg->can_free_size;
           }
           // if(cur_min_cost < stop_threshold && low_cost_size > gap_size) 
-          if(low_cost_size > gap_size)
+          if(low_cost_size > gap_size) 
             break;
         }
       }
     } else {
       for(auto size_it=size_map.lower_bound(need_size); size_it!=size_map.end(); size_it++){
         // if(size_it->first>check_scale*need_size) break;   // early stop
-        // if(cur_min_cost < stop_threshold) break;
+        if(cur_min_cost < stop_threshold) break;
         bool all_cannot_evict = true;
         for(auto &seg: size_it->second){
           search_size++;
@@ -1267,7 +1261,7 @@ public:
             cur_min_cost = std::min(cur_min_cost, seg->max_evict_cost);
             if(seg->max_evict_cost < stop_threshold) {
               evict_strat = es;
-              low_cost_size += seg->can_free_size; // the sum of can_free_size with low cost
+              low_cost_size += seg->can_free_size;
             }
           }
           if(low_cost_size > gap_size) 
@@ -1358,6 +1352,94 @@ public:
     return false;
 
   }
+
+
+  bool auto_dte_evict(int device, cudaStream_t stream) {
+    auto *pm = c10::dtb::getDTBPoolManager();
+    auto& aps = pm->get_ap(device);
+    std::random_device rd;
+    std::mt19937 gen = std::mt19937(rd());
+
+    auto get_neighbor_sum_mem = [&](c10::intrusive_ptr<c10::dtb::AliasPool>& sap) -> size_t {
+      for(auto size_it=size_map.lower_bound(sap->memory); size_it!=size_map.end(); size_it++) {
+        for(auto &seg: size_it->second) {
+          for(const auto& bit: seg->blocks) {
+            auto ptr = bit->ptr;
+            void* sap_ptr = reinterpret_cast<void*>(sap->addr);
+            if(ptr == sap_ptr) {
+              size_t pre_mem = bit->prev ? bit->prev->size : 0;
+              size_t next_mem = bit->next ? bit->next->size : 0;
+              if(bit->prev){
+                if(bit->prev->allocated) pre_mem = 0;
+              }
+              if(bit->next){
+                if(bit->next->allocated) next_mem = 0;
+              }
+              return bit->size + pre_mem + next_mem;
+            }
+          }
+        }
+      }
+      return sap->memory;
+    };
+
+    while((c10::dtb::current_memory(device)) > c10::dtb::memory_budget) {
+      bool shrunk = false;
+      int evict_idx = -1;
+      double evict_cost = INFINITY;
+      time_t current_time = std::chrono::system_clock::now();
+
+      auto remove_from_aps = [&](size_t i) {
+                              aps[i] = aps[aps.size() - 1];
+                              aps.pop_back();
+                            };
+      std::uniform_int_distribution<> distrib(1, 1 * std::max(1, static_cast<int>(std::sqrt(aps.size()))));
+      // sampling a random independent subset of all evictable tensors to find the cheapest tensor to evict.
+      // 搜索策略，穷举搜索aps
+      for (size_t i = 0; i < aps.size();) {
+        auto cannot_evict = [&]() {
+                              shrunk = true;
+                              remove_from_aps(i);
+                            };
+        auto ap_strong = aps[i].lock();
+        if (!ap_strong.defined()) {       // check weak_intrusive_ptr if valid
+          cannot_evict();
+        }
+        else if (ap_strong->ecn) {
+          cannot_evict();
+        }
+        else {
+          if (ap_strong->evictable()) {
+            auto mem = get_neighbor_sum_mem(ap_strong);
+            double cost = ap_strong->cost_dte(current_time, mem);
+            if (cost < evict_cost) {
+              evict_cost = cost;
+              evict_idx = i;
+            }
+          }
+          i += distrib(gen);
+        }
+      }
+      // 执行驱逐
+      if (evict_idx == -1) {
+        return false;
+      } else {
+        auto evict_from_idx = [&](size_t idx) {
+                                auto ap_strong = aps[idx].lock();
+                                TORCH_CHECK(ap_strong.defined());
+                                ap_strong->evict(0);
+                                remove_from_aps(evict_idx);
+                              };
+        auto ap_strong = aps[evict_idx].lock();
+
+        evict_from_idx(evict_idx);
+      }
+
+    }
+
+    return true;
+  }
+
 
 };
 
@@ -2316,44 +2398,15 @@ class DeviceCachingAllocator {
     AllocParams params(device, size, stream, &pool, alloc_size, stats);
     params.stat_types = get_stat_types_for_pool(pool);
     // if(c10::dtb::USE_DTR&&(getStats().active_bytes[device].current + size) > c10::dtb::memory_budget){
-    if(c10::dtb::USE_DTR){
-      if(COST_FIRST_EVICT){
-        auto *pm = c10::dtb::getDTBPoolManager();
-        auto if_evict = pm->auto_evict(device, size);
-      }else{  // UNIFIED_EVICT
-        auto if_evict = segManager.auto_evict(size, device, stream);
-      }
+    // if(c10::dtb::USE_DTR){
+    //   if(COST_FIRST_EVICT){
+    //     auto *pm = c10::dtb::getDTBPoolManager();
+    //     auto if_evict = pm->auto_evict(device, size);
+    //   }else{  // UNIFIED_EVICT
+    //     auto if_evict = segManager.auto_evict(size, device, stream);
+    //   }
 
-      // if(UNIFIED_EVICT){
-      //   auto if_evict = segManager.auto_evict(size, device, stream);
-      // }
-
-
-// #if defined(MEM_TWIN_REC) && defined(MEM_FIRST_EVICT) 
-//       // if((c10::dtb::current_memory(device)+size) > c10::dtb::memory_budget){
-//       auto if_evict = segManager.auto_evict(size, device, stream);
-//         // if(if_evict) 
-//         // {
-//         //   getSegmentTwins();
-//         // }
-//       // }
-// #else
-//       auto *pm = c10::dtb::getDTBPoolManager();
-//       auto if_evict = pm->auto_evict(device, size);
-// #endif
-
-      #ifdef MORE_POOL
-      // if(if_evict){     // for figure, actually exectution will release these free blocks when close to OOM
-      //   // release_blocks(ex1_blocks);
-      //   // release_blocks(ex2_blocks);
-      //   // release_blocks(large_blocks);
-      // }
-      #endif
-    }
-// #ifdef GMLAKE_ENABLE
-//     params.stat_types[static_cast<size_t>(StatType::AGGREGATE)] = true;
-//     params.stat_types[static_cast<size_t>(get_stat_type_for_pool(pool))] = true;
-// #endif
+    // }
 
     // First, try to get a block from the existing pool.
     bool block_found =
@@ -2642,11 +2695,6 @@ class DeviceCachingAllocator {
       bool inserted = pool->blocks.insert(remaining).second;
       TORCH_INTERNAL_ASSERT_DEBUG_ONLY(inserted);
 
-#ifdef GMLAKE_ENABLE
-      // if (context) {
-      //   trimHistoryBefore(remaining, (char*)block->ptr + size);
-      // }
-#endif
 
       if (already_split && !block->expandable_segment_) {
         // An already-split inactive block is being shrunk by size bytes.
@@ -2906,6 +2954,14 @@ class DeviceCachingAllocator {
     });
     if (block->size >= CachingAllocatorConfig::max_split_size())
       update_stat(stats.oversize_allocations, 1);
+
+  #ifdef DTE_EVICT
+    if(c10::dtb::USE_DTR){
+      auto if_evict = segManager.auto_dte_evict(device, stream);
+    }
+  #endif
+
+
 
     c10::reportMemoryUsageToProfiler(
         block->ptr,

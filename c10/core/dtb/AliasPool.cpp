@@ -139,8 +139,6 @@ void AliasPool::unlock() {
         evict(1);
       } 
 #endif
-      // else if (memory > 0 && head_remat==nullptr)
-      //   evict(2);
     }
   }
   /**
@@ -258,6 +256,19 @@ double AliasPool::cost(time_t current_time) {
   time_t post = std::chrono::system_clock::now();
   cost_time_ += (post - pre).count();
 #endif
+  return ret;
+}
+
+double AliasPool::cost_dte(time_t current_time, size_t mem) {
+
+  auto cpi = head_remat->get_cpi();
+  auto ecns = neighbor_ecn();
+  for (const auto& necn : ecns) {
+    cpi = merge_cpi(cpi, get_t(necn));
+  }
+
+  auto ret = cpi.cost(mem, (current_time - last_used_time).count());
+
   return ret;
 }
 

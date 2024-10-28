@@ -204,9 +204,9 @@ Tensors uncheckpoint_with_depth(const strongs& inputs, int& cumulative_num) {
   for (const strong& input : inputs) {
     // TAG: Remat entry
     /// TODO: 延长机制
-    // if(cumulative_num%42==0){
-    //   input->pool->lock_retain();
-    // }
+    if(cumulative_num%42==0){
+      input->pool->lock_retain();
+    }
     ret.push_back(input->get(cumulative_num));
   }
   return ret;

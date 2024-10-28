@@ -8,6 +8,28 @@
 namespace c10 {
 namespace dtb {
 
+
+#ifdef ORIGINAL_DTR
+void CheckpointTensorCell::fill(const Tensor& t) {
+  STATS.track("CheckpointTensorCell::fill");
+  if (!(this->t)) {
+    pool->set_addr(get_addr(t));
+    this->t = std::make_unique<Tensor>(std::move(t));
+    pool->set_not_evicted(pool);                          /// TAG: 改变标志位，更新cost, MEM_FIRST_EVICT在上面的函数中更新了p2ap(add_ap)
+    if (!defined) {                                       /// 这里是将所有的属性拷贝一遍，满足兼容性
+      defined = true;
+      is_undefined_tensor = !this->t->defined();
+      key_set_ = this->t->key_set();
+      // if (this->t->requires_grad()) {
+      //   key_set_ = key_set_.add(DispatchKey::Autograd);
+      // }
+      dtype_ = this->t->dtype();
+      if(this->t->defined())
+        optional_device_ = this->t->device();
+    }
+  }
+}
+#else
 /**
  * original version of DTR use `const Tensor& t` as the argument type
  * and use it to construct a unique_ptr for manage the tensor storage.
@@ -36,6 +58,7 @@ void CheckpointTensorCell::fill(Tensor& t) {
     }
   }
 }
+#endif
 
 void CheckpointTensorCell::pin() {
   // get();         // [TAG] this is for debug to find out tensors unreleased
@@ -169,6 +192,23 @@ int CheckpointTensorCell::precheck(){
 
   return dependency;
   // pool->set_dependency(dependency);
+}
+
+/**
+ * Remat output of cptc'remater
+ */
+void CheckpointTensorCell::remat_neghibors(int remat_depth) {
+  if(remat && pool->external_count>0)
+    get();  // remat self
+  if(remat_depth > 0) {
+    for(auto &wcptc: pool->neighbors) {
+      if(auto scptc = wcptc.lock()) {
+          // if(remat && pool->external_count>0)
+          //   scptc->get();
+          scptc->remat_neghibors(remat_depth-1);
+      }
+    }
+  }
 }
 
 }

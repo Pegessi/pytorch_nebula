@@ -237,12 +237,6 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
 #endif
   auto device_id = static_cast<int>(raw_inputs[0].device().index());  /// do not influence device
 
-#ifdef DEPTH_ENABLE
-  if(cumulative_num>0){
-    DTRLogCalculativeRematsRecords(0, name, cumulative_num);
-  }
-#endif
-
   time_t pre = std::chrono::system_clock::now();
   auto raw_outputs = remat_f(raw_inputs);
   time_t post = std::chrono::system_clock::now();
