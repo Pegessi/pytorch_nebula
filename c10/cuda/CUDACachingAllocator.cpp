@@ -39,7 +39,7 @@
 TORCH_SDT_DEFINE_SEMAPHORE(malloc)
 TORCH_SDT_DEFINE_SEMAPHORE(free)
 
-// #define MEM_TWIN_REC
+#define MEM_TWIN_REC
 // #define MEM_TWIN_DEBUG
 
 // #define GMLAKE_ENABLE // GMLAKE history trace is unavailable(wrong history)
@@ -2955,11 +2955,9 @@ class DeviceCachingAllocator {
     if (block->size >= CachingAllocatorConfig::max_split_size())
       update_stat(stats.oversize_allocations, 1);
 
-  #ifdef DTE_EVICT
     if(c10::dtb::USE_DTR){
       auto if_evict = segManager.auto_dte_evict(device, stream);
     }
-  #endif
 
 
 
