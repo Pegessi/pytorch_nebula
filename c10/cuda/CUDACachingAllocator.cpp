@@ -177,12 +177,13 @@ void DTRLogSegmentsStats(const size_t& size, const size_t& blocks_num, const siz
   DTRLogger::logger().log(log_msg);
 }
 
-void DTRLogSingleSegmentStats(const std::vector<double>& metrics, const std::string& status) {
+void DTRLogSingleSegmentStats(const std::vector<double>& metrics, const std::string& status, uintptr_t addr) {
   std::string log_msg = "{";
   log_msg += "\"STATUS\":\"" + status + "\", ";
   log_msg += "\"FREE_BLOCK_RATIO\":" + std::to_string(metrics[0]) + ", ";
   log_msg += "\"FREE_SPACE_RATIO\":" + std::to_string(metrics[1]) + ", ";
   log_msg += "\"TOTAL_SPACE\":" + std::to_string(metrics[2]) + ", ";
+  log_msg += "\"ADDR\":" + std::to_string(addr);
   log_msg += "}";
   DTRLogger::logger().log(log_msg);
 }
@@ -1045,14 +1046,16 @@ inline Block* SegmentTwin::flush_cost(time_t cur, size_t need_size, cudaStream_t
       }
     }
 #ifdef DEBUG_MODE
-    if(record_fragment) {
+    if(c10::dtb::record_fragment) {
       auto calculateFreeBlockRatio = [&]() {
         int freeBlockCount = 0;
         int totalBlockCount = blocks.size();
         double totalFreeSpace = 0.0;
         double totalSpace = 0.0;
         std::string status = "";
+        uintptr_t begin_addr = 0;
         for(const auto& bit: blocks) {
+            if(begin_addr==0) begin_addr = reinterpret_cast<uintptr_t>(bit->ptr);
             if (!bit->allocated) {
                 freeBlockCount++;
                 totalFreeSpace += bit->size;
@@ -1065,14 +1068,15 @@ inline Block* SegmentTwin::flush_cost(time_t cur, size_t need_size, cudaStream_t
         metrics.emplace_back((double)freeBlockCount / totalBlockCount);
         metrics.emplace_back(totalFreeSpace / totalSpace);
         metrics.emplace_back(totalSpace);
-        std::tuple<std::vector<double>, std::string> res = {metrics, status};
+        std::tuple<std::vector<double>, std::string, uintptr_t> res = {metrics, status, begin_addr};
         return res;
     };
 
       auto res = calculateFreeBlockRatio();
       auto metrics = std::get<0>(res);
       auto status = std::get<1>(res);
-
+      auto begin_addr = std::get<2>(res);
+      DTRLogSingleSegmentStats(metrics, status, begin_addr);
     }
 
 
