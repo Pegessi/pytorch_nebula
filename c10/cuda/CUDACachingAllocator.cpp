@@ -177,6 +177,16 @@ void DTRLogSegmentsStats(const size_t& size, const size_t& blocks_num, const siz
   DTRLogger::logger().log(log_msg);
 }
 
+void DTRLogSingleSegmentStats(const std::vector<double>& metrics, const std::string& status) {
+  std::string log_msg = "{";
+  log_msg += "\"STATUS\":\"" + status + "\", ";
+  log_msg += "\"FREE_BLOCK_RATIO\":" + std::to_string(metrics[0]) + ", ";
+  log_msg += "\"FREE_SPACE_RATIO\":" + std::to_string(metrics[1]) + ", ";
+  log_msg += "\"TOTAL_SPACE\":" + std::to_string(metrics[2]) + ", ";
+  log_msg += "}";
+  DTRLogger::logger().log(log_msg);
+}
+
 #endif
 
 namespace cuda {
@@ -1034,6 +1044,39 @@ inline Block* SegmentTwin::flush_cost(time_t cur, size_t need_size, cudaStream_t
         }
       }
     }
+#ifdef DEBUG_MODE
+    if(record_fragment) {
+      auto calculateFreeBlockRatio = [&]() {
+        int freeBlockCount = 0;
+        int totalBlockCount = blocks.size();
+        double totalFreeSpace = 0.0;
+        double totalSpace = 0.0;
+        std::string status = "";
+        for(const auto& bit: blocks) {
+            if (!bit->allocated) {
+                freeBlockCount++;
+                totalFreeSpace += bit->size;
+                status += "0";
+            }else
+                status += "1";
+            totalSpace += bit->size;
+        }
+        std::vector<double> metrics;
+        metrics.emplace_back((double)freeBlockCount / totalBlockCount);
+        metrics.emplace_back(totalFreeSpace / totalSpace);
+        metrics.emplace_back(totalSpace);
+        std::tuple<std::vector<double>, std::string> res = {metrics, status};
+        return res;
+    };
+
+      auto res = calculateFreeBlockRatio();
+      auto metrics = std::get<0>(res);
+      auto status = std::get<1>(res);
+
+    }
+
+
+#endif
     if(can_free_size < need_size) can_evict = false;
     evictable = can_evict;
     return evict_start;
@@ -1200,12 +1243,13 @@ public:
 
   bool auto_evict(size_t need_size, int device, cudaStream_t stream) {
     if((c10::dtb::current_memory(device)+need_size) < c10::dtb::memory_budget) return false;
-    if(need_size > size_map.rbegin()->first) return false;
+    if(need_size > size_map.rbegin()->first) return false; /// TODO: find a better way 
+    if(need_size < 1048576) return false;   // [TEST] avoid from small tensor eviction
 
     long search_time_ = 0, search_size = 0;
     size_t before_allocated = c10::dtb::current_memory(device);
     time_t pre = std::chrono::system_clock::now();
-    size_t gap_size = c10::dtb::memory_budget - before_allocated; // 30G 35G 1MB   5G
+    size_t gap_size = (c10::dtb::memory_budget > before_allocated) ? c10::dtb::memory_budget - before_allocated : before_allocated - c10::dtb::memory_budget;
     size_t low_cost_size = 0;
     bool gap_flag = false;
     Block* evict_strat = nullptr;
@@ -1220,10 +1264,11 @@ public:
     constexpr const double stop_threshold = 1e-10;
 
     // a new huge need_size, regard it as gap_size
-    if(need_size > size_map.rbegin()->first){
-      need_size = 1;
-      gap_size = need_size;
-    }
+    // if(need_size > size_map.rbegin()->first){ // will not be triggered
+    //   need_size = 1;
+    //   gap_size = need_size;
+    // }
+
     /**
      * Traverse each segment to find the lowest cost is unnecessay and heavy overhead.
      * In fact, a suitable threshold of cost for early stop is beneficial to recude searching time
@@ -1246,7 +1291,7 @@ public:
           seg->flush_cost(pre, 0, stream);    // reverse order, so need size is zero 
           if(seg->evictable) {
             to_evict_segments.emplace_back(seg);
-            cur_min_cost = std::min(cur_min_cost, seg->max_evict_cost);
+            // cur_min_cost = std::min(cur_min_cost, seg->max_evict_cost);
             if(seg->max_evict_cost < stop_threshold) low_cost_size += seg->can_free_size;
           }
           // if(cur_min_cost < stop_threshold && low_cost_size > gap_size) 

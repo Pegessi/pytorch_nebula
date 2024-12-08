@@ -46,6 +46,7 @@ bool record_op_recs = false;          // 是否记录op历史
 bool record_fragmentation = false;    // 记录碎片化和内存占用数据
 bool record_lifecycle = false;        // 记录ap生命周期计数分布
 bool record_ap_cost = false;          // 记录ap的cost分布
+bool record_fragment = true;         // 记录内存池的segments情况
 bool record_dependcy = false;
 bool record_key_chain = false;
 bool current_if_any_evicted = false;
@@ -203,10 +204,6 @@ Tensors uncheckpoint_with_depth(const strongs& inputs, int& cumulative_num) {
   ret.reserve(inputs.size());
   for (const strong& input : inputs) {
     // TAG: Remat entry
-    /// TODO: 延长机制
-    // if(cumulative_num%42==0){
-    //   input->pool->lock_retain();
-    // }
     ret.push_back(input->get(cumulative_num));
   }
   return ret;
@@ -227,8 +224,10 @@ Tensors try_checkpoint(Tensors& inputs) {
       pm->lock_temp_ext(device_id, weak(cpti->unsafeGetTensorCell()));
 #ifdef DEBUG_MODE
       if(record_op_recs) {
-        DTRLogAddress("inner checkpoint "+cpti->unsafeGetTensorCell()->counter_name()+ " " + std::string(cpti->unsafeGetTensorCell()->dtype().name()) + " device:" + std::to_string(device_id), 
-          cpti->unsafeGetTensorCell()->pool->addr, cpti->unsafeGetTensorCell()->pool->lock_count);
+        DTRLogAddress("inner checkpoint "+cpti->unsafeGetTensorCell()->counter_name()+ " " + std::string(cpti->unsafeGetTensorCell()->dtype().name()) + 
+                      " device:" + std::to_string(device_id) + " lifecycle:" + std::to_string(cpti->unsafeGetTensorCell()->pool->lock_count) +
+                      "-" + std::to_string(cpti->unsafeGetTensorCell()->pool->external_count) + "-" + std::to_string(cpti->unsafeGetTensorCell()->pool->remat_count), 
+          cpti->unsafeGetTensorCell()->pool->addr, cpti->unsafeGetTensorCell()->pool->memory);
       }
 #endif
       ret.push_back(cpt);

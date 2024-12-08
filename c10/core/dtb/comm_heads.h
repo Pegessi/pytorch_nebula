@@ -76,7 +76,7 @@ constexpr const int max_dep_threshold = 500;
 #define MULTI_MODE                      /// 是否启用多卡管理模式
 
 // #define TIMER_ENABLE                 /// 是否启用计时(debug)
-#define DEPTH_ENABLE                 /// 记录每次重物化所累计恢复的张量个数
+// #define DEPTH_ENABLE                 /// 记录每次重物化所累计恢复的张量个数
 
 #ifdef TIME_REC
 auto start_time = std::chrono::high_resolution_clock::now();
@@ -219,6 +219,7 @@ extern bool record_op_recs;          // 是否记录op历史
 extern bool record_fragmentation;    // 记录碎片化和内存占用数据
 extern bool record_lifecycle;        // 记录ap生命周期计数分布
 extern bool record_ap_cost;          // 记录ap的cost分布
+extern bool record_fragment;         // 记录内存池的segments情况
 extern bool record_dependcy;
 extern bool record_key_chain;
 extern bool current_if_any_evicted;

@@ -490,6 +490,9 @@ void CheckpointPool::mem_first_evict(bool &if_cleared) {
 
 void CheckpointPool::clear_exts(bool last_iter){
   candidates.clear();
+#ifdef DEBUG_MODE
+  // show_exts();
+#endif
   // DTRLogAlias("[clear exts and if last iter]", last_iter?1:0);
   if(last_iter){
     for(auto &chain: chains){
@@ -525,9 +528,6 @@ void CheckpointPool::clear_exts(bool last_iter){
 /**
  * TODO: 下面即使什么不做只是清空exts，仍然会清除掉pp时要留存的张量？
 */
-#ifdef DEBUG_MODE
-  // show_exts();
-#endif
 
 }
 
@@ -535,11 +535,8 @@ static int count = 0, pool_count = 0;
 static std::map<uintptr_t, int> pool_rec;
 void CheckpointPool::show_exts() {
   printf("[CHECK CURRENT EXTS BEGIN]\n");
-  // while (!exts.empty()) {
-    // if (auto e = exts.back().lock()) {
   for(auto& ele: exts) {
     if (auto e = ele.lock()) {
-      // e->value->pin();  /// why pin and remat?
       count++;
       // TORCH_INTERNAL_ASSERT(e->value->defined);    // Triggered, means that exist some strong without tensor stayed in memory
       if(e->value->defined){
@@ -556,22 +553,13 @@ void CheckpointPool::show_exts() {
             pool_id = pool_rec[pool_ptr];
           }
           // if(e->value->pool->memory==268435456){  // external_count并不能区分native_dropout的张量
-          printf("exts size: %ld, size:%ld, external_count:%ld, is_weight:%d, pool_count:%d device_id:%d, have_remat:%d input_sizes:%ld output_sizes:%ld counts:%d addr:%ld\n", 
-            exts.size(), e->value->pool->memory, e->value->pool->external_count, e->value->pool->if_weight ? 1 : 0, pool_id,
+          printf("exts id:x%ld size: %ld, size:%ld, external_count:%ld, is_weight:%d, pool_count:%d device_id:%d, have_remat:%d input_sizes:%ld output_sizes:%ld counts:%d addr:%ld\n", 
+            e->value->id, exts.size(), e->value->pool->memory, e->value->pool->external_count, e->value->pool->if_weight ? 1 : 0, pool_id,
             e->value->pool->device_id, e->value->pool->head_remat ? 1 : 0, 
             e->value->pool->head_remat ? e->value->pool->head_remat->inputs.size() : 0,
             e->value->pool->head_remat ? e->value->pool->head_remat->outputs.size(): 0,
             count, reinterpret_cast<uintptr_t>(e->value->t->data_ptr()));
             
-            // while(e->value->pool->external_count>0)
-            //   e->value->pool->release_external();
-            // if(!e->value->pool->is_evicted)
-            //   e->value->pool->evict(1);
-            // printf("[CHECK EVICT 268435456] before, evicted:%d\n", e->value->pool->is_evicted ? 1 : 0);
-            // e->value->pool->evict(0);
-            // printf("[CHECK EVICT 268435456] after, evicted:%d\n", e->value->pool->is_evicted ? 1 : 0);
-            // e->value->pin();
-          // }
         }
 
       }
@@ -599,6 +587,33 @@ void CheckpointPool::show_exts() {
     // exts.pop_back();
   }
   printf("[CHECK CURRENT EXTS END]\n");
+
+  printf("[CHECK TEMP EXTS BEGIN]\n");
+  for(auto& ele: temp_cptc) {
+    if (auto e = ele.lock()) {
+      count++;
+      // TORCH_INTERNAL_ASSERT(e->value->defined);    // Triggered, means that exist some strong without tensor stayed in memory
+        // auto pool_ptr = reinterpret_cast<uintptr_t>((e->value->pool.get()));
+        auto pool_ptr = e->pool->addr;
+        auto it = pool_rec.find(pool_ptr);
+        int pool_id = 0;
+        if(it==pool_rec.end()){
+          pool_rec[pool_ptr] = ++pool_count;
+          pool_id = pool_count;
+        }else{
+          pool_id = pool_rec[pool_ptr];
+        }
+        // if(e->value->pool->memory==268435456){  // external_count并不能区分native_dropout的张量
+        printf("exts id:x%ld size: %ld, size:%ld, external_count:%ld, is_weight:%d, pool_count:%d device_id:%d, have_remat:%d input_sizes:%ld output_sizes:%ld counts:%d addr:%ld\n", 
+          e->id, exts.size(), e->pool->memory, e->pool->external_count, e->pool->if_weight ? 1 : 0, pool_id,
+          e->pool->device_id, e->pool->head_remat ? 1 : 0, 
+          e->pool->head_remat ? e->pool->head_remat->inputs.size() : 0,
+          e->pool->head_remat ? e->pool->head_remat->outputs.size(): 0,
+          count, reinterpret_cast<uintptr_t>(e->t->data_ptr()));
+          
+    }
+  }
+  printf("[CHECK TEMP EXTS END]\n");
 }
 
 

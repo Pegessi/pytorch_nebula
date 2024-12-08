@@ -168,6 +168,15 @@ bool is_checkpoint(const Tensor& t) {
   return cpti != nullptr;
 }
 
+void display_dtb_data(const Tensor& t) {
+  if(is_checkpoint(t)) {
+    auto* cpti = dynamic_cast<CheckpointTensorImpl*>(t.unsafeGetTensorImpl());
+    auto cptc = cpti->ref->value->value;
+  }else{
+    printf("This is not a checkpoint tensor.\n");
+  }
+}
+
 Tensor try_checkpoint(Tensor& t) {
   // STATS.track("try_checkpiont");
   return is_checkpoint(t) ? t : checkpoint(t);

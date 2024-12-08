@@ -75,9 +75,6 @@ void AliasPool::evict(int mode) { // 0 - evict | 1 - deconstruct | 2 - Irreversi
   is_evicted = true;
 #ifdef DEBUG_MODE
   int valid_w = 0;
-  if(trace_register_and_release){
-  // auto before_evict_mem = current_memory();
-  }
 #endif
   for (const weak& w : tensors) {
     if (auto cell = w.lock()) {
@@ -118,6 +115,28 @@ void AliasPool::evict(int mode) { // 0 - evict | 1 - deconstruct | 2 - Irreversi
 
 void AliasPool::unlock() {
   --lock_count;   // external == 0 , lock_count > 0 == 0
+  // ===== debug begin ====
+  // if(external_count==0 && lock_count == 0 && !if_temp) {  // TEST 3rd op
+  //   if (memory > 0 && (!ecn) && head_remat) {
+  //     evict(1);
+  //   } 
+  //   else if(head_remat==nullptr) {
+  //     #ifdef DEBUG_MODE
+  //     if(record_op_recs) {
+  //       std::string ids = "";
+  //       for(auto &t: tensors) {
+  //         if(auto st = t.lock()) {
+  //           ids += "x" + std::to_string(st->counter) + ",";
+  //         }
+  //       }
+  //       DTRLogAddress("forward with all zero tensor but head_remat==null, id:" + ids + " device:" + std::to_string(device_id) + " lifecycle:" + std::to_string(lock_count) +
+  //                     "-" + std::to_string(external_count) + "-" + std::to_string(remat_count), 
+  //         addr, memory);
+  //     }
+  // #endif
+  //   }
+  // }
+  // ===== debug end ====
   /// improvement for life cycle
   /// because that staleness is harmful to eviction of remated tensor during backward progress, which should be released immediately
 #ifndef ORIGINAL_DTR
@@ -143,6 +162,7 @@ void AliasPool::unlock() {
       //   evict(2);
     }
   }
+  
   /**
    * 上面的重物化检查相当于提供了一个释放重物化张量的timing
    * 但实际上由于动态执行中会出现remat_count==0但lock_count>0导致无法回收的情况（错过了这个回收窗口）
@@ -166,7 +186,20 @@ void AliasPool::unlock() {
       }
     }
     // else{
-    //   printf("[CHECK REMATED] remat:%ld ext:%ld lock:%ld size:%ld\n", remat_count, external_count, lock_count, memory);
+    //   #ifdef DEBUG_MODE
+    //     if(record_op_recs) {
+    //       std::string ids = "";
+    //       for(auto &t: tensors) {
+    //         if(auto st = t.lock()) {
+    //           ids += std::to_string(st->counter) + ",";
+    //         }
+    //       }
+    //       DTRLogAddress("unknown release aliaspool, xid:" + ids + " device:" + std::to_string(device_id) + " lifecycle:" + std::to_string(lock_count) +
+    //                     "-" + std::to_string(external_count) + "-" + std::to_string(remat_count), 
+    //         addr, memory);
+    //     }
+    //   #endif
+    //   // printf("[CHECK REMATED] remat:%ld ext:%ld lock:%ld size:%ld\n", remat_count, external_count, lock_count, memory);
     // }
   }
 #endif
@@ -177,6 +210,19 @@ void AliasPool::release_external() {
   if (external_count == 0) {          /// TODO: 潜在bug，如果lock_count>0，此后这个aps会成为僵尸内存; 反向内存堆积的原因是否是因为这个？ 还是其他的引用计数
     if(if_weight) return;
     if (lock_count > 0) {
+  #ifdef DEBUG_MODE
+      if(record_op_recs) {
+        std::string ids = "";
+        for(auto &t: tensors) {
+          if(auto st = t.lock()) {
+            ids += "x" + std::to_string(st->counter) + ",";
+          }
+        }
+        DTRLogAddress("release_external but lock>0, id:" + ids + " device:" + std::to_string(device_id) + " lifecycle:" + std::to_string(lock_count) +
+                      "-" + std::to_string(external_count) + "-" + std::to_string(remat_count), 
+          addr, memory);
+      }
+  #endif
       return;
     }
 #ifdef DEBUG_MODE
