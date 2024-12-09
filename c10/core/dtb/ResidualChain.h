@@ -2,7 +2,6 @@
 
 #include <c10/core/dtb/comm_heads.h>
 #include <c10/core/dtb/CheckpointTensorCell.h>
-#include <mutex>
 
 namespace c10{
 namespace dtb{
@@ -18,11 +17,6 @@ using StrongChainNode = intrusive_ptr<ChainNode>;
 using WeakChainNode = weak_intrusive_ptr<ChainNode>;
 
 struct ChainNode : intrusive_ptr_target {
-private:
-  // lock around all operations
-  mutable std::recursive_mutex mutex;
-
-public:
   weak value;
   bool is_lock = false;
   mutable intrusive_ptr<ChainNode> parent;

@@ -37,21 +37,26 @@ bool use_profile_ = false;
 std::unordered_map<int64_t, duration_t> compute_cost_records;
 std::unordered_map<int64_t, size_t> memory_cost_records;
 size_t memory_budget = 85899345920;  
+std::unordered_map<cudaStream_t, int>* stream_to_label = new std::unordered_map<cudaStream_t, int>();
 bool store_in_special_pool[8] = {false};
 
 #ifdef DEBUG_MODE
-bool record_er_counts = false;        // 驱逐&重物化次数
+constexpr const bool record_er_counts = false;        // 驱逐&重物化次数
+constexpr const bool record_op_recs = false;          // 是否记录op历史
+constexpr const bool record_cpevict_recs = false;
+constexpr const bool record_fragmentation = false;    // 记录碎片化和内存占用数据
+constexpr const bool record_lifecycle = false;        // 记录ap生命周期计数分布
+constexpr const bool record_ap_cost = false;          // 记录ap的cost分布
+constexpr const bool record_dependcy = false;
+constexpr const bool record_key_chain = false;
+constexpr const bool trace_register_and_release = false;
+constexpr const bool trace_evicted_tensor = false;
+constexpr const bool record_dcr_process = false;       // 记录dcr的聚类过程
+
+size_t dcr_lock_counts = 0;
+
 bool record_mem_addr = false;         // 是否记录内存地址
-bool record_op_recs = false;          // 是否记录op历史
-bool record_fragmentation = false;    // 记录碎片化和内存占用数据
-bool record_lifecycle = false;        // 记录ap生命周期计数分布
-bool record_ap_cost = false;          // 记录ap的cost分布
-bool record_fragment = false;          // 记录内存池的segments情况
-bool record_dependcy = false;
-bool record_key_chain = false;
 bool current_if_any_evicted = false;
-bool trace_register_and_release = false;
-bool trace_evicted_tensor = false;
 
 std::atomic<size_t> evict_counts = 0;
 std::atomic<size_t> tensor_evict_counts = 0;
@@ -183,6 +188,23 @@ void set_global_memory_budget(size_t budget){
   memory_budget = budget;
 }
 
+void registerStreamLabel(c10::Stream stream, int label) {
+  auto s = c10::cuda::getCurrentCUDAStream(c10::cuda::current_device());
+  auto it = stream_to_label->find(s);
+  if (it != stream_to_label->end()) return;
+  stream_to_label->insert({s, label});
+  printf("register stream:%d is_default:%d\n", label, s==cudaStreamDefault ? 1 : 0);
+}
+
+int getStreamLabel(cudaStream_t stream) {
+    auto it = stream_to_label->find(stream);
+    if (it != stream_to_label->end()) {
+        return it->second;
+    } else {
+        return -1; // 未找到标记
+    }
+}
+
 Tensor uncheckpoint(const strong& input) {
   return input->get();
 }
@@ -204,6 +226,10 @@ Tensors uncheckpoint_with_depth(const strongs& inputs, int& cumulative_num) {
   ret.reserve(inputs.size());
   for (const strong& input : inputs) {
     // TAG: Remat entry
+    /// TODO: 延长机制
+    if(cumulative_num%42==0){
+      input->pool->lock_retain();
+    }
     ret.push_back(input->get(cumulative_num));
   }
   return ret;
@@ -223,11 +249,9 @@ Tensors try_checkpoint(Tensors& inputs) {
       auto *pm = getDTBPoolManager();
       pm->lock_temp_ext(device_id, weak(cpti->unsafeGetTensorCell()));
 #ifdef DEBUG_MODE
-      if(record_op_recs) {
-        DTRLogAddress("inner checkpoint "+cpti->unsafeGetTensorCell()->counter_name()+ " " + std::string(cpti->unsafeGetTensorCell()->dtype().name()) + 
-                      " device:" + std::to_string(device_id) + " lifecycle:" + std::to_string(cpti->unsafeGetTensorCell()->pool->lock_count) +
-                      "-" + std::to_string(cpti->unsafeGetTensorCell()->pool->external_count) + "-" + std::to_string(cpti->unsafeGetTensorCell()->pool->remat_count), 
-          cpti->unsafeGetTensorCell()->pool->addr, cpti->unsafeGetTensorCell()->pool->memory);
+      if(record_cpevict_recs) {
+        DTRLogAddress("inner checkpoint "+cpti->unsafeGetTensorCell()->counter_name()+ " " + std::string(cpti->unsafeGetTensorCell()->dtype().name()) + " device:" + std::to_string(device_id), 
+          cpti->unsafeGetTensorCell()->pool->addr, cpti->unsafeGetTensorCell()->pool->lock_count);
       }
 #endif
       ret.push_back(cpt);

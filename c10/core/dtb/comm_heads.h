@@ -31,6 +31,7 @@
 #include <ATen/Tensor.h>
 #include <ATen/ATen.h>
 #include <c10/core/dtb/Logger.h>
+#include <cuda_runtime.h>
 
 #define likely(x)      __builtin_expect(!!(x), 1)
 #define unlikely(x)    __builtin_expect(!!(x), 0)
@@ -42,9 +43,14 @@
 // #define MINIMAL_EVICT_COST            /// 最小驱逐策略+cost cache（贪心+随机 DTR） op记录
 #define DEGREE_CHAIN                     /// 残差链发现策略
 #define MEM_FIRST_EVICT                  /// 以内存为中心的驱逐策略(unified_evict)
+#define DCR_MANAGE                      /// 动态社区算法
 // #define ORIG_EVICT                       /// DTR original Evction
 // 集群上的cost_evict也使用了single_pool + pre_eviction的优化
+#define PROACTIVE_REMAT                 /// 主动恢复相关接口
 
+// #define ARITHMETIC_TEST                 /// 等差释放测试
+
+#define MULTI_MODE                      /// 是否启用多卡管理模式，默认开启，不开启应该目前跑不了
 /**
  * 为测试方便，不用重新编译，都采用环境变量来控制不同优化是否启用
  * 尽管上述开关均打开，会带来额外的指令开销
@@ -53,6 +59,11 @@
 // #define TIME_REC                      /// [deprecated]方便debug的宏定义
 // #define MEM_ORDER_ENABLE              /// [deprecated]是否启用mem order策略
 // #define DEPENDENCY_CHECK              /// [deprecated]依赖检查策略
+
+// #define TIMER_ENABLE                 /// [deprecated] 是否启用计时(debug)
+// #define DEPTH_ENABLE                 /// [deprecated] 记录每次重物化所累计恢复的张量个数
+
+/* 控制变量区 */
 
 static const int RESIDUAL_DEGREE = ([]() -> int {    /// 残差链度设置  4-Llama2-7b-hf 6-GPT_simp
     const char* env = getenv("RESIDUAL_DEGREE");
@@ -70,13 +81,37 @@ static const bool COST_FIRST_EVICT = ([]() -> bool {
 static const bool UNIFIED_EVICT = !COST_FIRST_EVICT;
 
 constexpr const int dep_threshold = 50;             /// 重物化链深度阈值
-constexpr const int threshold_touch_counts = 0;     /// 累积触发次数
+static int threshold_touch_counts = 0;     /// 累积触发次数
 constexpr const int max_dep_threshold = 500;
 
-#define MULTI_MODE                      /// 是否启用多卡管理模式
+#define WEIGHTED   1
+#define UNWEIGHTED 0
 
-// #define TIMER_ENABLE                 /// 是否启用计时(debug)
-// #define DEPTH_ENABLE                 /// 记录每次重物化所累计恢复的张量个数
+static const bool DCR_LOCK_ENABLE = ([]() -> bool {
+    const char* env = getenv("DCR_LOCK_ENABLE");
+    if(env) return (atoi(env))==1;
+    else    return false;
+})();
+
+static const int DCR_INIT_SIZE = ([]() -> int {  // nb_nodes > cluster_init_size, then initial com
+    const char* env = getenv("DCR_INIT_SIZE");
+    if(env) return atoi(env);
+    else return 1000;
+})();      
+static const int DCR_INTERVAL  = ([]() -> int { // △nb_nodes > cluster_interval, then dynamic change com
+    const char* env = getenv("DCR_INTERVAL_SIZE");
+    if(env) return atoi(env);
+    else return 200;
+})();      
+static const int DCR_LOCK_TOPS  = ([]() -> int { // △nb_nodes > cluster_interval, then dynamic change com
+    const char* env = getenv("DCR_LOCK_TOPS");
+    if(env) return atoi(env);
+    else return 4;
+})();
+constexpr const int DCR_NB_PASS = -1;                  // for com
+constexpr const double MIN_MODULARITY = 0.000001;      // for com
+constexpr const int DCR_TYPE = UNWEIGHTED;
+
 
 #ifdef TIME_REC
 auto start_time = std::chrono::high_resolution_clock::now();
@@ -212,20 +247,24 @@ extern std::unordered_map<int64_t, duration_t> compute_cost_records;
 extern std::unordered_map<int64_t, size_t> memory_cost_records;
 extern COMMON_API size_t memory_budget;
 extern COMMON_API bool store_in_special_pool[8];
+extern COMMON_API std::unordered_map<cudaStream_t, int>* stream_to_label;
 #ifdef DEBUG_MODE
-extern bool record_er_counts;        // 驱逐&重物化次数
-extern bool record_mem_addr;         // 是否记录内存地址
-extern bool record_op_recs;          // 是否记录op历史
-extern bool record_fragmentation;    // 记录碎片化和内存占用数据
-extern bool record_lifecycle;        // 记录ap生命周期计数分布
-extern bool record_ap_cost;          // 记录ap的cost分布
-extern bool record_fragment;         // 记录内存池的segments情况
-extern bool record_dependcy;
-extern bool record_key_chain;
-extern bool current_if_any_evicted;
-extern bool trace_register_and_release;   // 追踪所有ext和ap的生命周期(适合demo debug)
-extern COMMON_API bool trace_evicted_tensor;  // 追踪驱逐算法选择的张量
+extern const bool record_er_counts;        // 驱逐&重物化次数
+extern const bool record_op_recs;          // 是否记录op历史
+extern const bool record_cpevict_recs;
+extern const bool record_fragmentation;    // 记录碎片化和内存占用数据
+extern const bool record_lifecycle;        // 记录ap生命周期计数分布
+extern const bool record_ap_cost;          // 记录ap的cost分布
+extern const bool record_dependcy;
+extern const bool record_key_chain;
+extern const bool trace_register_and_release;   // 追踪所有ext和ap的生命周期(适合demo debug)
+extern COMMON_API const bool trace_evicted_tensor;  // 追踪驱逐算法选择的张量
+extern const bool record_dcr_process;
 
+extern size_t dcr_lock_counts;
+
+extern bool record_mem_addr;         // 是否记录内存地址
+extern bool current_if_any_evicted;
 
 extern std::atomic<size_t> evict_counts;
 extern std::atomic<size_t> tensor_evict_counts;

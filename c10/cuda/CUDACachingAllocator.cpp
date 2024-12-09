@@ -5,6 +5,7 @@
 #include <c10/cuda/CUDAFunctions.h>
 #include <c10/cuda/CUDAGuard.h>
 #include <c10/cuda/dtb/DTBManager.h>
+#include <c10/core/dtb/utils.h>
 #include <c10/util/CallOnce.h>
 #include <c10/util/UniqueVoidPtr.h>
 #include <c10/util/flat_hash_map.h>
@@ -173,17 +174,6 @@ void DTRLogSegmentsStats(const size_t& size, const size_t& blocks_num, const siz
   }
   log_msg += "], ";
   log_msg += "\"TIMESTAMP\":" + std::to_string(timstamp);
-  log_msg += "}";
-  DTRLogger::logger().log(log_msg);
-}
-
-void DTRLogSingleSegmentStats(const std::vector<double>& metrics, const std::string& status, uintptr_t addr) {
-  std::string log_msg = "{";
-  log_msg += "\"STATUS\":\"" + status + "\", ";
-  log_msg += "\"FREE_BLOCK_RATIO\":" + std::to_string(metrics[0]) + ", ";
-  log_msg += "\"FREE_SPACE_RATIO\":" + std::to_string(metrics[1]) + ", ";
-  log_msg += "\"TOTAL_SPACE\":" + std::to_string(metrics[2]) + ", ";
-  log_msg += "\"ADDR\":" + std::to_string(addr);
   log_msg += "}";
   DTRLogger::logger().log(log_msg);
 }
@@ -1039,48 +1029,18 @@ inline Block* SegmentTwin::flush_cost(time_t cur, size_t need_size, cudaStream_t
         }
       } else {
         if(need_size != 0) {
-          evict_start = nullptr;
-          max_evict_cost = 0;
-          can_free_size = 0;
+          if(bit->allocated) {
+            evict_start = nullptr;
+            max_evict_cost = 0;
+            can_free_size = 0;
+          } else {
+            evict_start = nullptr;
+            max_evict_cost = 0;
+            can_free_size = bit->size;
+          }
         }
       }
     }
-#ifdef DEBUG_MODE
-    if(c10::dtb::record_fragment) {
-      auto calculateFreeBlockRatio = [&]() {
-        int freeBlockCount = 0;
-        int totalBlockCount = blocks.size();
-        double totalFreeSpace = 0.0;
-        double totalSpace = 0.0;
-        std::string status = "";
-        uintptr_t begin_addr = 0;
-        for(const auto& bit: blocks) {
-            if(begin_addr==0) begin_addr = reinterpret_cast<uintptr_t>(bit->ptr);
-            if (!bit->allocated) {
-                freeBlockCount++;
-                totalFreeSpace += bit->size;
-                status += "0";
-            }else
-                status += "1";
-            totalSpace += bit->size;
-        }
-        std::vector<double> metrics;
-        metrics.emplace_back((double)freeBlockCount / totalBlockCount);
-        metrics.emplace_back(totalFreeSpace / totalSpace);
-        metrics.emplace_back(totalSpace);
-        std::tuple<std::vector<double>, std::string, uintptr_t> res = {metrics, status, begin_addr};
-        return res;
-    };
-
-      auto res = calculateFreeBlockRatio();
-      auto metrics = std::get<0>(res);
-      auto status = std::get<1>(res);
-      auto begin_addr = std::get<2>(res);
-      DTRLogSingleSegmentStats(metrics, status, begin_addr);
-    }
-
-
-#endif
     if(can_free_size < need_size) can_evict = false;
     evictable = can_evict;
     return evict_start;
@@ -1247,13 +1207,12 @@ public:
 
   bool auto_evict(size_t need_size, int device, cudaStream_t stream) {
     if((c10::dtb::current_memory(device)+need_size) < c10::dtb::memory_budget) return false;
-    if(need_size > size_map.rbegin()->first) return false; /// TODO: find a better way 
-    if(need_size < 1048576) return false;   // [TEST] avoid from small tensor eviction
+    // if(need_size > size_map.rbegin()->first) return false;
 
     long search_time_ = 0, search_size = 0;
     size_t before_allocated = c10::dtb::current_memory(device);
     time_t pre = std::chrono::system_clock::now();
-    size_t gap_size = (c10::dtb::memory_budget > before_allocated) ? c10::dtb::memory_budget - before_allocated : before_allocated - c10::dtb::memory_budget;
+    size_t gap_size = c10::dtb::memory_budget > before_allocated ? (c10::dtb::memory_budget - before_allocated) : (before_allocated - c10::dtb::memory_budget);
     size_t low_cost_size = 0;
     bool gap_flag = false;
     Block* evict_strat = nullptr;
@@ -1263,50 +1222,43 @@ public:
 
     std::vector<SegmentTwin*> to_evict_segments;
     
-    constexpr const size_t topk = 6;
-    constexpr const size_t check_scale = 8;
+    constexpr const size_t check_scale = 5;
     constexpr const double stop_threshold = 1e-10;
 
     // a new huge need_size, regard it as gap_size
-    // if(need_size > size_map.rbegin()->first){ // will not be triggered
-    //   need_size = 1;
-    //   gap_size = need_size;
-    // }
-
+    if(need_size > size_map.rbegin()->first){
+      need_size = 1;
+      gap_size = need_size;
+    }
     /**
      * Traverse each segment to find the lowest cost is unnecessay and heavy overhead.
      * In fact, a suitable threshold of cost for early stop is beneficial to recude searching time
      * and it's enough for efficient eviction.
      * However, need_size bigger than the biggest size cannot be satisfied by evicting smaller segments.
-     * Then a bigger segment will cause the over budget so in the next eviction, gap_size is much larger than need_size.
+     * Then a bigger segment will cause the over budget(gap lag, gap_size is much larger than need_size)
      * In this case, reverse traversal is used to find some big and cheap tensor to evict and avoid from small but expensive tensor.
      * 
     */
     double cur_min_cost = 1e5;
-    // ① gap_size，超出的很大  ②没超need_size，gap_size  ③gap_size和need_size都很大
-    if(gap_size > need_size*100) {  // 存在隐患，need_size塞到大的segment里面去了
+    if(gap_size > need_size*check_scale || need_size < 10485760) {
       gap_flag = true;
       for(auto size_it=size_map.rbegin(); size_it!=size_map.rend(); ++size_it){
-        // if(size_it->first>check_scale*need_size) break;   // early stop
-        // if(cur_min_cost < stop_threshold) break;
         bool all_cannot_evict = true;
         for(auto &seg: size_it->second){
           search_size++;
           seg->flush_cost(pre, 0, stream);    // reverse order, so need size is zero 
           if(seg->evictable) {
             to_evict_segments.emplace_back(seg);
-            // cur_min_cost = std::min(cur_min_cost, seg->max_evict_cost);
+            cur_min_cost = std::min(cur_min_cost, seg->max_evict_cost);
             if(seg->max_evict_cost < stop_threshold) low_cost_size += seg->can_free_size;
           }
           // if(cur_min_cost < stop_threshold && low_cost_size > gap_size) 
-          if(low_cost_size > gap_size)
+          if(low_cost_size > gap_size) 
             break;
         }
       }
     } else {
       for(auto size_it=size_map.lower_bound(need_size); size_it!=size_map.end(); size_it++){
-        // if(size_it->first>check_scale*need_size) break;   // early stop
-        // if(cur_min_cost < stop_threshold) break;
         bool all_cannot_evict = true;
         for(auto &seg: size_it->second){
           search_size++;
@@ -1316,10 +1268,10 @@ public:
             cur_min_cost = std::min(cur_min_cost, seg->max_evict_cost);
             if(seg->max_evict_cost < stop_threshold) {
               evict_strat = es;
-              low_cost_size += seg->can_free_size; // the sum of can_free_size with low cost
+              low_cost_size = seg->can_free_size;
             }
           }
-          if(low_cost_size > gap_size) 
+          if(low_cost_size > need_size) 
             break;
         }
       }
@@ -1336,13 +1288,17 @@ public:
           if(res.second) {
             if(auto sap = res.first.lock()) {
               if(sap->evictable()){
-              // #ifdef DEBUG_MODE
-              //   if(c10::dtb::trace_evicted_tensor){
-              //     printf("[expected total:%lf]evict cost:%lf mem:%ld|", to_evict->max_evict_cost*1e9, sap->cost(pre)*1e9, sap->memory);
-              //     released_size += sap->memory;
-              //   }
-              // #endif
                 sap->evict(0);
+              #ifdef PROACTIVE_REMAT
+                // [deprecated]
+                // for(auto it = sap->tensors.rbegin(); it != sap->tensors.rend(); ++it){
+                //   if(it->lock()){
+                //     pm->record_evicted_tensors(c10::cuda::current_device(), (*it));
+                //     break;
+                //   }
+                // }
+              #endif
+                // pm->record_evicted_tensors(sap->tensors.back()); // 这里的问题在于，释放时用的是ap，而不是cptc，怎么去拿这个cptc？
                 if((c10::dtb::current_memory(device)+need_size) < c10::dtb::memory_budget)  // need_size is satisfied
                   return true;
               }
@@ -1368,7 +1324,7 @@ public:
         if(c10::dtb::trace_evicted_tensor){
           time_t post = std::chrono::system_clock::now();
           search_time_ += (post - pre).count();
-          printf("need size:%ld single search time:%ld, segs:%ld, before alloc:%ld, release:%ld\n", need_size, search_time_, search_size,
+          printf("Use Set to Evict, need size:%ld single search time:%ld, segs:%ld, before alloc:%ld, release:%ld\n", need_size, search_time_, search_size,
             before_allocated, released_size);
         }
       #endif
@@ -1389,6 +1345,15 @@ public:
                 }
               #endif
                 sap->evict(0);
+              #ifdef PROACTIVE_REMAT
+                // [deprecated]
+                // for(auto it = sap->tensors.rbegin(); it != sap->tensors.rend(); ++it){
+                //   if(it->lock()){
+                //     pm->record_evicted_tensors(c10::cuda::current_device(), (*it));
+                //     break;
+                //   }
+                // }
+              #endif
                 if((c10::dtb::current_memory(device)+need_size) < c10::dtb::memory_budget) break;
               }
               // }
@@ -2364,45 +2329,15 @@ class DeviceCachingAllocator {
     const size_t alloc_size = get_allocation_size(size);
     AllocParams params(device, size, stream, &pool, alloc_size, stats);
     params.stat_types = get_stat_types_for_pool(pool);
-    // if(c10::dtb::USE_DTR&&(getStats().active_bytes[device].current + size) > c10::dtb::memory_budget){
+
     if(c10::dtb::USE_DTR){
       if(COST_FIRST_EVICT){
         auto *pm = c10::dtb::getDTBPoolManager();
-        auto if_evict = pm->auto_evict(device, size);
+        bool if_evict = pm->auto_evict(device, size);
       }else{  // UNIFIED_EVICT
         auto if_evict = segManager.auto_evict(size, device, stream);
       }
-
-      // if(UNIFIED_EVICT){
-      //   auto if_evict = segManager.auto_evict(size, device, stream);
-      // }
-
-
-// #if defined(MEM_TWIN_REC) && defined(MEM_FIRST_EVICT) 
-//       // if((c10::dtb::current_memory(device)+size) > c10::dtb::memory_budget){
-//       auto if_evict = segManager.auto_evict(size, device, stream);
-//         // if(if_evict) 
-//         // {
-//         //   getSegmentTwins();
-//         // }
-//       // }
-// #else
-//       auto *pm = c10::dtb::getDTBPoolManager();
-//       auto if_evict = pm->auto_evict(device, size);
-// #endif
-
-      #ifdef MORE_POOL
-      // if(if_evict){     // for figure, actually exectution will release these free blocks when close to OOM
-      //   // release_blocks(ex1_blocks);
-      //   // release_blocks(ex2_blocks);
-      //   // release_blocks(large_blocks);
-      // }
-      #endif
     }
-// #ifdef GMLAKE_ENABLE
-//     params.stat_types[static_cast<size_t>(StatType::AGGREGATE)] = true;
-//     params.stat_types[static_cast<size_t>(get_stat_type_for_pool(pool))] = true;
-// #endif
 
     // First, try to get a block from the existing pool.
     bool block_found =
@@ -4107,7 +4042,7 @@ class DeviceCachingAllocator {
 
     AT_ASSERT(dst->is_split() && src->is_split());
 
-    if (dst->prev == src) { // [src dst]
+    if (dst->prev == src) { // [src dst] --> [  dst  ]
 #ifdef MEM_TWIN_REC
       if(UNIFIED_EVICT){
         auto *seg = segManager.get_segment_of_block(dst->ptr, true /* remove */);    // record of current dst->ptr is deleted
@@ -4140,7 +4075,7 @@ class DeviceCachingAllocator {
       }
       src->history_last = nullptr;
 #endif
-    } else { // [dest src]
+    } else { // [dest src] --> [  dst  ]
 #ifdef MEM_TWIN_REC
       if(UNIFIED_EVICT){
         auto *seg = segManager.get_segment_of_block(src->ptr, true /* remove */);
@@ -4411,6 +4346,15 @@ class DeviceCachingAllocator {
         ++b->gc_count;
       }
     }
+    // if(!pool.blocks.empty()) {
+    //   auto it = pool.blocks.begin();
+    //   if(p.stream()!=(*it)->stream) {
+    //     printf("which stream is default? %d %d\n", p.stream()==cudaStreamDefault ? 1 : 0, (*it)->stream==cudaStreamDefault ? 1 : 0);
+    //     p.search_key.stream = (*it)->stream;
+    //   }
+    // }
+    if(c10::dtb::getStreamLabel(p.stream())!=-1)
+      p.search_key.stream = cudaStreamDefault;
     auto it = pool.blocks.lower_bound(&p.search_key);     // return first ge search_key container
 #ifdef GMLAKE_ENABLE
     if (it == pool.blocks.end() || (*it)->stream != p.stream()) {

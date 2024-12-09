@@ -38,6 +38,66 @@ void CheckpointPool::add(const intrusive_ptr<AliasPool>& p) {
   }
 }
 
+void CheckpointPool::add_evited_tensor(const weak& wcptc) {
+  if(!c10::dtb::during_backward)  // only record activation evicted during forward
+    cur_batch_evicted_tensors.emplace_back(wcptc);
+  // if(last_flag!=c10::dtb::during_backward){
+  //   if(!last_flag&&c10::dtb::during_backward) {// backward begin
+  //     evicted_tensors.emplace_back(cur_batch_evicted_tensors);
+  //     cur_batch_evicted_tensors.clear();
+  //   }
+  //   else {  // backward end
+
+  //   }
+  //   last_flag = c10::dtb::during_backward;
+  // }
+}
+
+bool CheckpointPool::push_single_batch_ets() {
+  bool inserted = false;
+  if(!cur_batch_evicted_tensors.empty()) {
+    evicted_batch_tensors.emplace_back(cur_batch_evicted_tensors);
+    inserted = true;
+  }
+  cur_batch_evicted_tensors.clear();
+  return inserted;
+}
+
+void CheckpointPool::clear_recorded_batch() {
+  cur_batch_evicted_tensors.clear();
+  evicted_batch_tensors.clear();
+}
+
+void CheckpointPool::remat_front_batch(float scale, bool erase) {
+  auto fit = evicted_batch_tensors.begin();
+  auto gap_mem = c10::dtb::memory_budget - c10::dtb::current_memory(c10::cuda::current_device());
+  size_t remated_mem = 0;
+  if(fit!=evicted_batch_tensors.end()) {
+    // for(const auto& wcptc: *fit){
+    //   if(auto scptc = wcptc.lock()) {
+    //     if(scptc->pool->external_count>0){
+    //       scptc->get();
+    //       remated_mem += scptc->pool->memory;
+    //     }
+    //   }
+    //   if(remated_mem>(0.5 * gap_mem)) break;
+    // }
+    size_t front_batch_size = fit->size();
+    while(!fit->empty()) {
+      auto cptcit = fit->back();
+      if(auto scptc = cptcit.lock()){
+        scptc->get();
+        remated_mem += scptc->pool->memory;
+      }
+      fit->pop_back();
+      if(fit->size() < (1-scale)*front_batch_size) {
+        break;
+      }
+    }
+    if(erase)
+      fit = evicted_batch_tensors.erase(fit);
+  }
+}
 
 #ifdef DEBUG_MODE
 void log_cur_mem_statics(){ /// single mode use
@@ -488,17 +548,22 @@ void CheckpointPool::mem_first_evict(bool &if_cleared) {
 
 }
 
+/**
+ * clear_checkpointpool finally call this
+ */
 void CheckpointPool::clear_exts(bool last_iter){
   candidates.clear();
-#ifdef DEBUG_MODE
-  // show_exts();
-#endif
   // DTRLogAlias("[clear exts and if last iter]", last_iter?1:0);
   if(last_iter){
     for(auto &chain: chains){
       chain->clear_members();
     }
     chains.clear();
+    // clear dcm records
+    for(auto &dcm: dcms) {
+      dcm->clear_comms();
+    }
+    dcms.clear();
   }else{
     auto it = chains.begin();         // 1F1B, release locked nodes like a stack order
     while(it!=chains.end()&&!(*it)->is_locked){
@@ -508,6 +573,12 @@ void CheckpointPool::clear_exts(bool last_iter){
       (*it)->clear_members();
       chains.erase(it);
     }
+
+    auto dit = dcms.begin();         // 1F1B, release locked nodes like a stack order
+    if(dit != dcms.end()) {
+      (*dit)->clear_comms();
+      dcms.erase(dit);
+    }
   }
   
   if(last_iter){
@@ -515,9 +586,9 @@ void CheckpointPool::clear_exts(bool last_iter){
     while(!temp_cptc.empty()){
       if(auto sext = temp_cptc.back().lock()){
   #ifdef DEBUG_MODE
-        if(record_op_recs)
-          DTRLogAddress("clear temp begin "+sext->counter_name() + " if_tmp:"+std::to_string(sext->pool->if_temp?1:0) + " " + std::to_string(sext->pool->external_count) + std::to_string(sext->pool->lock_count), 
-            reinterpret_cast<uintptr_t>(sext->pool->addr), sext->pool->memory);
+        if(record_cpevict_recs)
+          // DTRLogAddress("clear temp begin "+sext->counter_name() + " if_tmp:"+std::to_string(sext->pool->if_temp?1:0) + " " + std::to_string(sext->pool->external_count) + std::to_string(sext->pool->lock_count), 
+          //   reinterpret_cast<uintptr_t>(sext->pool->addr), sext->pool->memory);
   #endif
         sext->pool->unlock();
       }
@@ -528,15 +599,27 @@ void CheckpointPool::clear_exts(bool last_iter){
 /**
  * TODO: 下面即使什么不做只是清空exts，仍然会清除掉pp时要留存的张量？
 */
+#ifdef DEBUG_MODE
+  // show_exts();
+#endif
 
+}
+
+void CheckpointPool::clear_dcr_records() {
+  for(auto& dcm: dcms) {
+    dcm->clear_comms();
+  }
 }
 
 static int count = 0, pool_count = 0;
 static std::map<uintptr_t, int> pool_rec;
 void CheckpointPool::show_exts() {
   printf("[CHECK CURRENT EXTS BEGIN]\n");
+  // while (!exts.empty()) {
+    // if (auto e = exts.back().lock()) {
   for(auto& ele: exts) {
     if (auto e = ele.lock()) {
+      // e->value->pin();  /// why pin and remat?
       count++;
       // TORCH_INTERNAL_ASSERT(e->value->defined);    // Triggered, means that exist some strong without tensor stayed in memory
       if(e->value->defined){
@@ -553,13 +636,22 @@ void CheckpointPool::show_exts() {
             pool_id = pool_rec[pool_ptr];
           }
           // if(e->value->pool->memory==268435456){  // external_count并不能区分native_dropout的张量
-          printf("exts id:x%ld size: %ld, size:%ld, external_count:%ld, is_weight:%d, pool_count:%d device_id:%d, have_remat:%d input_sizes:%ld output_sizes:%ld counts:%d addr:%ld\n", 
-            e->value->id, exts.size(), e->value->pool->memory, e->value->pool->external_count, e->value->pool->if_weight ? 1 : 0, pool_id,
+          printf("exts size: %ld, size:%ld, external_count:%ld, is_weight:%d, pool_count:%d device_id:%d, have_remat:%d input_sizes:%ld output_sizes:%ld counts:%d addr:%ld\n", 
+            exts.size(), e->value->pool->memory, e->value->pool->external_count, e->value->pool->if_weight ? 1 : 0, pool_id,
             e->value->pool->device_id, e->value->pool->head_remat ? 1 : 0, 
             e->value->pool->head_remat ? e->value->pool->head_remat->inputs.size() : 0,
             e->value->pool->head_remat ? e->value->pool->head_remat->outputs.size(): 0,
             count, reinterpret_cast<uintptr_t>(e->value->t->data_ptr()));
             
+            // while(e->value->pool->external_count>0)
+            //   e->value->pool->release_external();
+            // if(!e->value->pool->is_evicted)
+            //   e->value->pool->evict(1);
+            // printf("[CHECK EVICT 268435456] before, evicted:%d\n", e->value->pool->is_evicted ? 1 : 0);
+            // e->value->pool->evict(0);
+            // printf("[CHECK EVICT 268435456] after, evicted:%d\n", e->value->pool->is_evicted ? 1 : 0);
+            // e->value->pin();
+          // }
         }
 
       }
@@ -587,37 +679,15 @@ void CheckpointPool::show_exts() {
     // exts.pop_back();
   }
   printf("[CHECK CURRENT EXTS END]\n");
-
-  printf("[CHECK TEMP EXTS BEGIN]\n");
-  for(auto& ele: temp_cptc) {
-    if (auto e = ele.lock()) {
-      count++;
-      // TORCH_INTERNAL_ASSERT(e->value->defined);    // Triggered, means that exist some strong without tensor stayed in memory
-        // auto pool_ptr = reinterpret_cast<uintptr_t>((e->value->pool.get()));
-        auto pool_ptr = e->pool->addr;
-        auto it = pool_rec.find(pool_ptr);
-        int pool_id = 0;
-        if(it==pool_rec.end()){
-          pool_rec[pool_ptr] = ++pool_count;
-          pool_id = pool_count;
-        }else{
-          pool_id = pool_rec[pool_ptr];
-        }
-        // if(e->value->pool->memory==268435456){  // external_count并不能区分native_dropout的张量
-        printf("exts id:x%ld size: %ld, size:%ld, external_count:%ld, is_weight:%d, pool_count:%d device_id:%d, have_remat:%d input_sizes:%ld output_sizes:%ld counts:%d addr:%ld\n", 
-          e->id, exts.size(), e->pool->memory, e->pool->external_count, e->pool->if_weight ? 1 : 0, pool_id,
-          e->pool->device_id, e->pool->head_remat ? 1 : 0, 
-          e->pool->head_remat ? e->pool->head_remat->inputs.size() : 0,
-          e->pool->head_remat ? e->pool->head_remat->outputs.size(): 0,
-          count, reinterpret_cast<uintptr_t>(e->t->data_ptr()));
-          
-    }
-  }
-  printf("[CHECK TEMP EXTS END]\n");
 }
 
 
-CheckpointPool::CheckpointPool() { }
+CheckpointPool::CheckpointPool() {}
+
+// void CheckpointPool::release_resources() {
+//   tmp_dcm.reset();
+//   dcms.clear();
+// }
 
 #pragma endregion
 

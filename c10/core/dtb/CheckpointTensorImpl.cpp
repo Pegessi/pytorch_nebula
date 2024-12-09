@@ -86,6 +86,10 @@ void CheckpointTensorImpl::shallow_copy_from(const c10::intrusive_ptr<TensorImpl
 long CheckpointTensorCell::counter = 0;
 #endif
 
+#ifdef DCR_MANAGE
+size_t CheckpointTensorCell::pool_counter = 0;
+#endif
+
 bool is_alias(const Tensor& l, const Tensor& r) {
   return l.defined() && r.defined() && l.is_alias_of(r);
 }
@@ -214,6 +218,10 @@ inline void release_external_of_nosource_tensor(const strong& s, const std::stri
   }
 }
 
+#ifdef ARITHMETIC_TEST
+static size_t cur_op_counts = 0;
+static constexpr size_t evict_num = 2;
+#endif
 // remat take a single vector of tensors,
 // while there are two vector, one storing nonconstants and one storing constants.
 // the constants are small and they will not be considered for eviction.
@@ -222,6 +230,9 @@ inline void release_external_of_nosource_tensor(const strong& s, const std::stri
 MakeRawResult make_raw(const rematerialize_function_t& remat_f,
                        const strongs& inputs, const std::string& name) {
   STATS.track("make_raw");
+  #ifdef ARITHMETIC_TEST
+  cur_op_counts++;
+  #endif
   // bool if_res_retain = false;
   for (const strong& s : inputs) {                  // lock for unevictable
     s->pool->lock();
@@ -236,12 +247,6 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
   Tensors raw_inputs = uncheckpoint(inputs);        // cancel the monitor and get tensors
 #endif
   auto device_id = static_cast<int>(raw_inputs[0].device().index());  /// do not influence device
-
-#ifdef DEPTH_ENABLE
-  if(cumulative_num>0){
-    DTRLogCalculativeRematsRecords(0, name, cumulative_num);
-  }
-#endif
 
   time_t pre = std::chrono::system_clock::now();
   auto raw_outputs = remat_f(raw_inputs);
@@ -349,11 +354,33 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
       if (!is_alias(raw_inputs[i], raw_outputs[j])) {
         add_neighbor(inputs[i], outputs[j]->value);
       }
+
+#ifdef DCR_MANAGE
+      if(DCR_LOCK_ENABLE)
+        if(!during_backward&&pm->if_train_mode[device_id]) {  // during forward
+          pm->insert_dcm(device_id, inputs[i]->dg_id, outputs[j]->value->dg_id, weak(inputs[i]), weak(outputs[j]->value));  // TODO: maybe weight add?
+        }
+#endif
+
     }
   }
+#ifdef DCR_MANAGE
+  if(DCR_LOCK_ENABLE)
+    if(during_backward&&pm->if_train_mode[device_id]) {
+      // 反向且tmp dcm非空，加入dcms
+      pm->add_dcm_into_queue(device_id);
+    }
+#endif
+
   for (const strong& s : inputs) {
     s->pool->unlock();
     // release_external_of_nosource_tensor(s, name);
+    // #ifdef ARITHMETIC_TEST // stupid
+    // if(cur_op_counts % evict_num == 0){
+    //   if(s->pool->evictable())
+    //   s->pool->evict(0);
+    // }
+    // #endif
   }
 
 #ifdef DEBUG_MODE
@@ -890,7 +917,7 @@ CheckpointTensorImpl::CheckpointTensorImpl(Tensor& t, bool if_weight) : Checkpoi
   // if(!if_weight){
   //   pm->lock_temp_ext(c10::cuda::current_device(), weak(unsafeGetTensorCell()));
   // }
-  if(record_op_recs) {
+  if(record_cpevict_recs) {
     DTRLogAddress("outer checkpoint "+counter_name()+ " " + std::string(unsafeGetTensorCell()->dtype().name()) + " device:" + std::to_string(device_id), 
       unsafeGetTensorCell()->pool->addr, unsafeGetTensorCell()->pool->memory);
   }

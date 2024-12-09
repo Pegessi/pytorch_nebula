@@ -1,4 +1,5 @@
 #include <c10/core/dtb/ResidualChain.h>
+#include <c10/cuda/CUDACachingAllocator.h>
 
 #define TORCH_CHECK(a, ...) 
 
@@ -11,7 +12,6 @@ ChainNode::ChainNode(const weak& weak_cell) : value(weak_cell) {}
 
 void ChainNode::lock_value(){
   if(!is_lock){
-    std::unique_lock<std::recursive_mutex> lock(mutex);
     if(auto cell = value.lock()){
       store_in_special_pool[cell->pool->device_id] = true;
       if(cell->defined)  // remove cell firstly

@@ -26,6 +26,15 @@ struct CheckpointTensorCell : intrusive_ptr_target {
     return std::string("x") + std::to_string(id);
   }
 #endif
+#ifdef DCR_MANAGE
+  static size_t pool_counter;
+  static size_t gen_pool_counter() {
+    return pool_counter++;
+  }
+  static void reset_pool_counter() { pool_counter = 0; }
+  size_t dg_id = gen_pool_counter();                 // 动态graph中的node id
+  inline void set_dg_id(size_t id) { dg_id = id; }
+#endif
   std::unique_ptr<Tensor> t;
   bool defined = false;         // 标记cell是否存在
   bool is_undefined_tensor;     // 标记是否是空张量
@@ -67,6 +76,8 @@ struct CheckpointTensorCell : intrusive_ptr_target {
   }
   Tensor get();
   Tensor get(int&);   // for remat count (deprecated)
+
+  void remat_neghibors(int remat_depth);
   int precheck();
   // std::vector<int64_t> sizes(){
   //   return get().sizes().vec();
