@@ -40,6 +40,7 @@ using c10::dtb::use_profile_;
 using c10::dtb::record_er_counts;        // 驱逐&重物化次数
 using c10::dtb::record_mem_addr;         // 是否记录内存地址
 using c10::dtb::record_op_recs;          // 是否记录op历史
+using c10::dtb::record_cpevict_recs;
 using c10::dtb::record_fragmentation;    // 记录碎片化和内存占用数据
 using c10::dtb::record_lifecycle;        // 记录ap生命周期计数分布
 using c10::dtb::record_ap_cost;          // 记录ap的cost分布
@@ -217,6 +218,13 @@ void clear_checkpointpool(long device, bool last_iter) {
 #endif
 }
 
+void proactive_recovery(long device, double depth, bool erase) {
+#ifdef MULTI_MODE
+  auto *pm = getDTBPoolManager();
+  pm->proactive_remat(device, depth, erase);
+#endif
+}
+
 void check_current_exts(long device){
   auto *pm = getDTBPoolManager();
   pm->pool_cur_mem_snapshot(device);
@@ -248,6 +256,10 @@ void set_memory_budget(long budget) {
 #endif
 }
 
+void register_stream(c10::Stream stream, long label) {
+  c10::dtb::registerStreamLabel(stream, label);
+}
+
 void set_reserved(){
   reserved_range = true;
 }
@@ -262,6 +274,13 @@ void set_backward_flag(){
 //   pm->set_during_backward(true);
 // #else
   during_backward = true;
+  if(record_op_recs) {
+    c10::dtb::DTRLogAlias("begin_backward", 1);
+  }
+// #ifdef PROACTIVE_REMAT //[deprecated]
+  // auto *pm = getDTBPoolManager();
+  // pm->push_batch_evicted_tensors(c10::cuda::current_device());
+// #endif
 // #endif
   // printf("SET_BACKWARD_FALG TRIGGER\n");
 }
@@ -272,8 +291,21 @@ void unset_backward_flag(){
 //   pm->set_during_backward(false);
 // #else
   during_backward = false;
+  if(record_op_recs) {
+    c10::dtb::DTRLogAlias("end_backward", 0);
+  }
+#ifdef DCR_MANAGE
+  c10::dtb::CheckpointTensorCell::reset_pool_counter();
+#endif
 // #endif
   // printf("UNSET_BACKWARD_FALG TRIGGER\n");
+}
+
+void clear_batched_records(long device) {
+#ifdef PROACTIVE_REMAT
+  auto *pm = getDTBPoolManager();
+  pm->clear_recorded_batch(device);
+#endif
 }
 
 void mark_train(bool flag){
