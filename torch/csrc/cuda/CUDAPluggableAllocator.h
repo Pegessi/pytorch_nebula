@@ -85,6 +85,7 @@ struct CUDAPluggableAllocator
 
   virtual c10::cuda::CUDACachingAllocator::DeviceStats getDeviceStats(
       int device) override;
+  virtual void logPtrInfo(int device, std::vector<void*> ptrs) override;
   virtual void resetAccumulatedStats(int device) override;
   virtual void resetPeakStats(int device) override;
   virtual c10::cuda::CUDACachingAllocator::SnapshotInfo snapshot() override;

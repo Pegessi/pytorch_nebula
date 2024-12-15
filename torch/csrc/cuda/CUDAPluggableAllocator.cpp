@@ -196,6 +196,13 @@ c10::cuda::CUDACachingAllocator::DeviceStats CUDAPluggableAllocator::
       "If you need it, please file an issue describing your use case.");
 }
 
+void CUDAPluggableAllocator::logPtrInfo(int device, std::vector<void*> ptrs) {
+  TORCH_CHECK(
+      false,
+      "CUDAPluggableAllocator does not yet support logPtrInfo. "
+      "If you need it, please file an issue describing your use case.");
+}
+
 void CUDAPluggableAllocator::resetAccumulatedStats(int device) {
   TORCH_CHECK(
       false,

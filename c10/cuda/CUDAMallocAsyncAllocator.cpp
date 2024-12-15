@@ -715,6 +715,22 @@ struct CudaMallocAsyncAllocator : public CUDAAllocator {
     return stats;
   }
 
+    void logPtrInfo(int device, std::vector<void*> ptrs) {
+      throw std::runtime_error("Not AsyncAllocator Support Yet");
+      /// WARNING: Not Support Yet
+      // auto *pm = c10::dtb::getDTBPoolManager();
+      // for(const auto& ptr: ptrs) {
+      //   // auto res = pm->get_ap_by_ptr(ptr);
+      //   auto seg = segManager.get_segment_of_block(ptr);
+      //   uintptr_t addr;
+      //   for(auto& bit: seg->blocks) {
+      //     addr = reinterpret_cast<uintptr_t>(bit->ptr);
+      //     break;
+      //   }
+      //   DTRLogMemEvents("COMM_LOG", seg->total_size, addr);
+      // }
+  }
+
   void resetAccumulatedStats(int device) override {
     assertValidDevice(device);
     TORCH_WARN_ONCE(

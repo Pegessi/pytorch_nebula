@@ -145,6 +145,16 @@ void DTRLogMemEvents(const std::string& name, size_t size, int64_t addr) {
   DTRLogger::logger().log(log_msg);
 }
 
+void DTRLogMemSegmentStat(const std::string& name, size_t size, int64_t addr, int64_t blocks_num) {
+  std::string log_msg = "{";
+  log_msg += "\"TYPE\":\"" + name + "\", ";
+  log_msg += "\"SIZE\":" + std::to_string(size) + ", ";
+  log_msg += "\"BLOCK_NUM\":" + std::to_string(blocks_num) + ", ";
+  log_msg += "\"ADDR\":" + std::to_string(addr);
+  log_msg += "}";
+  DTRLogger::logger().log(log_msg);
+}
+
 size_t cudaMalloc_counts = 0, cudaFree_counts = 0;
 void DTRLogcudaAPIEvents(const std::string& name, size_t size, int64_t addr) {
   std::string log_msg = "{";
@@ -1074,8 +1084,13 @@ private:
   // std::map<size_t, std::set<SegmentTwin*, CompareSegment>> size_map;
   std::map<size_t, std::vector<SegmentTwin*>> size_map;
   ska::flat_hash_map<void*, SegmentTwin*> blocks2segment;
+  std::vector<Block*> free_block_buffer;
+  SegmentTwin* defrag_seg = nullptr;
 
 public:
+
+  SegmentTwin* get_defrag_seg() { return defrag_seg; };
+  void set_defrag_seg(SegmentTwin* seg) { defrag_seg = seg; };
 
   void add_block2segment(Block* block, SegmentTwin* seg) {
     blocks2segment[block->ptr] = seg;
@@ -1129,6 +1144,70 @@ public:
     if(it->second.empty()){
       size_map.erase(it);
     }
+  }
+
+  void rearrange_on_site(SegmentTwin* segment) {
+    /// 整个函数都应该处于一个锁的保护下，所有对该segment的操作应该都先检查是否在锁定状态
+    /// TODO: 就地整理，出于安全角度考虑 应该继续走torch本身的接口，保证计算语义不变
+    /// ref: get_free_block
+
+    /// 1. release / offload current block -- directly call cptc func
+    ///   a. version 1, naive release stragety
+    ///   b. version 2, find the best adjust stragety
+    std::vector<c10::intrusive_ptr<c10::dtb::AliasPool>> to_release;
+    auto *pm = c10::dtb::getDTBPoolManager();
+    bool if_add = false;
+    for(auto &bit: segment->blocks) {
+      if(!bit->allocated) {
+        if_add = true;
+      }else{
+        auto res = pm->get_ap_by_ptr(bit->ptr);
+        if(res.second) {
+          if(auto sap = res.first.lock()) {
+            if(sap->evictable())
+              to_release.push_back(sap);
+          }
+        }
+      }
+    }
+    // if all sap can be evicted, defragmentation will work?
+    std::vector<c10::dtb::strong> to_recovery;
+    for(auto& sap: to_release) {
+      for(auto& wcell: sap->tensors) {
+        if(auto scell = wcell.lock()) {
+          if(scell->defined) {
+            to_recovery.push_back(scell);
+          }
+        }
+      }
+      sap->evict(0);
+    }
+    
+    /// 2. get free block -- use current blocks, use a buffer to intercept malloc()
+    set_defrag_seg(segment);
+    c10::dtb::defrag_flag[c10::cuda::current_device()] = true;
+
+
+    /// 3. re alloc block -- 
+    ///   a. maybe cudaMemcpyAsync + change tensor data_ptr which in storage
+    ///   b. like proactive process, use another stream in torch or in c++  https://pytorch.org/cppdocs/notes/tensor_cuda_stream.html
+    /// c10/core/Storage.h:102
+    for(auto& scell: to_recovery) { // TODO: clone or recompute
+      scell->get();
+    }
+
+    c10::dtb::defrag_flag[c10::cuda::current_device()] = false;
+    set_defrag_seg(nullptr);
+
+  }
+
+  void rearrange_to_segment() {
+    /// 1. release / offload current block
+
+    /// 2. get target block
+
+    /// 3. re alloc block
+
   }
 
   void display_segments(){
@@ -1240,7 +1319,7 @@ public:
      * 
     */
     double cur_min_cost = 1e5;
-    if(gap_size > need_size*check_scale || need_size < 10485760) {
+    if(gap_size > need_size*check_scale) {  // || need_size < 10485760
       gap_flag = true;
       for(auto size_it=size_map.rbegin(); size_it!=size_map.rend(); ++size_it){
         bool all_cannot_evict = true;
@@ -2302,6 +2381,15 @@ class DeviceCachingAllocator {
     // done outside the lock because we don't know what locks the recorder needs
     // to have...
 // #ifndef GMLAKE_ENABLE
+    size_t size = round_size(orig_size);
+    if(c10::dtb::USE_DTR){
+      if(COST_FIRST_EVICT){
+        auto *pm = c10::dtb::getDTBPoolManager();
+        bool if_evict = pm->auto_evict(device, size);
+      }else{  // UNIFIED_EVICT
+        auto if_evict = segManager.auto_evict(size, device, stream);
+      }
+    }
     auto context = maybeGatherContext(RecordContext::STATE);
 // #else
 //     CreateContextFn context_recorder = context_recorder_.load();
@@ -2324,32 +2412,42 @@ class DeviceCachingAllocator {
       //    effect on memory use during capture should be small.
       process_events(context);
     }
-    size_t size = round_size(orig_size);
+    
     auto& pool = get_pool(size, stream);
     const size_t alloc_size = get_allocation_size(size);
     AllocParams params(device, size, stream, &pool, alloc_size, stats);
     params.stat_types = get_stat_types_for_pool(pool);
 
+    bool block_found = false;
     if(c10::dtb::USE_DTR){
-      if(COST_FIRST_EVICT){
-        auto *pm = c10::dtb::getDTBPoolManager();
-        bool if_evict = pm->auto_evict(device, size);
-      }else{  // UNIFIED_EVICT
-        auto if_evict = segManager.auto_evict(size, device, stream);
+
+      if(c10::dtb::defrag_flag[c10::cuda::current_device()]) {
+        // here just for defragmentation on-site, because that this segment is surely to satisfy the memory needs
+        Block* p = nullptr;
+        for(auto& bit: segManager.get_defrag_seg()->blocks) {
+          if(!bit->allocated) {
+            p = bit;
+            break;
+          }
+        }
+        params.block = p;
+        block_found = true;
       }
     }
 
-    // First, try to get a block from the existing pool.
-    bool block_found =
-        // Search pool
-        get_free_block(params)
-        // Trigger callbacks and retry search
-#ifndef GMLAKE_ENABLE
-        || (trigger_free_memory_callbacks(params) && get_free_block(params));
-#else
-        || (trigger_free_memory_callbacks(params) && get_free_block(params))
-        || get_fused_fragmented_blocks(params, 0);
-#endif
+    if (!block_found) { // before may enter in defrag process
+      // First, try to get a block from the existing pool.
+      block_found =
+          // Search pool
+          get_free_block(params)
+          // Trigger callbacks and retry search
+  #ifndef GMLAKE_ENABLE
+          || (trigger_free_memory_callbacks(params) && get_free_block(params));
+  #else
+          || (trigger_free_memory_callbacks(params) && get_free_block(params))
+          || get_fused_fragmented_blocks(params, 0);
+  #endif
+    }
 
     // Can't reuse an existing block; try to get a new one.
     if (!block_found) {
@@ -3163,6 +3261,26 @@ class DeviceCachingAllocator {
   DeviceStats getStats() {
     std::lock_guard<std::recursive_mutex> lock(mutex);
     return stats;
+  }
+
+  void logPtrInfo(std::vector<void*> ptrs) {
+    auto *pm = c10::dtb::getDTBPoolManager();
+    if(ptrs.size()>0) {
+      DTRLogMemEvents("SINGLE_COMM_BEGIN", 0, 0);
+      for(const auto& ptr: ptrs) {
+        // auto res = pm->get_ap_by_ptr(ptr);
+        auto seg = segManager.get_segment_of_block(ptr);
+        if(seg){
+          uintptr_t addr = 0;
+          for(auto& bit: seg->blocks) {
+            addr = reinterpret_cast<uintptr_t>(bit->ptr);
+            break;
+          }
+          DTRLogMemSegmentStat("COMM_LOG", seg->total_size, addr, seg->blocks.size());
+        }
+      }
+      DTRLogMemEvents("SINGLE_COMM_END", 0, 0);
+    }
   }
 
   /** Resets the historical accumulation stats for the device **/
@@ -6323,6 +6441,11 @@ class NativeCachingAllocator : public CUDAAllocator {
   DeviceStats getDeviceStats(int device) override {
     assertValidDevice(device);
     return device_allocator[device]->getStats();
+  }
+
+  void logPtrInfo(int device, std::vector<void *> ptrs) override {
+    assertValidDevice(device);
+    return device_allocator[device]->logPtrInfo(ptrs);
   }
 
   void resetAccumulatedStats(int device) override {

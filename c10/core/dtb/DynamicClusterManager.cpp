@@ -1,4 +1,5 @@
 #include <c10/core/dtb/DynamicClusterManager.h>
+#include <c10/cuda/CUDACachingAllocator.h>
 
 namespace c10 {
 namespace dtb {
@@ -133,7 +134,7 @@ void DCManager::flush_community_singleton() {
         accum_lock_mem += singleton_comms[cid].lock_borders();
 #ifdef DEBUG_MODE
         if(record_dcr_process) {
-            if(singleton_comms[cid].inner_nodes.size()>0) {
+            if(singleton_comms[cid].inner_nodes.size()>0 || singleton_comms[cid].border_nodes.size()>0) {
                 size_t can_inner = 0, can_border = 0;
                 size_t border_mem = 0, border_act_mem = 0;
                 for(auto& node: singleton_comms[cid].inner_nodes) {
@@ -162,6 +163,23 @@ void DCManager::flush_community_singleton() {
                 std::cout << "\n";
 
             }
+        }
+
+        if(record_dcr_memory) {
+            std::vector<void*> ptrs;
+            for(auto& node: singleton_comms[cid].inner_nodes) {
+                if(auto scptc = node->value.lock()) {
+                    if(scptc->defined)
+                        ptrs.push_back(scptc->t->data_ptr());
+                }
+            }
+            for(auto& node: singleton_comms[cid].border_nodes) {
+                if(auto scptc = node->value.lock()) {
+                    if(scptc->defined)
+                        ptrs.push_back(scptc->t->data_ptr());
+                }
+            }
+            c10::cuda::CUDACachingAllocator::logPtrInfo(c10::cuda::current_device(), ptrs);
         }
 #endif
     }

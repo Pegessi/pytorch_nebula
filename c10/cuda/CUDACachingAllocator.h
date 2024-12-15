@@ -239,6 +239,7 @@ class CUDAAllocator : public Allocator {
   virtual void* getBaseAllocation(void* ptr, size_t* size) = 0;
   virtual void recordStream(const DataPtr&, CUDAStream stream) = 0;
   virtual DeviceStats getDeviceStats(int device) = 0;
+  virtual void logPtrInfo(int device, std::vector<void *> ptrs) = 0;
   virtual void resetAccumulatedStats(int device) = 0;
   virtual void resetPeakStats(int device) = 0;
   virtual SnapshotInfo snapshot() = 0;
@@ -357,6 +358,10 @@ inline void recordStream(const DataPtr& dataPtr, CUDAStream stream) {
 
 inline DeviceStats getDeviceStats(int device) {
   return get()->getDeviceStats(device);
+}
+
+inline void logPtrInfo(int device, std::vector<void *> ptrs) {
+  return get()->logPtrInfo(device, ptrs);
 }
 
 inline void resetAccumulatedStats(int device) {

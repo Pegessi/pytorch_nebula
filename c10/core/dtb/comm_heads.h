@@ -247,11 +247,13 @@ extern std::unordered_map<int64_t, duration_t> compute_cost_records;
 extern std::unordered_map<int64_t, size_t> memory_cost_records;
 extern COMMON_API size_t memory_budget;
 extern COMMON_API bool store_in_special_pool[8];
+extern COMMON_API bool defrag_flag[8];
 extern COMMON_API std::unordered_map<cudaStream_t, int>* stream_to_label;
+
 #ifdef DEBUG_MODE
 extern const bool record_er_counts;        // 驱逐&重物化次数
 extern const bool record_op_recs;          // 是否记录op历史
-extern const bool record_cpevict_recs;
+extern const bool record_cpevict_recs;     // 记录驱逐记录
 extern const bool record_fragmentation;    // 记录碎片化和内存占用数据
 extern const bool record_lifecycle;        // 记录ap生命周期计数分布
 extern const bool record_ap_cost;          // 记录ap的cost分布
@@ -259,7 +261,8 @@ extern const bool record_dependcy;
 extern const bool record_key_chain;
 extern const bool trace_register_and_release;   // 追踪所有ext和ap的生命周期(适合demo debug)
 extern COMMON_API const bool trace_evicted_tensor;  // 追踪驱逐算法选择的张量
-extern const bool record_dcr_process;
+extern const bool record_dcr_process;     // 记录dcr过程
+extern const bool record_dcr_memory;      // 记录dcr过程中对应mem的情况
 
 extern size_t dcr_lock_counts;
 
