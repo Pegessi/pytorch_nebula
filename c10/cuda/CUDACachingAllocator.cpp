@@ -957,6 +957,7 @@ struct SegmentTwin {
   time_t last_change_time;
   double max_evict_cost=0;      // represent cost of evicting this segment
   size_t can_free_size=0;
+  float frag_ratio=0;
 
   SegmentTwin* pre{nullptr};
   SegmentTwin* next{nullptr};
@@ -1011,6 +1012,7 @@ inline Block* SegmentTwin::flush_cost(time_t cur, size_t need_size, cudaStream_t
     auto *pm = c10::dtb::getDTBPoolManager();
     can_free_size = 0;
     max_evict_cost = 0;
+    size_t unallocated_size = 0;
     bool can_evict = false;
     Block* evict_start = nullptr;
     for(const auto& bit: blocks){
@@ -1047,10 +1049,12 @@ inline Block* SegmentTwin::flush_cost(time_t cur, size_t need_size, cudaStream_t
             evict_start = nullptr;
             max_evict_cost = 0;
             can_free_size = bit->size;
+            unallocated_size += bit->size;
           }
         }
       }
     }
+    frag_ratio = static_cast<float>(unallocated_size) / static_cast<float>(total_size);
     if(can_free_size < need_size) can_evict = false;
     evictable = can_evict;
     return evict_start;
@@ -1368,21 +1372,22 @@ public:
             if(auto sap = res.first.lock()) {
               if(sap->evictable()){
                 sap->evict(0);
-              #ifdef PROACTIVE_REMAT
-                // [deprecated]
-                // for(auto it = sap->tensors.rbegin(); it != sap->tensors.rend(); ++it){
-                //   if(it->lock()){
-                //     pm->record_evicted_tensors(c10::cuda::current_device(), (*it));
-                //     break;
-                //   }
-                // }
-              #endif
-                // pm->record_evicted_tensors(sap->tensors.back()); // 这里的问题在于，释放时用的是ap，而不是cptc，怎么去拿这个cptc？
+                released_size += sap->memory;
                 if((c10::dtb::current_memory(device)+need_size) < c10::dtb::memory_budget)  // need_size is satisfied
+                #ifdef DEBUG_MODE
+                  if(c10::dtb::trace_evicted_tensor){
+                    time_t post = std::chrono::system_clock::now();
+                    search_time_ += std::chrono::duration_cast<std::chrono::microseconds>(post - pre).count();
+                    printf("Use Ptr to Evict, need size:%ld single search time:%ld us, segs:%ld, before alloc:%ld, release:%ld, after release: %ld\n", need_size, search_time_, search_size,
+                      before_allocated, released_size, c10::dtb::current_memory(device));
+                  }
+                #endif
                   return true;
               }
             } 
           }
+        }else{
+          released_size += to_evict->size;
         }
         to_evict = to_evict->next;
       }
@@ -1399,15 +1404,7 @@ public:
 
     for(auto& to_evict: to_evict_segments){
       if((c10::dtb::current_memory(device)+need_size) < c10::dtb::memory_budget){
-      #ifdef DEBUG_MODE
-        if(c10::dtb::trace_evicted_tensor){
-          time_t post = std::chrono::system_clock::now();
-          search_time_ += (post - pre).count();
-          printf("Use Set to Evict, need size:%ld single search time:%ld, segs:%ld, before alloc:%ld, release:%ld\n", need_size, search_time_, search_size,
-            before_allocated, released_size);
-        }
-      #endif
-        return true;
+        break;
       }
 
       for(auto bit = to_evict->blocks.begin(); (bit != to_evict->blocks.end()); bit++){
@@ -1448,7 +1445,26 @@ public:
       
     }
 
-    return false;
+    bool if_satisfy = (c10::dtb::current_memory(device)+need_size) < c10::dtb::memory_budget;
+
+  #ifdef DEBUG_MODE
+    if(c10::dtb::trace_evicted_tensor){
+      if(if_satisfy){
+        time_t post = std::chrono::system_clock::now();
+        search_time_ += std::chrono::duration_cast<std::chrono::microseconds>(post - pre).count();
+        printf("Use Set to Evict[gap:%d] need size:%ld single search time:%ld us, segs:%ld, before alloc:%ld, release:%ld, after release: %ld\n", gap_flag?1:0, 
+          need_size, search_time_, search_size, before_allocated, released_size, c10::dtb::current_memory(device));
+      }
+      else {
+        time_t post = std::chrono::system_clock::now();
+        search_time_ += std::chrono::duration_cast<std::chrono::microseconds>(post - pre).count();
+        printf("[out of budget] Use Set to Evict[gap:%d], need size:%ld single search time:%ld us, segs:%ld, before alloc:%ld, release:%ld, after release: %ld\n", gap_flag?1:0, 
+          need_size, search_time_, search_size, before_allocated, released_size, c10::dtb::current_memory(device));
+      }
+    }
+  #endif
+
+    return if_satisfy;
 
   }
 
@@ -2388,6 +2404,7 @@ class DeviceCachingAllocator {
         bool if_evict = pm->auto_evict(device, size);
       }else{  // UNIFIED_EVICT
         auto if_evict = segManager.auto_evict(size, device, stream);
+        if(!if_evict) segManager.auto_evict(1, device, stream);
       }
     }
     auto context = maybeGatherContext(RecordContext::STATE);

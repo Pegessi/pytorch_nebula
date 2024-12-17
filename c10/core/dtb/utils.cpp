@@ -52,8 +52,8 @@ constexpr const bool record_dependcy = false;
 constexpr const bool record_key_chain = false;
 constexpr const bool trace_register_and_release = false;
 constexpr const bool trace_evicted_tensor = false;
-constexpr const bool record_dcr_process = true;       // 记录dcr的聚类过程
-constexpr const bool record_dcr_memory = true;
+constexpr const bool record_dcr_process = false;       // 记录dcr的聚类过程
+constexpr const bool record_dcr_memory = false;
 
 size_t dcr_lock_counts = 0;
 
