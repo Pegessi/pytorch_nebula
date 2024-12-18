@@ -56,7 +56,7 @@ class AOTInductorModelContainer {
   void run(
       const std::vector<at::Tensor>& inputs,
       std::vector<at::Tensor>& outputs,
-      cudaStream_t stream) {
+      hipStream_t stream) {
     auto* model = get_available_model();
     try {
       AOT_VECTOR_SIZE_CHECK(inputs, num_inputs());

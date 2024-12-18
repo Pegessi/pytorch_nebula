@@ -141,8 +141,8 @@ file(GLOB native_quantized_cudnn_cpp "native/quantized/cudnn/*.cpp")
 file(GLOB native_nested_cuda_cu "native/nested/cuda/*.cu")
 file(GLOB native_nested_cuda_cpp "native/nested/cuda/*.cpp")
 file(GLOB native_checkpoint_cpp "native/checkpoint/*.cpp")
-file(GLOB dtb_manager_h "${CMAKE_CURRENT_SOURCE_DIR}/../../../c10/cuda/dtb/DTBManager.h")
-file(GLOB dtb_manager_cpp "${CMAKE_CURRENT_SOURCE_DIR}/../../../c10/cuda/dtb/DTBManager.cpp")
+file(GLOB dtb_manager_h "${CMAKE_CURRENT_SOURCE_DIR}/../../../c10/hip/dtb/DTBManager.h")
+file(GLOB dtb_manager_cpp "${CMAKE_CURRENT_SOURCE_DIR}/../../../c10/hip/dtb/DTBManager.cpp")
 file(GLOB dtb_core_cpp "${CMAKE_CURRENT_SOURCE_DIR}/../../../c10/core/dtb/*.cpp")
 
 file(GLOB native_hip_hip "native/hip/*.hip")
@@ -281,6 +281,8 @@ if(USE_CUDA)
 endif()
 
 if(USE_ROCM)
+  list(APPEND ATen_HIP_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/../../../c10/hip/dtb)    # for auto evict in dtr
+  list(APPEND ATen_HIP_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/../../../c10/core/dtb)    # for auto evict in dtr
   list(APPEND ATen_HIP_INCLUDE ${CMAKE_CURRENT_SOURCE_DIR}/hip)
   set(ATen_HIP_SRCS ${ATen_HIP_SRCS} ${hip_hip} ${native_hip_hip} ${native_nested_hip_hip} ${native_sparse_hip_hip} ${native_quantized_hip_hip} ${native_transformers_hip_hip})
   # TODO: Codegen separate files for HIP and use those (s/cuda_generated_sources/hip_generated_sources)
@@ -492,22 +494,22 @@ if(USE_CUDA AND NOT USE_ROCM)
 endif()
 
 
-  if(USE_MAGMA)
-    if(USE_CUDA AND NOT BUILD_LAZY_CUDA_LINALG)
-      list(APPEND ATen_CUDA_DEPENDENCY_LIBS torch::magma)
-    endif(USE_CUDA AND NOT BUILD_LAZY_CUDA_LINALG)
-    if(USE_ROCM)
-      list(APPEND ATen_HIP_DEPENDENCY_LIBS torch::magma)
-    endif(USE_ROCM)
-    if(MSVC)
-      if($ENV{TH_BINARY_BUILD})
-        # Do not do this on Linux: see Note [Extra MKL symbols for MAGMA in torch_cpu]
-        # in caffe2/CMakeLists.txt
-        list(APPEND ATen_CUDA_DEPENDENCY_LIBS
-          "${BLAS_LIBRARIES};${BLAS_LIBRARIES};${BLAS_LIBRARIES}")
-      endif($ENV{TH_BINARY_BUILD})
-    endif(MSVC)
-  endif(USE_MAGMA)
+if(USE_MAGMA)
+  if(USE_CUDA AND NOT BUILD_LAZY_CUDA_LINALG)
+    list(APPEND ATen_CUDA_DEPENDENCY_LIBS torch::magma)
+  endif(USE_CUDA AND NOT BUILD_LAZY_CUDA_LINALG)
+  if(USE_ROCM)
+    list(APPEND ATen_HIP_DEPENDENCY_LIBS torch::magma)
+  endif(USE_ROCM)
+  if(MSVC)
+    if($ENV{TH_BINARY_BUILD})
+      # Do not do this on Linux: see Note [Extra MKL symbols for MAGMA in torch_cpu]
+      # in caffe2/CMakeLists.txt
+      list(APPEND ATen_CUDA_DEPENDENCY_LIBS
+        "${BLAS_LIBRARIES};${BLAS_LIBRARIES};${BLAS_LIBRARIES}")
+    endif($ENV{TH_BINARY_BUILD})
+  endif(MSVC)
+endif(USE_MAGMA)
 
 # Include CPU paths for CUDA/HIP as well
 list(APPEND ATen_CUDA_INCLUDE ${ATen_CPU_INCLUDE})

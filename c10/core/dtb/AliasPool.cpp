@@ -1,6 +1,6 @@
 #include <c10/core/dtb/AliasPool.h>
 #include <c10/core/dtb/utils.h>
-#include <c10/cuda/dtb/DTBManager.h>
+#include <c10/hip/dtb/DTBManager.h>
 
 #define TORCH_CHECK(a, ...)   // replace original TORCH_CHECK  profile mode
 

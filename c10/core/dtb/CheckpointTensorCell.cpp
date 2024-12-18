@@ -1,7 +1,7 @@
 #include <c10/core/dtb/CheckpointTensorCell.h>
 #include <c10/core/dtb/utils.h>
-#include <c10/cuda/dtb/DTBManager.h>
-#include <c10/cuda/CUDACachingAllocator.h>
+#include <c10/hip/dtb/DTBManager.h>
+#include <c10/hip/HIPCachingAllocator.h>
 #include <queue>
 #include <stack>
 

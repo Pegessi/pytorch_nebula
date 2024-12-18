@@ -42,6 +42,67 @@ Tensor& checkpoint_add_(Tensor& a, const Tensor& b, const Scalar& c) {
   return a;
 }
 
+at::Tensor checkpoint_miopen_convolution(const at::Tensor & self, const at::Tensor & weight, const c10::optional<at::Tensor> & bias, at::IntArrayRef padding, at::IntArrayRef stride, at::IntArrayRef dilation, int64_t groups, bool benchmark, bool deterministic) {
+  auto padding_ = padding.vec();
+  auto stride_ = stride.vec();
+  auto dilation_ = dilation.vec();
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      return {at::miopen_convolution(vec.at(0), vec.at(1), vec.at(2), padding_, stride_, dilation_, groups, benchmark, deterministic)};
+    };
+  c10::MaybeOwned<Tensor> bias_maybe_owned = at::borrow_from_optional_tensor(bias);
+  const Tensor& bias_ = *bias_maybe_owned;
+  return CheckpointTensorImpl::make("aten::miopen_convolution", rt, {self, weight, bias_})[0];
+}
+
+std::tuple<at::Tensor,at::Tensor,at::Tensor> checkpoint_miopen_batch_norm(const at::Tensor & input, const at::Tensor & weight, const c10::optional<at::Tensor> & bias, const c10::optional<at::Tensor> & running_mean, const c10::optional<at::Tensor> & running_var, bool training, double exponential_average_factor, double epsilon) {
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      auto ret = at::miopen_batch_norm(vec.at(0), vec.at(1), vec.at(2), vec.at(3), vec.at(4), training, exponential_average_factor, epsilon);
+      return {std::get<0>(ret), std::get<1>(ret), std::get<2>(ret)};
+    };
+  c10::MaybeOwned<Tensor> bias_maybe_owned = at::borrow_from_optional_tensor(bias);
+  const Tensor& bias_ = *bias_maybe_owned;
+  c10::MaybeOwned<Tensor> running_mean_maybe_owned = at::borrow_from_optional_tensor(running_mean);
+  const Tensor& running_mean_ = *running_mean_maybe_owned;
+  c10::MaybeOwned<Tensor> running_var_maybe_owned = at::borrow_from_optional_tensor(running_var);
+  const Tensor& running_var_ = *running_var_maybe_owned;
+  auto ret = CheckpointTensorImpl::make("aten::miopen_batch_norm", rt, {input, weight, bias_, running_mean_, running_var_});
+  return {ret[0], ret[1], ret[2]};
+}
+
+std::tuple<at::Tensor,at::Tensor,at::Tensor> checkpoint_miopen_batch_norm_backward(const at::Tensor & input, const at::Tensor & grad_output, const at::Tensor & weight, const c10::optional<at::Tensor> & running_mean, const c10::optional<at::Tensor> & running_var, const c10::optional<at::Tensor> & save_mean, const c10::optional<at::Tensor> & save_var, double epsilon) {
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      auto ret = at::miopen_batch_norm_backward(vec.at(0), vec.at(1), vec.at(2), vec.at(3), vec.at(4), vec.at(5), vec.at(6), epsilon);
+      return {std::get<0>(ret), std::get<1>(ret), std::get<2>(ret)};
+    };
+  c10::MaybeOwned<Tensor> running_mean_maybe_owned = at::borrow_from_optional_tensor(running_mean);
+  const Tensor& running_mean_ = *running_mean_maybe_owned;
+  c10::MaybeOwned<Tensor> running_var_maybe_owned = at::borrow_from_optional_tensor(running_var);
+  const Tensor& running_var_ = *running_var_maybe_owned;
+  c10::MaybeOwned<Tensor> save_mean_maybe_owned = at::borrow_from_optional_tensor(save_mean);
+  const Tensor& save_mean_ = *save_mean_maybe_owned;
+  c10::MaybeOwned<Tensor> save_var_maybe_owned = at::borrow_from_optional_tensor(save_var);
+  const Tensor& save_var_ = *save_var_maybe_owned;
+  auto ret = CheckpointTensorImpl::make("aten::miopen_batch_norm_backward", rt, {input, grad_output, weight, running_mean_, running_var_, save_mean_, save_var_});
+  return {ret[0], ret[1], ret[2]};
+}
+
+at::Tensor checkpoint_miopen_convolution_transpose(const at::Tensor & self, const at::Tensor & weight, const c10::optional<at::Tensor> & bias, at::IntArrayRef padding, at::IntArrayRef output_padding, at::IntArrayRef stride, at::IntArrayRef dilation, int64_t groups, bool benchmark, bool deterministic) {
+  auto padding_ = padding.vec();
+  auto output_padding_ = output_padding.vec();
+  auto stride_ = stride.vec();
+  auto dilation_ = dilation.vec();
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      return {at::miopen_convolution_transpose(vec.at(0), vec.at(1), vec.at(2), padding_, output_padding_, stride_, dilation_, groups, benchmark, deterministic)};
+    };
+  c10::MaybeOwned<Tensor> bias_maybe_owned = at::borrow_from_optional_tensor(bias);
+  const Tensor& bias_ = *bias_maybe_owned;
+  return CheckpointTensorImpl::make("aten::miopen_convolution_transpose", rt, {self, weight, bias_})[0];
+}
+
 // Tensor checkpoint_mul(at::Tensor const& a, at::Tensor const& b) {
 //   rematerialize_function_t rt =
 //     [=](const Tensors& vec) -> Tensors {

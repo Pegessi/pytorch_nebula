@@ -3569,24 +3569,28 @@
     -> (Tensor, Tensor, Tensor)
   dispatch:
     CUDA: miopen_batch_norm
+    Checkpoint: checkpoint_miopen_batch_norm
   autogen: miopen_batch_norm.out
 - func: miopen_batch_norm_backward(Tensor input, Tensor grad_output, Tensor weight,
     Tensor? running_mean, Tensor? running_var, Tensor? save_mean, Tensor? save_var,
     float epsilon) -> (Tensor, Tensor, Tensor)
   dispatch:
     CUDA: miopen_batch_norm_backward
+    Checkpoint: checkpoint_miopen_batch_norm_backward
   autogen: miopen_batch_norm_backward.out
 - func: miopen_convolution(Tensor self, Tensor weight, Tensor? bias, SymInt[] padding,
     int[] stride, int[] dilation, int groups, bool benchmark, bool deterministic)
     -> Tensor
   dispatch:
     CUDA: miopen_convolution
+    Checkpoint: checkpoint_miopen_convolution
   autogen: miopen_convolution.out
 - func: miopen_convolution_transpose(Tensor self, Tensor weight, Tensor? bias, SymInt[]
     padding, SymInt[] output_padding, int[] stride, int[] dilation, int groups, bool
     benchmark, bool deterministic) -> Tensor
   dispatch:
     CUDA: miopen_convolution_transpose
+    Checkpoint: checkpoint_miopen_convolution_transpose
   autogen: miopen_convolution_transpose.out
 - func: miopen_depthwise_convolution(Tensor self, Tensor weight, Tensor? bias, SymInt[]
     padding, int[] stride, int[] dilation, int groups, bool benchmark, bool deterministic)

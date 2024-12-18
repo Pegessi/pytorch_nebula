@@ -140,7 +140,7 @@ else()
   target_compile_definitions(${NVFUSER_CODEGEN} PRIVATE "-DTORCH_HIP_BUILD_MAIN_LIB")
   target_compile_definitions(${NVFUSER_CODEGEN} PRIVATE
     USE_ROCM
-    __HIP_PLATFORM_HCC__
+    __HIP_PLATFORM_AMD__
     )
 endif()
 
@@ -189,7 +189,7 @@ if(BUILD_PYTHON)
     target_compile_definitions(${NVFUSER} PRIVATE "-DTORCH_HIP_BUILD_MAIN_LIB")
     target_compile_definitions(${NVFUSER} PRIVATE
       USE_ROCM
-      __HIP_PLATFORM_HCC__
+      __HIP_PLATFORM_AMD__
       )
     target_include_directories(${NVFUSER_CODEGEN} PRIVATE ${Caffe2_HIP_INCLUDE})
   endif()

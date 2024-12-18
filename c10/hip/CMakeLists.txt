@@ -11,6 +11,8 @@ configure_file(
     ${CMAKE_CURRENT_LIST_DIR}/impl/hip_cmake_macros.h.in
     ${CMAKE_BINARY_DIR}/c10/hip/impl/hip_cmake_macros.h)
 
+# file(GLOB dtb_core_cpp "${CMAKE_CURRENT_SOURCE_DIR}/../core/dtb/*.cpp")
+
 # NB: All previous cu files are renamed into cc files.  This isn't tested at the
 # moment.
 file(GLOB C10_HIP_SRCS
@@ -18,11 +20,15 @@ file(GLOB C10_HIP_SRCS
         *.cc
         impl/*.cpp
         impl/*.cc
+        dtb/*.cpp
+        dtb/*.cc
+        ../core/dtb/*.cpp
+        ../core/dtb/*.cc
         )
 
 # Mark the cc files as HIP files, so we call the compiler.  (They have to be
 # suffixed with cc, because the hcc compiler won't accept them otherwise.)
-file(GLOB __c10_hip_srcs_cpp *.cc impl/*.cc)
+file(GLOB __c10_hip_srcs_cpp *.cc impl/*.cc dtb/*.cc ../core/dtb/*.cc)
 set_source_files_properties(${__c10_hip_srcs_cpp} PROPERTIES HIP_SOURCE_PROPERTY_FORMAT 1)
 
 file(GLOB_RECURSE C10_HIP_HEADERS *.h)
@@ -44,7 +50,7 @@ endif()
 # ---[ Dependency of c10_hip
 target_link_libraries(c10_hip PUBLIC c10)
 
-target_link_libraries(c10_hip PUBLIC ${PYTORCH_HIP_HCC_LIBRARIES})
+target_link_libraries(c10_hip PUBLIC ${PYTORCH_HIP_LIBRARIES})
 
 target_include_directories(
     c10_hip PUBLIC

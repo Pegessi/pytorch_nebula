@@ -40,7 +40,7 @@ void set_global_memory_budget(size_t budget);
 
 void registerStreamLabel(c10::Stream stream, int label);
 
-int getStreamLabel(cudaStream_t stream);
+int getStreamLabel(hipStream_t stream);
 
 Tensor uncheckpoint(const strong& input);
 

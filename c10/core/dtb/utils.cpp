@@ -3,7 +3,7 @@
 #include <c10/core/dtb/utils.h>
 #include <c10/core/dtb/CheckpointTensorCell.h>
 #include <c10/core/dtb/CheckpointTensorImpl.h>
-#include <c10/cuda/dtb/DTBManager.h>
+#include <c10/hip/dtb/DTBManager.h>
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -37,7 +37,7 @@ bool use_profile_ = false;
 std::unordered_map<int64_t, duration_t> compute_cost_records;
 std::unordered_map<int64_t, size_t> memory_cost_records;
 size_t memory_budget = 85899345920;  
-std::unordered_map<cudaStream_t, int>* stream_to_label = new std::unordered_map<cudaStream_t, int>();
+std::unordered_map<hipStream_t, int>* stream_to_label = new std::unordered_map<hipStream_t, int>();
 bool store_in_special_pool[8] = {false};
 
 #ifdef DEBUG_MODE
@@ -189,14 +189,14 @@ void set_global_memory_budget(size_t budget){
 }
 
 void registerStreamLabel(c10::Stream stream, int label) {
-  auto s = c10::cuda::getCurrentCUDAStream(c10::cuda::current_device());
+  auto s = c10::hip::getCurrentHIPStream(c10::hip::current_device());
   auto it = stream_to_label->find(s);
   if (it != stream_to_label->end()) return;
   stream_to_label->insert({s, label});
-  printf("register stream:%d is_default:%d\n", label, s==cudaStreamDefault ? 1 : 0);
+  printf("register stream:%d is_default:%d\n", label, s==hipStreamDefault ? 1 : 0);
 }
 
-int getStreamLabel(cudaStream_t stream) {
+int getStreamLabel(hipStream_t stream) {
     auto it = stream_to_label->find(stream);
     if (it != stream_to_label->end()) {
         return it->second;
@@ -243,7 +243,7 @@ Tensors try_checkpoint(Tensors& inputs) {
     if(input.is_checkpoint()){
       ret.push_back(input);
     }else{
-      auto device_id = static_cast<int>(c10::cuda::current_device());
+      auto device_id = static_cast<int>(c10::hip::current_device());
       auto cpt = at::native::checkpoint(input);
       auto* cpti = dynamic_cast<CheckpointTensorImpl*>(cpt.unsafeGetTensorImpl());
       auto *pm = getDTBPoolManager();

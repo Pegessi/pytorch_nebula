@@ -7,8 +7,8 @@
 // #include <c10/core/CheckpointTensorImpl.h>
 // #include <ATen/Logger.h>
 // #include <c10/cuda/CUDACachingAllocator.h>
-#include <c10/cuda/dtb/DTBManager.h>
-#include <cuda_runtime_api.h>
+#include <c10/hip/dtb/DTBManager.h>
+#include <hip/hip_runtime_api.h>
 #include <chrono>
 #include <string>
 #include <random>

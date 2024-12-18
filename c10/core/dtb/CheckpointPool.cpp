@@ -1,6 +1,6 @@
 #include <c10/core/dtb/CheckpointPool.h>
 #include <c10/core/dtb/utils.h>
-#include <c10/cuda/dtb/DTBManager.h>
+#include <c10/hip/dtb/DTBManager.h>
 
 #define TORCH_CHECK(a, ...)   // replace original TORCH_CHECK  profile mode
 
@@ -70,7 +70,7 @@ void CheckpointPool::clear_recorded_batch() {
 
 void CheckpointPool::remat_front_batch(float scale, bool erase) {
   auto fit = evicted_batch_tensors.begin();
-  auto gap_mem = c10::dtb::memory_budget - c10::dtb::current_memory(c10::cuda::current_device());
+  auto gap_mem = c10::dtb::memory_budget - c10::dtb::current_memory(c10::hip::current_device());
   size_t remated_mem = 0;
   if(fit!=evicted_batch_tensors.end()) {
     // for(const auto& wcptc: *fit){

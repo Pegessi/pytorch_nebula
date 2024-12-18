@@ -31,7 +31,7 @@
 #include <ATen/Tensor.h>
 #include <ATen/ATen.h>
 #include <c10/core/dtb/Logger.h>
-#include <cuda_runtime.h>
+#include <hip/hip_runtime.h>
 
 #define likely(x)      __builtin_expect(!!(x), 1)
 #define unlikely(x)    __builtin_expect(!!(x), 0)
@@ -247,7 +247,7 @@ extern std::unordered_map<int64_t, duration_t> compute_cost_records;
 extern std::unordered_map<int64_t, size_t> memory_cost_records;
 extern COMMON_API size_t memory_budget;
 extern COMMON_API bool store_in_special_pool[8];
-extern COMMON_API std::unordered_map<cudaStream_t, int>* stream_to_label;
+extern COMMON_API std::unordered_map<hipStream_t, int>* stream_to_label;
 #ifdef DEBUG_MODE
 extern const bool record_er_counts;        // 驱逐&重物化次数
 extern const bool record_op_recs;          // 是否记录op历史
