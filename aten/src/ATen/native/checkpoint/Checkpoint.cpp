@@ -530,6 +530,36 @@ Tensor checkpoint_avg_pool2d_backward(const Tensor& a, const Tensor& b, c10::Arr
   return CheckpointTensorImpl::make("avg_pool2d_backward", rt, {a, b})[0];
 }
 
+/// ['aten::avg_pool2d_backward', 'at::Tensor', 'avg_pool2d_backward', '(const at::Tensor & grad_output, const at::Tensor & self, at::IntArrayRef kernel_size, at::IntArrayRef stride, at::IntArrayRef padding, bool ceil_mode, bool count_include_pad, c10::optional<int64_t> divisor_override)']
+at::Tensor checkpoint_avg_pool2d_backward_(const at::Tensor & grad_output, const at::Tensor & self, at::IntArrayRef kernel_size, at::IntArrayRef stride, at::IntArrayRef padding, bool ceil_mode, bool count_include_pad, c10::optional<int64_t> divisor_override) {
+  auto kernel_size_ = kernel_size.vec();
+  auto stride_ = stride.vec();
+  auto padding_ = padding.vec();
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      return {at::avg_pool2d_backward(vec.at(0), vec.at(1), kernel_size_, stride_, padding_, ceil_mode, count_include_pad, divisor_override)};
+    };
+  return CheckpointTensorImpl::make("aten::avg_pool2d_backward", rt, {grad_output, self})[0];
+}
+
+/// ['aten::index_put', 'at::Tensor', 'index_put', '(const at::Tensor & self, const c10::List<c10::optional<at::Tensor>> & indices, const at::Tensor & values, bool accumulate=false)']
+at::Tensor checkpoint_index_put(const at::Tensor & self, const c10::List<c10::optional<at::Tensor>> & indices, const at::Tensor & values, bool accumulate) {
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      auto indices = std::vector<Tensor>(vec.begin() + 2, vec.end());
+      c10::List<c10::optional<Tensor>> optional_tensors;
+      for(auto& t : indices)
+        optional_tensors.push_back(t);
+      return {at::index_put(vec.at(0), optional_tensors, vec.at(1), accumulate)};
+    };
+  std::vector<Tensor> s = {self, values};
+  for(const auto& t: indices){
+    c10::MaybeOwned<Tensor> t_ = at::borrow_from_optional_tensor(t);
+    s.push_back((*t_));
+  }
+  return CheckpointTensorImpl::make("aten::index_put", rt, s)[0];
+}
+
 // Tensor& checkpoint_avg_pool2d_out(Tensor& a, const Tensor& b, c10::ArrayRef<long> c, c10::ArrayRef<long> d, c10::ArrayRef<long> e, bool f, bool g, c10::optional<long> h) {
 //   std::vector<long> c_ = c.vec(), d_ = d.vec(), e_ = e.vec();
 //   mutate_function_t mt =
@@ -2651,6 +2681,19 @@ void checkpoint__foreach_add_(at::TensorList self, const at::Scalar & scalar) {
     self_.push_back(self[i].decheckpoint());
   }
   at::_foreach_add_(at::TensorList(self_), scalar);
+}
+
+/// ['aten::_foreach_add_', 'void', '_foreach_add_', '(at::TensorList self, at::TensorList other, const at::Scalar & alpha=1)']
+void checkpoint__foreach_add_list(at::TensorList self, at::TensorList other, const at::Scalar & alpha) {
+  Tensors self_;
+  for (const auto i : c10::irange(self.size())) {
+    self_.push_back(self[i].decheckpoint());
+  }
+  Tensors other_;
+  for (const auto i : c10::irange(other.size())) {
+    other_.push_back(other[i].decheckpoint());
+  }
+  at::_foreach_add_(at::TensorList(self_), at::TensorList(other_), alpha);
 }
 
 /// ['aten::_foreach_addcdiv_', 'void', '_foreach_addcdiv_', '(at::TensorList self, at::TensorList tensor1, at::TensorList tensor2, at::ArrayRef<at::Scalar> scalars)']

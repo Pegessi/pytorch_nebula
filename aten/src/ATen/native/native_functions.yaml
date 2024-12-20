@@ -2768,6 +2768,7 @@
   variants: function, method
   dispatch:
     CompositeExplicitAutograd: index_put
+    Checkpoint: checkpoint_index_put
   tags: core
 - func: _unsafe_index_put(Tensor self, Tensor?[] indices, Tensor values, bool accumulate=False)
     -> Tensor
@@ -9161,6 +9162,7 @@
   dispatch:
     CPU: foreach_tensor_add_list_kernel_slow_
     CUDA: foreach_tensor_add_list_kernel_cuda_
+    Checkpoint: checkpoint__foreach_add_list
   autogen: _foreach_add.List_out
 - func: _foreach_add.ScalarList(Tensor[] self, Scalar[] scalars) -> Tensor[]
   device_check: NoCheck
@@ -10776,6 +10778,7 @@
   structured_delegate: avg_pool2d_backward.grad_input
   dispatch:
     MkldnnCPU: mkldnn_avg_pool2d_backward
+    Checkpoint: checkpoint_avg_pool2d_backward_
   tags: core
 - func: avg_pool3d.out(Tensor self, int[3] kernel_size, int[3] stride=[], int[3] padding=0,
     bool ceil_mode=False, bool count_include_pad=True, int? divisor_override=None,

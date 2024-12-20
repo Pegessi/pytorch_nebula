@@ -590,7 +590,8 @@ void CheckpointPool::clear_exts(bool last_iter){
           // DTRLogAddress("clear temp begin "+sext->counter_name() + " if_tmp:"+std::to_string(sext->pool->if_temp?1:0) + " " + std::to_string(sext->pool->external_count) + std::to_string(sext->pool->lock_count), 
           //   reinterpret_cast<uintptr_t>(sext->pool->addr), sext->pool->memory);
   #endif
-        sext->pool->unlock();
+        while(sext->pool->lock_count!=0)
+          sext->pool->unlock();
       }
       temp_cptc.pop_back();
     }
