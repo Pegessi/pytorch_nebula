@@ -1315,7 +1315,7 @@ if(USE_ROCM)
       ${PYTORCH_HIP_LIBRARIES} ${PYTORCH_MIOPEN_LIBRARIES} ${hipcub_LIBRARIES} ${ROCM_HIPRTC_LIB} ${ROCM_ROCTX_LIB})
 
     list(APPEND Caffe2_PUBLIC_HIP_DEPENDENCY_LIBS
-      roc::hipblas hip::hipfft hip::hiprand roc::hipsparse roc::hipsolver)
+      roc::hipblas hip::hipfft hip::hiprand roc::hipsparse ncurses roc::hipsolver)
 
   else()
     caffe2_update_option(USE_ROCM OFF)
