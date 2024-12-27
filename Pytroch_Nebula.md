@@ -38,6 +38,7 @@ pip install pyyaml
 export CMAKE_PREFIX_PATH=${CONDA_PREFIX:-"$(dirname $(which conda))/../"}
 # BUILD_TEST=0 CMAKE_BUILD_TYPE=Debug python setup.py develop # debug c++
 BUILD_TEST=0 python setup.py develop # release
+# BUILD_TEST=0 python setup.py bdist_wheel
 # use GMLake (暂不可用)
 # GMLAKE_ENABLED=1 TORCH_CUDA_ARCH_LIST="8.0" USE_CUDA=1 BUILD_TEST=0 CMAKE_BUILD_TYPE=Debug python setup.py develop
 ```

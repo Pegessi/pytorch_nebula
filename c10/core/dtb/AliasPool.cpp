@@ -52,6 +52,21 @@ CheckpointInfo merge_cpi(CheckpointInfo l, CheckpointInfo r) {
   return CheckpointInfo(l.compute_cost + r.compute_cost);
 }
 
+void AliasPool::clone_and_reset(size_t max_size) {
+  c10::dtb::move_defrag_flag[device_id] = true;
+  c10::dtb::move_defrag_max_size[device_id] = max_size;
+  for (const weak& w : tensors) {
+    if (auto cell = w.lock()) {
+      auto t_ = cell->t->clone(); 
+      cell->evict();
+      cell->fill(t_);
+      break;
+    }
+  }
+  c10::dtb::move_defrag_flag[device_id] = false;
+  c10::dtb::move_defrag_max_size[device_id] = 0;
+}
+
 void AliasPool::evict(int mode) { // 0 - evict | 1 - deconstruct | 2 - Irreversible deconstruction
   STATS.track("AliasPool::evict");
   TORCH_CHECK(!ecn);

@@ -1290,7 +1290,6 @@ public:
 
   bool auto_evict(size_t need_size, int device, cudaStream_t stream) {
     if((c10::dtb::current_memory(device)+need_size) < c10::dtb::memory_budget) return false;
-    // if(need_size > size_map.rbegin()->first) return false;
 
     long search_time_ = 0, search_size = 0;
     size_t before_allocated = c10::dtb::current_memory(device);
@@ -1323,7 +1322,7 @@ public:
      * 
     */
     double cur_min_cost = 1e5;
-    if(gap_size > need_size*check_scale) {  // || need_size < 10485760
+    if(gap_size > need_size*check_scale) {  // avoid from evict tiny tensors && for over budget scenario
       gap_flag = true;
       for(auto size_it=size_map.rbegin(); size_it!=size_map.rend(); ++size_it){
         bool all_cannot_evict = true;
@@ -1335,7 +1334,6 @@ public:
             cur_min_cost = std::min(cur_min_cost, seg->max_evict_cost);
             if(seg->max_evict_cost < stop_threshold) low_cost_size += seg->can_free_size;
           }
-          // if(cur_min_cost < stop_threshold && low_cost_size > gap_size) 
           if(low_cost_size > gap_size) 
             break;
         }
@@ -1421,15 +1419,6 @@ public:
                 }
               #endif
                 sap->evict(0);
-              #ifdef PROACTIVE_REMAT
-                // [deprecated]
-                // for(auto it = sap->tensors.rbegin(); it != sap->tensors.rend(); ++it){
-                //   if(it->lock()){
-                //     pm->record_evicted_tensors(c10::cuda::current_device(), (*it));
-                //     break;
-                //   }
-                // }
-              #endif
                 if((c10::dtb::current_memory(device)+need_size) < c10::dtb::memory_budget) break;
               }
               // }
@@ -1463,6 +1452,53 @@ public:
       }
     }
   #endif
+
+    if(!if_satisfy) { // trigger move_defrag process
+      std::vector<SegmentTwin*> candidates_segments;
+      auto it = size_map.lower_bound(need_size);
+      if(it!=size_map.end()) {
+        candidates_segments = it->second;
+        std::sort(candidates_segments.begin(), candidates_segments.end(), [](SegmentTwin* lhs, SegmentTwin* rhs) {
+          if(lhs->frag_ratio != rhs->frag_ratio) return lhs->frag_ratio > rhs->frag_ratio;
+          if(lhs->last_change_time != rhs->last_change_time) return lhs->last_change_time < rhs->last_change_time;
+          return lhs->blocks.size() < rhs->blocks.size();
+        });
+
+        auto target_seg = candidates_segments.front();
+        // if(target_seg->frag_ratio < 0.7) xxx;    /// TODO: if cancel the move when the frag ratio is at a low level 
+
+#ifdef DEBUG_MODE
+        size_t before_mv = c10::dtb::current_memory(device);
+        size_t allocted_size_in = 0;
+#endif
+
+        if(target_seg->frag_ratio > 0.6) {
+          for(auto& bit: target_seg->blocks) {
+            if(bit->allocated){
+              auto *ptr = bit->ptr;
+              auto res = pm->get_ap_by_ptr(ptr);
+              if(res.second) {
+                if(auto sap = res.first.lock()) {
+                  sap->clone_and_reset(need_size);
+                  allocted_size_in += sap->memory;
+                } 
+              }
+            }
+          }
+
+#ifdef DEBUG_MODE
+          if(c10::dtb::record_move_defrag){
+            std::cout << "seg size: " << target_seg->total_size << ", frag ratio: " << target_seg->frag_ratio << ", before mv: "
+                      << before_mv/1024/1024 << "MB, after mv: " << c10::dtb::current_memory(device)/1024/1024 << "MB, record inner size: "
+                      << allocted_size_in/1024/1024 << "MB\n";
+          }
+#endif
+        }
+
+      }
+    }
+
+    if_satisfy = (c10::dtb::current_memory(device)+need_size) < c10::dtb::memory_budget;
 
     return if_satisfy;
 
@@ -2399,12 +2435,14 @@ class DeviceCachingAllocator {
 // #ifndef GMLAKE_ENABLE
     size_t size = round_size(orig_size);
     if(c10::dtb::USE_DTR){
-      if(COST_FIRST_EVICT){
-        auto *pm = c10::dtb::getDTBPoolManager();
-        bool if_evict = pm->auto_evict(device, size);
-      }else{  // UNIFIED_EVICT
-        auto if_evict = segManager.auto_evict(size, device, stream);
-        if(!if_evict) segManager.auto_evict(1, device, stream);
+      if(!c10::dtb::move_defrag_flag[device]) {
+        if(COST_FIRST_EVICT){
+          auto *pm = c10::dtb::getDTBPoolManager();
+          bool if_evict = pm->auto_evict(device, size);
+        }else{  // UNIFIED_EVICT
+          auto if_evict = segManager.auto_evict(size, device, stream);
+          if(!if_evict) segManager.auto_evict(1, device, stream);
+        }
       }
     }
     auto context = maybeGatherContext(RecordContext::STATE);
@@ -2435,10 +2473,11 @@ class DeviceCachingAllocator {
     AllocParams params(device, size, stream, &pool, alloc_size, stats);
     params.stat_types = get_stat_types_for_pool(pool);
 
-    bool block_found = false;
+    bool block_found = false, move_defrag = false;
     if(c10::dtb::USE_DTR){
 
-      if(c10::dtb::defrag_flag[c10::cuda::current_device()]) {
+      /// WIP: onsite defrag, not finished yet
+      if(c10::dtb::defrag_flag[device]) {
         // here just for defragmentation on-site, because that this segment is surely to satisfy the memory needs
         Block* p = nullptr;
         for(auto& bit: segManager.get_defrag_seg()->blocks) {
@@ -2450,9 +2489,16 @@ class DeviceCachingAllocator {
         params.block = p;
         block_found = true;
       }
+
+      /// WIP: move defrag
+      if(c10::dtb::move_defrag_flag[device]) {
+        block_found = get_smaller_free_block(params, c10::dtb::move_defrag_max_size[device]) 
+                      || (trigger_free_memory_callbacks(params) && get_smaller_free_block(params, c10::dtb::move_defrag_max_size[device]));
+        move_defrag = true;
+      }
     }
 
-    if (!block_found) { // before may enter in defrag process
+    if (!block_found && !move_defrag) { // before may enter in defrag process
       // First, try to get a block from the existing pool.
       block_found =
           // Search pool
@@ -4481,6 +4527,7 @@ class DeviceCachingAllocator {
         ++b->gc_count;
       }
     }
+    /// below codes are for the multi stream overlap
     // if(!pool.blocks.empty()) {
     //   auto it = pool.blocks.begin();
     //   if(p.stream()!=(*it)->stream) {
@@ -4488,8 +4535,9 @@ class DeviceCachingAllocator {
     //     p.search_key.stream = (*it)->stream;
     //   }
     // }
-    if(c10::dtb::getStreamLabel(p.stream())!=-1)
-      p.search_key.stream = cudaStreamDefault;
+    // if(c10::dtb::getStreamLabel(p.stream())!=-1)
+    //   p.search_key.stream = cudaStreamDefault;
+
     auto it = pool.blocks.lower_bound(&p.search_key);     // return first ge search_key container
 #ifdef GMLAKE_ENABLE
     if (it == pool.blocks.end() || (*it)->stream != p.stream()) {
@@ -4805,6 +4853,55 @@ class DeviceCachingAllocator {
     pool.blocks.erase(it);
     return true;
 #endif
+  }
+
+  bool get_smaller_free_block(AllocParams& p, size_t max_size) {
+    BlockPool& pool = *p.pool;
+
+    if (C10_UNLIKELY(
+            set_fraction &&
+            CachingAllocatorConfig::garbage_collection_threshold() > 0.0)) {
+      // Track block reuse interval only when garbage collection is enabled.
+      for (auto& b : pool.blocks) {
+        ++b->gc_count;
+      }
+    }
+    // if(!pool.blocks.empty()) {
+    //   auto it = pool.blocks.begin();
+    //   if(p.stream()!=(*it)->stream) {
+    //     printf("which stream is default? %d %d\n", p.stream()==cudaStreamDefault ? 1 : 0, (*it)->stream==cudaStreamDefault ? 1 : 0);
+    //     p.search_key.stream = (*it)->stream;
+    //   }
+    // }
+    // if(c10::dtb::getStreamLabel(p.stream())!=-1)
+    //   p.search_key.stream = cudaStreamDefault;
+
+    auto it = pool.blocks.lower_bound(&p.search_key);     // return first ge search_key container
+
+    if (it == pool.blocks.end() || (*it)->stream != p.stream())
+      return false;
+
+    if ((*it)->expandable_segment_) {
+      TORCH_INTERNAL_ASSERT(0, "not support yet");
+    }
+
+    // Do not return an oversized block for a large request
+    if ((p.size() < CachingAllocatorConfig::max_split_size()) &&
+        ((*it)->size >= CachingAllocatorConfig::max_split_size()))
+      return false;
+    // Allow oversized block size to be rounded up but within a limit
+    if ((p.size() >= CachingAllocatorConfig::max_split_size()) &&
+        ((*it)->size >= p.size() + kLargeBuffer))
+      return false;
+    // do not use block bigger than max_size for lower fragmentation
+    if ((*it)->size >= max_size)
+      return false;
+
+    p.block = *it;
+    (*it)->gc_count = 0; // Denote this block has been used
+    pool.blocks.erase(it);
+    return true;
+
   }
 
 #ifdef GMLAKE_ENABLE

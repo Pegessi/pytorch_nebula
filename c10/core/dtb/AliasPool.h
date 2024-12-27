@@ -85,6 +85,8 @@ struct AliasPool : intrusive_ptr_target {
   inline void lock_retain(){
     retain_count++;
   }
+
+  void clone_and_reset(size_t max_size);
   
   intrusive_ptr<Rematerializer> head_remat;
   bool evictable() const {
