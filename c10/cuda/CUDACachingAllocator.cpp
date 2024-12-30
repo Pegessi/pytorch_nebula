@@ -1288,15 +1288,16 @@ public:
 #endif
   }
 
-  bool auto_evict(size_t need_size, int device, cudaStream_t stream) {
+  bool auto_evict(size_t need_size, int device, cudaStream_t stream, bool if_gap=false) {
     if((c10::dtb::current_memory(device)+need_size) < c10::dtb::memory_budget) return false;
 
     long search_time_ = 0, search_size = 0;
     size_t before_allocated = c10::dtb::current_memory(device);
     time_t pre = std::chrono::system_clock::now();
-    size_t gap_size = c10::dtb::memory_budget > before_allocated ? (c10::dtb::memory_budget - before_allocated) : (before_allocated - c10::dtb::memory_budget);
+    // size_t gap_size = c10::dtb::memory_budget > before_allocated ? (c10::dtb::memory_budget - before_allocated) : (before_allocated - c10::dtb::memory_budget);
+    size_t gap_size = c10::dtb::memory_budget > before_allocated ? need_size : (before_allocated - c10::dtb::memory_budget + need_size);
     size_t low_cost_size = 0;
-    bool gap_flag = false;
+    bool gap_flag = if_gap;
     Block* evict_strat = nullptr;
     
     auto *pm = c10::dtb::getDTBPoolManager();
@@ -1308,10 +1309,10 @@ public:
     constexpr const double stop_threshold = 1e-10;
 
     // a new huge need_size, regard it as gap_size
-    if(need_size > size_map.rbegin()->first){
-      need_size = 1;
-      gap_size = need_size;
-    }
+    // if(need_size > size_map.rbegin()->first){
+    //   need_size = 1;
+    //   gap_size = need_size;
+    // }
     /**
      * Traverse each segment to find the lowest cost is unnecessay and heavy overhead.
      * In fact, a suitable threshold of cost for early stop is beneficial to recude searching time
@@ -1322,8 +1323,9 @@ public:
      * 
     */
     double cur_min_cost = 1e5;
-    if(gap_size > need_size*check_scale) {  // avoid from evict tiny tensors && for over budget scenario
-      gap_flag = true;
+    // if(gap_size > need_size*check_scale) {  // avoid from evict tiny tensors && for over budget scenario
+    if(gap_flag) {  // avoid from evict tiny tensors && for over budget scenario
+      // gap_flag = true;
       for(auto size_it=size_map.rbegin(); size_it!=size_map.rend(); ++size_it){
         bool all_cannot_evict = true;
         for(auto &seg: size_it->second){
@@ -1453,54 +1455,52 @@ public:
     }
   #endif
 
-    if(!if_satisfy) { // trigger move_defrag process
-      std::vector<SegmentTwin*> candidates_segments;
-      auto it = size_map.lower_bound(need_size);
-      if(it!=size_map.end()) {
-        candidates_segments = it->second;
-        std::sort(candidates_segments.begin(), candidates_segments.end(), [](SegmentTwin* lhs, SegmentTwin* rhs) {
-          if(lhs->frag_ratio != rhs->frag_ratio) return lhs->frag_ratio > rhs->frag_ratio;
-          if(lhs->last_change_time != rhs->last_change_time) return lhs->last_change_time < rhs->last_change_time;
-          return lhs->blocks.size() < rhs->blocks.size();
-        });
+    return if_satisfy;
 
-        auto target_seg = candidates_segments.front();
-        // if(target_seg->frag_ratio < 0.7) xxx;    /// TODO: if cancel the move when the frag ratio is at a low level 
+  }
 
-#ifdef DEBUG_MODE
-        size_t before_mv = c10::dtb::current_memory(device);
-        size_t allocted_size_in = 0;
-#endif
+  bool move_for_defrag(size_t need_size, int device) {
+    std::vector<SegmentTwin*> candidates_segments;
+    auto it = size_map.lower_bound(need_size);
+    if(it==size_map.end()) return false;
 
-        if(target_seg->frag_ratio > 0.6) {
-          for(auto& bit: target_seg->blocks) {
-            if(bit->allocated){
-              auto *ptr = bit->ptr;
-              auto res = pm->get_ap_by_ptr(ptr);
-              if(res.second) {
-                if(auto sap = res.first.lock()) {
-                  sap->clone_and_reset(need_size);
-                  allocted_size_in += sap->memory;
-                } 
-              }
-            }
-          }
+    candidates_segments = it->second;
+    std::sort(candidates_segments.begin(), candidates_segments.end(), [](SegmentTwin* lhs, SegmentTwin* rhs) {
+      if(lhs->frag_ratio != rhs->frag_ratio) return lhs->frag_ratio > rhs->frag_ratio;
+      if(lhs->last_change_time != rhs->last_change_time) return lhs->last_change_time < rhs->last_change_time;
+      return lhs->blocks.size() < rhs->blocks.size();
+    });
+
+    auto target_seg = candidates_segments.front();
+    if(target_seg->frag_ratio < 0.6 || target_seg->frag_ratio == 1.f) return false;    /// TODO: if cancel the move when the frag ratio is at a low level 
 
 #ifdef DEBUG_MODE
-          if(c10::dtb::record_move_defrag){
-            std::cout << "seg size: " << target_seg->total_size << ", frag ratio: " << target_seg->frag_ratio << ", before mv: "
-                      << before_mv/1024/1024 << "MB, after mv: " << c10::dtb::current_memory(device)/1024/1024 << "MB, record inner size: "
-                      << allocted_size_in/1024/1024 << "MB\n";
-          }
+    size_t before_mv = c10::dtb::current_memory(device);
+    size_t allocted_size_in = 0;
 #endif
+    auto *pm = c10::dtb::getDTBPoolManager();
+    for(auto& bit: target_seg->blocks) {
+      if(bit->allocated){
+        auto *ptr = bit->ptr;
+        auto res = pm->get_ap_by_ptr(ptr);
+        if(res.second) {
+          if(auto sap = res.first.lock()) {
+            sap->clone_and_reset(need_size);
+            allocted_size_in += sap->memory;
+          } 
         }
-
       }
     }
 
-    if_satisfy = (c10::dtb::current_memory(device)+need_size) < c10::dtb::memory_budget;
+#ifdef DEBUG_MODE
+      if(c10::dtb::record_move_defrag){
+        std::cout << "seg size: " << target_seg->total_size << ", frag ratio: " << target_seg->frag_ratio << ", before mv: "
+                  << before_mv/1024/1024 << "MB, after mv: " << c10::dtb::current_memory(device)/1024/1024 << "MB, record inner size: "
+                  << allocted_size_in/1024/1024 << "MB\n";
+      }
+#endif
 
-    return if_satisfy;
+  return true;
 
   }
 
@@ -2441,7 +2441,10 @@ class DeviceCachingAllocator {
           bool if_evict = pm->auto_evict(device, size);
         }else{  // UNIFIED_EVICT
           auto if_evict = segManager.auto_evict(size, device, stream);
-          if(!if_evict) segManager.auto_evict(1, device, stream);
+          if(!if_evict) {
+            auto if_mv = segManager.move_for_defrag(size, device);
+            segManager.auto_evict(size, device, stream, true); // gap size case
+          }
         }
       }
     }
