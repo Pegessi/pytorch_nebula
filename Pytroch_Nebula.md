@@ -22,11 +22,11 @@ torch==2.1.0（源码安装的，之后不要随便pip install torch）
 conda create -n [env_name] python=3.10
 conda activate [env_name]
 
-git clone https://github.com/Pegessi/pytorch [rename]
+git clone https://github.com/Pegessi/pytorch_nebula [rename]
 cd [rename]
-git switch dtb
-git submodule sync
-git submodule update --init --recursive
+# git switch dtb
+# git submodule sync
+# git submodule update --init --recursive
 
 conda install cmake ninja
 pip install -r requirements.txt
@@ -38,7 +38,7 @@ pip install pyyaml
 export CMAKE_PREFIX_PATH=${CONDA_PREFIX:-"$(dirname $(which conda))/../"}
 # BUILD_TEST=0 CMAKE_BUILD_TYPE=Debug python setup.py develop # debug c++
 BUILD_TEST=0 python setup.py develop # release
-# use GMLake (暂不可用)
+# use GMLake (暂不可用，需要单独切换分支编译)
 # GMLAKE_ENABLED=1 TORCH_CUDA_ARCH_LIST="8.0" USE_CUDA=1 BUILD_TEST=0 CMAKE_BUILD_TYPE=Debug python setup.py develop
 ```
 
