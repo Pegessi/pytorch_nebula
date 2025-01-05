@@ -493,8 +493,12 @@ class Tensor(torch._C._TensorBase):
         torch.autograd.backward(
             self, gradient, retain_graph, create_graph, inputs=inputs
         )
-        if self.device.index != -1:
-            torch.clear_checkpointpool(self.device.index)
+        try:
+            if self.device.index != -1:
+                # print('[CHECK DEIVCE INDEX]', self.device)
+                torch.clear_checkpointpool(self.device.index)
+        except Exception as e:
+            print(e)
         torch.unset_backward_flag()
 
     def register_hook(self, hook):

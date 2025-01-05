@@ -96,7 +96,7 @@ void AliasPool::evict(int mode) { // 0 - evict | 1 - deconstruct | 2 - Irreversi
       }
       valid_w++;
 #endif
-      cell->evict();
+      cell->evict(mode);
     }
   }
 #ifdef DEBUG_MODE

@@ -427,6 +427,9 @@ void DTBCheckpointPool::lock_temp_ext(int device, const weak& w_cptc) {
   pool->temp_cptc.push_back(w_cptc);
   if(auto scptc = w_cptc.lock()){       // lock temp cptc
     scptc->pool->lock();
+    if(c10::dtb::during_backward)
+      scptc->pool->lock();  // lock another times for longer lifetime
+
     // DTRLogAddress("lock "+scptc->counter_name()+ " " + std::string(scptc->dtype().name()) + " device:" + std::to_string(device), 
     //       scptc->pool->addr, scptc->pool->lock_count);
     scptc->pool->if_temp = true;

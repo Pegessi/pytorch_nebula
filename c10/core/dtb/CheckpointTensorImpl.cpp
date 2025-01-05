@@ -240,6 +240,19 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
     //   if_res_retain = true;
     // }
   }
+
+#ifdef DEBUG_MODE
+  if(record_remat_recs) {
+    std::string need_xids = "";
+    for(auto& s: inputs) {
+      need_xids += s->counter_name() + ", ";
+    }
+    need_xids = need_xids.substr(0, need_xids.length() - 2);
+    DTRLogAddress("prepare inputs: "+need_xids + ", op: " + name, 0, 0);
+  }
+#endif
+
+
 #ifdef DEPTH_ENABLE
   int cumulative_num = 0;
   Tensors raw_inputs = uncheckpoint_with_depth(inputs, cumulative_num);
@@ -315,6 +328,7 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
         alias_pool->head_remat->compute_cost += cur_compute_cost;
       }
     }
+    if(during_backward) alias_pool->is_retain = true;
     auto e = intrusive_ptr<External>::make(t, alias_pool, remat); // bind external for t
 
 #ifdef DEBUG_MODE
@@ -637,23 +651,6 @@ Tensors CheckpointTensorImpl::make(const std::string& name,
     DTRLogOPRecords(ret.rec.rid, ret.rec.name, static_cast<int64_t>(std::chrono::duration_cast<std::chrono::microseconds>(ret.rec.time).count()),
                     ret.rec.mem, ret.rec.inputs, ret.rec.outputs, ret.rec.device);
   }
-  // if (use_log_) {
-  //   std::vector<std::string> res;
-  //   res.reserve(ret.outputs.size());
-
-  //   for (const auto& tensor : tensors) {
-  //     res.push_back(get_cpti(tensor)->counter_name());
-  //   }
-
-  //   DTRLogCall(res, name, args, from_time(ret.time));
-  //   for (size_t i = 0; i < tensors.size(); ++i) {
-  //     Tensor t = tensors[i];
-  //     auto cpti = get_cpti(t);
-  //     DTRLogMemory(cpti->counter_name(), cpti->unsafeGetTensorCell()->memory());
-  //     DTRLogAlias(cpti->counter_name(), ret.aliases[i]);
-  //     // DTRLogAlias(cpti->counter_name(), ret.aliases[i], cpti->unsafeGetTensorCell()->pool->tensors.size());
-  //   }
-  // }
 #endif
 
   return tensors;
