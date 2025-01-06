@@ -64,7 +64,7 @@ CheckpointTensorCell::CheckpointTensorCell(Tensor& t,
   fill(t);
 }
 
-void CheckpointTensorCell::evict() {
+void CheckpointTensorCell::evict(int mode) {  // 0 - evict | 1 - deconstruct | 2 - Irreversible deconstruction | -1 unknow call
   TORCH_CHECK(remat);
   defined = false;
 #ifdef MEM_FIRST_EVICT
@@ -77,13 +77,13 @@ void CheckpointTensorCell::evict() {
   }
   if(record_cpevict_recs) {
     if(t)
-      DTRLogAddress("release "+counter_name() + " if_tmp:"+std::to_string(pool->if_temp?1:0) + " if_weight:" + std::to_string(pool->if_weight?1:0)
+      DTRLogAddress("[mode:" + std::to_string(mode) + "] release "+counter_name() + " if_tmp:"+std::to_string(pool->if_temp?1:0) + " if_weight:" + std::to_string(pool->if_weight?1:0)
          + " if_retain:" + std::to_string(pool->is_retain?1:0)
-         + " " + std::to_string(pool->external_count) + std::to_string(pool->lock_count), 
+         + " external|lock:" + std::to_string(pool->external_count) + std::to_string(pool->lock_count), 
         reinterpret_cast<uintptr_t>(t->data_ptr()), pool->memory);
     else
-      DTRLogAddress("release "+counter_name() + " if_tmp:"+std::to_string(pool->if_temp?1:0) + " if_weight:" + std::to_string(pool->if_weight?1:0) 
-         + " if_retain:" + std::to_string(pool->is_retain?1:0)
+      DTRLogAddress("[mode:" + std::to_string(mode) + "] release "+counter_name() + " if_tmp:"+std::to_string(pool->if_temp?1:0) + " if_weight:" + std::to_string(pool->if_weight?1:0) 
+         + " if_retain:" + std::to_string(pool->is_retain?1:0) + " external|lock:"
          + std::to_string(pool->external_count) + std::to_string(pool->lock_count), 
         pool->addr, pool->memory);
   }
@@ -113,7 +113,7 @@ Tensor CheckpointTensorCell::get(){
 #ifdef DEBUG_MODE
       // if(record_er_counts)
       //   DTRLogRematEvents(counter_name(), 0);
-      if(record_cpevict_recs)
+      if(record_remat_recs)
         DTRLogAddress("remat need "+counter_name(), pool->addr, pool->memory);
 #endif
       remat->remat();

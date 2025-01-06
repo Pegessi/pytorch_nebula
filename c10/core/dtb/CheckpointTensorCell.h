@@ -60,7 +60,7 @@ struct CheckpointTensorCell : intrusive_ptr_target {
   // A evictable tensor must have Rematerializer.
   intrusive_ptr<AliasPool> pool;
   intrusive_ptr<Rematerializer> remat;
-  void evict();
+  void evict(int mode=-1);
 
   void fill(Tensor& t);
 

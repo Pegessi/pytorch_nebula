@@ -586,13 +586,14 @@ void CheckpointPool::clear_exts(bool last_iter){
     while(!temp_cptc.empty()){
       if(auto sext = temp_cptc.back().lock()){
   #ifdef DEBUG_MODE
-        if(record_cpevict_recs)
+        // if(record_cpevict_recs)
           // DTRLogAddress("clear temp begin "+sext->counter_name() + " if_tmp:"+std::to_string(sext->pool->if_temp?1:0) + " " + std::to_string(sext->pool->external_count) + std::to_string(sext->pool->lock_count), 
           //   reinterpret_cast<uintptr_t>(sext->pool->addr), sext->pool->memory);
   #endif
+        // while(sext->pool->lock_count!=0)
         sext->pool->unlock();
       }
-      temp_cptc.pop_back();
+      temp_cptc.pop_back(); 
     }
   }
 // #define DEBUG_MODE
@@ -635,9 +636,10 @@ void CheckpointPool::show_exts() {
           }else{
             pool_id = pool_rec[pool_ptr];
           }
-          // if(e->value->pool->memory==268435456){  // external_count并不能区分native_dropout的张量
-          printf("exts size: %ld, size:%ld, external_count:%ld, is_weight:%d, pool_count:%d device_id:%d, have_remat:%d input_sizes:%ld output_sizes:%ld counts:%d addr:%ld\n", 
-            exts.size(), e->value->pool->memory, e->value->pool->external_count, e->value->pool->if_weight ? 1 : 0, pool_id,
+          std::string tid = e->value->counter_name();
+          
+          printf("exts size: %ld, tid: %s, size:%ld, external_count:%ld, is_weight:%d, pool_count:%d device_id:%d, have_remat:%d input_sizes:%ld output_sizes:%ld counts:%d addr:%ld\n", 
+            exts.size(), tid.c_str(), e->value->pool->memory, e->value->pool->external_count, e->value->pool->if_weight ? 1 : 0, pool_id,
             e->value->pool->device_id, e->value->pool->head_remat ? 1 : 0, 
             e->value->pool->head_remat ? e->value->pool->head_remat->inputs.size() : 0,
             e->value->pool->head_remat ? e->value->pool->head_remat->outputs.size(): 0,

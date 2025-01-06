@@ -85,31 +85,6 @@ void DCManager::run_Louvain_Detection(){
     } while(improvement);
 }
 
-// void DCManager::find_chain_in_borders(){
-//     for(auto& s: singleton_comms[0].border_nodes) {
-//         auto new_node = StrongChainNode::make(s.value);
-//         auto new_chain = ResidualChainRef::make(new_node);
-//         chains.push_back(new_chain);
-//     }
-//     const auto& starts = singleton_comms[0]->border_nodes;
-//     for(size_t cid=1; cid<singleton_comms.size(); cid++) {
-//         for(auto& e: singleton_comms[i]) {
-//             if(auto e_n = e->value.lock()) {
-//                 for(auto& chain: chains) {
-//                     auto end_node = chain.members.back().value.lock();
-//                     if(end_node) {
-//                         for(const auto& it: end_node->remat->inputs){
-//                             if(it->pool->addr==end_node->pool->addr) {· ·   ··· 
-//                                 chain.push_back(weak(it));
-//                                 break;
-//                             }
-//                         }
-//                     }
-//                 }
-//             }
-//         }
-//     }
-// }
 
 void DCManager::flush_community_singleton() {
     size_t unlock_counts = 0;
@@ -164,6 +139,7 @@ void DCManager::flush_community_singleton() {
 
             }
         }
+<<<<<<< HEAD
 
         if(record_dcr_memory) {
             std::vector<void*> ptrs;
@@ -181,6 +157,8 @@ void DCManager::flush_community_singleton() {
             }
             c10::cuda::CUDACachingAllocator::logPtrInfo(c10::cuda::current_device(), ptrs);
         }
+=======
+>>>>>>> main
 #endif
     }
 #ifdef DEBUG_MODE
