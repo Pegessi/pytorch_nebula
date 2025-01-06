@@ -133,7 +133,7 @@ at::Tensor _cslt_sparse_mm(
         break;
     case at::ScalarType::Float:
         type = CUDA_R_32F;
-        compute_type = CUSPARSE_COMPUTE_32F;
+        compute_type = CUSPARSE_COMPUTE_TF32; // CUSPARSE_COMPUTE_32F is being modified to CUSPARSE_COMPUTE_TF32 by whb
         break;
     default:
         TORCH_CHECK(false, "Unsupported dtype for cuSPARSE compressed matrix multiplication.");
