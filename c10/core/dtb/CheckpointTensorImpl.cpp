@@ -84,6 +84,8 @@ void CheckpointTensorImpl::shallow_copy_from(const c10::intrusive_ptr<TensorImpl
 
 #ifdef DEBUG_MODE
 long CheckpointTensorCell::counter = 0;
+long CheckpointTensorCell::weight_counter = 0;
+bool CheckpointTensorImpl::if_weight_ = false;
 #endif
 
 #ifdef DCR_MANAGE
@@ -649,7 +651,7 @@ Tensors CheckpointTensorImpl::make(const std::string& name,
     ret.rec.inputs = std::move(input_ids);
     ret.rec.outputs = std::move(output_ids);
     DTRLogOPRecords(ret.rec.rid, ret.rec.name, static_cast<int64_t>(std::chrono::duration_cast<std::chrono::microseconds>(ret.rec.time).count()),
-                    ret.rec.mem, ret.rec.inputs, ret.rec.outputs, ret.rec.device);
+                    ret.rec.mem, ret.rec.inputs, ret.rec.outputs, ret.rec.device, if_weight_);
   }
 #endif
 
@@ -716,7 +718,7 @@ Tensors CheckpointTensorImpl::make(const std::string& name,
     ret.rec.inputs = std::move(input_ids);
     ret.rec.outputs = std::move(output_ids);
     DTRLogOPRecords(ret.rec.rid, ret.rec.name, static_cast<int64_t>(std::chrono::duration_cast<std::chrono::microseconds>(ret.rec.time).count()),
-                    ret.rec.mem, ret.rec.inputs, ret.rec.outputs, ret.rec.device);
+                    ret.rec.mem, ret.rec.inputs, ret.rec.outputs, ret.rec.device, if_weight_);
   }
   // if (use_log_) {
   //   std::vector<std::string> res;
@@ -798,7 +800,7 @@ void CheckpointTensorImpl::mutate(const std::string& name,
     ret.rec.inputs = std::move(input_ids);
     ret.rec.outputs = std::move(output_ids);
     DTRLogOPRecords(ret.rec.rid, ret.rec.name, static_cast<int64_t>(std::chrono::duration_cast<std::chrono::microseconds>(ret.rec.time).count()),
-                    ret.rec.mem, ret.rec.inputs, ret.rec.outputs, ret.rec.device);
+                    ret.rec.mem, ret.rec.inputs, ret.rec.outputs, ret.rec.device, if_weight_);
   }
   if (use_log_) {
     DTRLogMutate(name, args, mutate_idx, from_time(ret.time));
@@ -865,7 +867,7 @@ void CheckpointTensorImpl::mutate(const std::string& name,
     ret.rec.inputs = std::move(input_ids);
     ret.rec.outputs = std::move(output_ids);
     DTRLogOPRecords(ret.rec.rid, ret.rec.name, static_cast<int64_t>(std::chrono::duration_cast<std::chrono::microseconds>(ret.rec.time).count()),
-                    ret.rec.mem, ret.rec.inputs, ret.rec.outputs, ret.rec.device);
+                    ret.rec.mem, ret.rec.inputs, ret.rec.outputs, ret.rec.device, if_weight_);
   }
   if (use_log_) {
     DTRLogMutate(name, args, mutate_idx, from_time(ret.time));
@@ -883,6 +885,9 @@ void CheckpointTensorImpl::release_resources() {
 }
 
 CheckpointTensorImpl::CheckpointTensorImpl(Tensor& t, bool if_weight) : CheckpointTensorImpl(c10::make_intrusive<External>(t, if_weight)) {
+  if_weight_ = if_weight;
+  // DTRLogger::logger().log("if_weight: " + std::to_string(if_weight));
+
   // set_custom_sizes_strides(SizesStridesPolicy::CustomStrides);
   // set_custom_sizes_strides(SizesStridesPolicy::CustomSizes);
   if(unsafeGetTensorCell()->t->defined())
@@ -927,6 +932,12 @@ CheckpointTensorImpl::CheckpointTensorImpl(Tensor& t, bool if_weight) : Checkpoi
   // pm->add_ap(device_id, ref->value->value->pool);                                       
 #else
   pool.exts.push_back(weak_intrusive_ptr<External>(ref->value));
+#endif
+
+#ifdef DEBUG_MODE
+  if (COUNTER_RENUMBER && if_weight) {  
+    CheckpointTensorCell::weight_counter = CheckpointTensorCell::counter + 1; //不知道为啥少了1
+  }
 #endif
 }
 

@@ -78,6 +78,12 @@ static const bool COST_FIRST_EVICT = ([]() -> bool {
     else    return false;
 })();
 
+static const bool COUNTER_RENUMBER = ([]() -> bool {
+    const char* env = getenv("COUNTER_RENUMBER");
+    if(env) return (atoi(env))==1;
+    else    return false;
+})();
+
 static const bool UNIFIED_EVICT = !COST_FIRST_EVICT;
 
 constexpr const int dep_threshold = 50;             /// 重物化链深度阈值

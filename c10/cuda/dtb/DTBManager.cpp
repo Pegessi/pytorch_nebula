@@ -552,6 +552,13 @@ void DTBCheckpointPool::set_during_backward(bool flag){
   }
 }
 
+void DTBCheckpointPool::call_flush_community_singleton(int device) { // add by whb
+  init_check();
+  auto pool = device_dtbpool[device].get();
+  if(!pool->tmp_dcm.defined()) return;
+  pool->tmp_dcm->flush_community_singleton();
+}
+
 void DTBCheckpointPool::clear_checkpointpool(int device, bool last_iter){
   if(device_dtbpool.empty()) return;          // exec without dtbpool  
   auto pool = device_dtbpool[device].get();

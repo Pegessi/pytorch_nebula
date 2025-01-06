@@ -42,7 +42,7 @@ bool store_in_special_pool[8] = {false};
 
 #ifdef DEBUG_MODE
 constexpr const bool record_er_counts = false;        // 驱逐&重物化次数
-constexpr const bool record_op_recs = false;          // 是否记录op历史
+constexpr const bool record_op_recs = true;          // 是否记录op历史
 constexpr const bool record_cpevict_recs = false;
 constexpr const bool record_remat_recs = false;
 constexpr const bool record_fragmentation = false;    // 记录碎片化和内存占用数据
@@ -52,7 +52,7 @@ constexpr const bool record_dependcy = false;
 constexpr const bool record_key_chain = false;
 constexpr const bool trace_register_and_release = false;
 constexpr const bool trace_evicted_tensor = false;
-constexpr const bool record_dcr_process = false;       // 记录dcr的聚类过程
+constexpr const bool record_dcr_process = true;       // 记录dcr的聚类过程
 
 size_t dcr_lock_counts = 0;
 

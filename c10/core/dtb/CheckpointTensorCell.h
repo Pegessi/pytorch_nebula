@@ -19,6 +19,7 @@ struct CheckpointTensorCell : intrusive_ptr_target {
 #ifdef DEBUG_MODE
   long id = gen_counter();
   static long counter;
+  static long weight_counter; // 权重编号
   static long gen_counter() {
     return counter++;
   }

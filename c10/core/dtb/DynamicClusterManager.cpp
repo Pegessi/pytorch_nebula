@@ -1,4 +1,6 @@
 #include <c10/core/dtb/DynamicClusterManager.h>
+#include <filesystem>  // C++17 filesystem库
+#include <fstream>     // 文件读写
 
 namespace c10 {
 namespace dtb {
@@ -86,6 +88,11 @@ void DCManager::run_Louvain_Detection(){
 
 
 void DCManager::flush_community_singleton() {
+    static int print_comms_count = 0;
+    std::cout << "Call flush_community_singleton() times: " <<  ++print_comms_count << std::endl;
+    DTRLogger::logger().log("Call flush_community_singleton() times: "  + std::to_string(print_comms_count));
+    DTRLogger2::logger().log("Call flush_community_singleton() times: "  + std::to_string(print_comms_count));
+
     size_t unlock_counts = 0;
     if(singleton_comms.size()!=com->size)
         singleton_comms.resize(com->size);
@@ -103,6 +110,14 @@ void DCManager::flush_community_singleton() {
         singleton_comms[cid].insert_node(original_dg->cptcs[nid], is_border);
     }
     size_t total_mem = 0, total_act = 0;
+
+    if (time_prefix_.empty()) {
+      time_prefix_ = DTRLogger::get_time_prefix();
+      prepareDir_(logDirectoryPrepared, time_prefix_);
+    }
+    static const std::string n2cLogsDir = time_prefix_ + "/n2clog";
+    print_comms(print_comms_count, n2cLogsDir);
+
     for(size_t cid=0; cid<singleton_comms.size(); cid++) {
         singleton_comms[cid].clear_outers(original_dg, cid);
         accum_lock_mem += singleton_comms[cid].lock_borders();
@@ -153,6 +168,22 @@ void DCManager::flush_community_singleton() {
 void DCManager::clear_comms() {
     for(auto& sc: singleton_comms) {
         sc.unlock_borders();
+    }
+}
+
+void DCManager::print_comms(int print_comms_count, const std::string n2cLogsDir) {
+    static bool isprepareN2CLogDir = false;  //第一次调用时准备好日志目录
+    prepareDir_(isprepareN2CLogDir, n2cLogsDir); // 文件夹准备
+
+    std::string N2C_file_path = n2cLogsDir + "/" + std::to_string(print_comms_count) + ".txt";
+
+    std::ofstream log_file(N2C_file_path);  // 打开文件输出流
+    if (log_file.is_open()) {
+        const auto& n2c = original_dg->n2c;
+        for (size_t node_id = 0; node_id < n2c.size(); ++node_id) {
+            log_file << n2c[node_id] << "\n";
+        }
+        log_file.close();  // 关闭文件流
     }
 }
 

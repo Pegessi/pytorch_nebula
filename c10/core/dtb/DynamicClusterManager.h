@@ -34,6 +34,8 @@ public:
 
     void clear_comms();
 
+    void print_comms(int print_comms_count, const std::string n2cLogsDir); 
+
     void release_resources() override;
     
 };

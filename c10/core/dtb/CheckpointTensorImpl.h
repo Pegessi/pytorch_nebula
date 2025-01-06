@@ -83,6 +83,8 @@ struct TORCH_API CheckpointTensorImpl : public TensorImpl {
 
   explicit CheckpointTensorImpl(Tensor& t, bool if_weight=false);
 
+  static bool if_weight_;
+
   static Tensors make(const std::string& name,
                       const rematerialize_function_t& remat,
                       Tensors& inputs);

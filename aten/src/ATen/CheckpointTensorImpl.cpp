@@ -16,6 +16,8 @@
 #include <queue>
 #include <unordered_map>
 #include <unistd.h>
+#include "../../../c10/core/dtb/comm_heads.h" // for the use of USE_NEW_LOG
+
 
 
 namespace at {
@@ -252,12 +254,19 @@ void set_backward_flag(){
 //   auto *pm = getDTBPoolManager();
 //   pm->set_during_backward(true);
 // #else
+  auto *pm = getDTBPoolManager();
+  pm->call_flush_community_singleton(int(c10::cuda::current_device()));
+
   during_backward = true;
 // #endif
   // printf("SET_BACKWARD_FALG TRIGGER\n");
 }
 
 void unset_backward_flag(){
+#ifdef DEBUG_MODE
+  if (COUNTER_RENUMBER)
+    CheckpointTensorCell::counter = CheckpointTensorCell::weight_counter;
+#endif
 // #ifdef MULTI_MODE
 //   auto *pm = getDTBPoolManager();
 //   pm->set_during_backward(false);

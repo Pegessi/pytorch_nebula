@@ -159,6 +159,8 @@ static const bool USE_DTR = ([]() -> bool {    /// init if use dtr by check env 
 
       void set_during_backward(bool flag);
 
+      void call_flush_community_singleton(int device);
+
       void clear_checkpointpool(int device, bool last_iter=true);
 
       void pool_cur_mem_snapshot(int device);
