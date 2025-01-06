@@ -14,7 +14,7 @@ std::string DTRLogger::get_time_prefix() {
            std::to_string(tm->tm_mday) + "-" +
            std::to_string(tm->tm_hour) + "-" +
            std::to_string(tm->tm_min) + "-" +
-           std::to_string(tm->tm_sec) + "-" +
+          //  std::to_string(tm->tm_sec) + "-" +
            std::to_string(pid);
 }
 

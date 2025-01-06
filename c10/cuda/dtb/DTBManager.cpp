@@ -53,7 +53,6 @@ void DTBCheckpointPool::auto_evict(int device) {                 /// TAG: multi 
     ///TODO: 更新当前依赖
 #ifdef DEBUG_MODE
     if(record_dependcy&&current_memory(device) > pool->memory_budget){
-      printf("trigger update dep\n");
       for (size_t i = 0; i < pool->aps.size(); i++) {
         auto ap_strong = pool->aps[i].lock();
         if (!ap_strong.defined()||ap_strong->ecn) {
@@ -99,7 +98,6 @@ void DTBCheckpointPool::auto_evict(int device) {                 /// TAG: multi 
     }
     ///TODO: 清空依赖
     if(record_dependcy&&if_eviction){
-      printf("trigger log dep\n");
       time_t current_time = std::chrono::system_clock::now();
       for (size_t i = 0; i < pool->aps.size(); i++) {
         auto ap_strong = pool->aps[i].lock();
@@ -198,23 +196,6 @@ bool DTBCheckpointPool::auto_evict(int device, size_t coming_bytes) {
   auto pool = device_dtbpool[device].get();
   long search_time_ = 0;
   time_t pre = std::chrono::system_clock::now();
-
-
-#ifdef DEBUG_MODE
-  if(record_dependcy&&(current_memory(device) + coming_bytes) > pool->memory_budget){
-    for (size_t i = 0; i < pool->aps.size(); i++) {
-      auto ap_strong = pool->aps[i].lock();
-      if (!ap_strong.defined()||ap_strong->ecn) {
-        continue;
-      } else {
-        if (ap_strong->evictable()) {
-          ap_strong->update_dependency();
-        }
-      }
-    }
-  }
-#endif
-
   if (pool->has_memory_budget&&if_train_mode[device]) {
     int check_counts[8] = {0};
     bool if_eviction = false;
@@ -235,7 +216,7 @@ bool DTBCheckpointPool::auto_evict(int device, size_t coming_bytes) {
         return false;
       }
     }
-#ifdef DEBUG_MODE
+    #ifdef DEBUG_MODE
     if(c10::dtb::trace_evicted_tensor){
       if(if_eviction){
         time_t post = std::chrono::system_clock::now();
@@ -243,23 +224,7 @@ bool DTBCheckpointPool::auto_evict(int device, size_t coming_bytes) {
         printf("single search time:%ld\n", search_time_);
       }
     }
-    if(record_dependcy&&if_eviction){
-      time_t current_time = std::chrono::system_clock::now();
-      for (size_t i = 0; i < pool->aps.size(); i++) {
-        auto ap_strong = pool->aps[i].lock();
-        if (!ap_strong.defined()||ap_strong->ecn) {
-          continue;
-        } else {
-          if (ap_strong->evictable()) {
-            auto dep = ap_strong->get_dependency();
-            // DTRLogCounts("ap dep", dep);
-            DTRLogDepAndCost("ap dep", dep, ap_strong->cost(current_time));
-          }
-        }
-      }
-      DTRLogCounts("once check end", 999);
-    }
-#endif
+    #endif
     return if_eviction;
   }else return false;
 }
@@ -299,6 +264,84 @@ void DTBCheckpointPool::add_ap(int device, intrusive_ptr<AliasPool>& new_ap){
 void DTBCheckpointPool::erase_ap(int device, uintptr_t addr){
   auto pool = device_dtbpool[device].get();
   pool->mem_ordered_aps.erase(addr);
+}
+
+/**
+ * Proactive remat tensors started from the first locked nodes.
+ * remat_depth is the remat length num, 1 means remat it's neighbors
+ * 2 means remat neighbors of neighors (second layer nodes)
+ * Here float is just created by historical reason, acctually it is a int
+ */
+void DTBCheckpointPool::proactive_remat(int device, float remat_depth, bool erase) {
+  init_check();
+  auto pool = device_dtbpool[device].get();
+  /**
+   * 下面是以保留节点为起始的恢复，但不易查询到驱逐节点
+   * TODO: 递归有点耗时，改为非递归写法，或者异步发起
+  */
+  auto it = pool->chains.begin();
+  while(it != pool->chains.end() && !(*it) -> is_locked){   // find the first locked chain
+    it = pool->chains.erase(it);
+  }
+  if(it != pool->chains.end()) {
+    for(auto& cn: (*it)->members) {
+      if(auto scptc = cn->value.lock()) {
+        scptc->remat_neghibors(static_cast<int>(remat_depth));
+      }
+    }
+  }
+#ifdef DCR_MANAGE
+
+#endif
+  
+  // pool->remat_front_batch(remat_depth, erase);
+}
+
+/**
+ [deprecated]
+ * record evicted tensors in eviction strageties.
+  Invalid for multi batch situation because of cptc with no batch info
+ */
+void DTBCheckpointPool::record_evicted_tensors(int device, const weak& wcptc) {
+  auto pool = device_dtbpool[device].get();
+  pool->add_evited_tensor(wcptc);
+}
+
+/**
+  [deprecated]
+  Invalid for multi batch situation because of cptc with no batch info
+ */
+void DTBCheckpointPool::push_batch_evicted_tensors(int device) {
+  if(device_dtbpool.empty()) return;
+  auto pool = device_dtbpool[device].get();
+#ifdef DEBUG_MODE
+  // size_t total_mem = 0;
+  // for(const auto& wcptc: pool->cur_batch_evicted_tensors){
+  //   if(auto scptc = wcptc.lock()){
+  //     total_mem += scptc->pool->memory;
+  //     std::string rec = "device:" + std::to_string(scptc->pool->device_id) + " mem:" + std::to_string(scptc->pool->memory/1024/1024) + " MB\n";
+  //     std::cout<< rec;
+  //   }
+  // }
+#endif
+  auto inserted = pool->push_single_batch_ets();
+#ifdef DEBUG_MODE
+  // if(inserted){
+  //   std::cout << int(c10::cuda::current_device()) << " evicted " << pool->evicted_batch_tensors.back().size() 
+  //     << " tensors (" << pool->evicted_batch_tensors.size() << " batch) "
+  //     << "total mem:" << total_mem/1024/1024 << "MB\n";
+  // }
+#endif
+}
+
+/**
+  [deprecated]
+  Invalid for multi batch situation because of cptc with no batch info
+ */
+void DTBCheckpointPool::clear_recorded_batch(int device) {
+  if(device_dtbpool.empty()) return;
+  auto pool = device_dtbpool[device].get();
+  pool->clear_recorded_batch();
 }
 
 #ifdef MEM_FIRST_EVICT
@@ -439,6 +482,31 @@ void DTBCheckpointPool::add_into_keychain(int device, const weak& new_key, const
 #endif
 }
 
+#ifdef DCR_MANAGE
+
+void DTBCheckpointPool::insert_dcm(int device, nid_t s, nid_t e, const weak& s_cell, const weak& e_cell, float w) {
+  init_check();
+  auto pool = device_dtbpool[device].get();
+
+  if(!pool->tmp_dcm.defined()) {
+    auto new_dcm = StrongDCM::make(DCR_INIT_SIZE, DCR_INTERVAL, DCR_NB_PASS, MIN_MODULARITY, DCR_TYPE);
+    pool->tmp_dcm = new_dcm;
+  }
+  pool->tmp_dcm->insert_single_edge(s, e, s_cell, e_cell, w);
+}
+
+void DTBCheckpointPool::add_dcm_into_queue(int device) {
+  init_check();
+  auto pool = device_dtbpool[device].get();
+  if(!pool->tmp_dcm.defined()) return;
+
+  pool->dcms.push_back(pool->tmp_dcm);
+  pool->tmp_dcm.reset();
+  
+}
+
+#endif
+
 
 void DTBCheckpointPool::toggle_sampling(bool if_sampling){
   for (const auto& pool : device_dtbpool) {
@@ -510,6 +578,7 @@ void DTBCheckpointPool::clear_checkpointpool(int device, bool last_iter){
     // }
   #endif
     pool->clear_exts(last_iter);
+    
   }
 }
 

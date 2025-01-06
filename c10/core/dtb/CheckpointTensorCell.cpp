@@ -1,7 +1,9 @@
 #include <c10/core/dtb/CheckpointTensorCell.h>
 #include <c10/core/dtb/utils.h>
 #include <c10/cuda/dtb/DTBManager.h>
+#include <c10/cuda/CUDACachingAllocator.h>
 #include <queue>
+#include <stack>
 
 #define TORCH_CHECK(a, ...)   // replace original TORCH_CHECK  profile mode
 
@@ -62,7 +64,7 @@ CheckpointTensorCell::CheckpointTensorCell(Tensor& t,
   fill(t);
 }
 
-void CheckpointTensorCell::evict() {
+void CheckpointTensorCell::evict(int mode) {  // 0 - evict | 1 - deconstruct | 2 - Irreversible deconstruction | -1 unknow call
   TORCH_CHECK(remat);
   defined = false;
 #ifdef MEM_FIRST_EVICT
@@ -73,15 +75,15 @@ void CheckpointTensorCell::evict() {
   if(trace_register_and_release){
     printf("---|cptc evict, addr:%ld\n", reinterpret_cast<uintptr_t>(t->data_ptr()));
   }
-  if(record_op_recs) {
+  if(record_cpevict_recs) {
     if(t)
-      DTRLogAddress("release "+counter_name() + " if_tmp:"+std::to_string(pool->if_temp?1:0) + " if_weight:" + std::to_string(pool->if_weight?1:0)
+      DTRLogAddress("[mode:" + std::to_string(mode) + "] release "+counter_name() + " if_tmp:"+std::to_string(pool->if_temp?1:0) + " if_weight:" + std::to_string(pool->if_weight?1:0)
          + " if_retain:" + std::to_string(pool->is_retain?1:0)
-         + " " + std::to_string(pool->external_count) + std::to_string(pool->lock_count), 
+         + " external|lock:" + std::to_string(pool->external_count) + std::to_string(pool->lock_count), 
         reinterpret_cast<uintptr_t>(t->data_ptr()), pool->memory);
     else
-      DTRLogAddress("release "+counter_name() + " if_tmp:"+std::to_string(pool->if_temp?1:0) + " if_weight:" + std::to_string(pool->if_weight?1:0) 
-         + " if_retain:" + std::to_string(pool->is_retain?1:0)
+      DTRLogAddress("[mode:" + std::to_string(mode) + "] release "+counter_name() + " if_tmp:"+std::to_string(pool->if_temp?1:0) + " if_weight:" + std::to_string(pool->if_weight?1:0) 
+         + " if_retain:" + std::to_string(pool->is_retain?1:0) + " external|lock:"
          + std::to_string(pool->external_count) + std::to_string(pool->lock_count), 
         pool->addr, pool->memory);
   }
@@ -101,8 +103,8 @@ Tensor CheckpointTensorCell::get(){
       // TORCH_CHECK(remat);
 #ifdef DEBUG_MODE
       if(!remat){
-        printf("[CHECK REMAT ERROR] tid:%s if_temp:%d device:%d tensors:%ld lc:%ld ec:%ld rc:%ld\n", counter_name().c_str(),
-          pool->if_temp ? 1 : 0, pool->device_id, pool->tensors.size(),
+        printf("[CHECK REMAT ERROR] tid:%s if_temp:%d device:%d tensors:%ld size:%ld dtype:%s lc:%ld ec:%ld rc:%ld\n", counter_name().c_str(),
+          pool->if_temp ? 1 : 0, pool->device_id, pool->tensors.size(), pool->memory, dtype_.name().data(),
           pool->lock_count, pool->external_count, pool->remat_count);
         printStackTrace();
       }
@@ -111,7 +113,7 @@ Tensor CheckpointTensorCell::get(){
 #ifdef DEBUG_MODE
       // if(record_er_counts)
       //   DTRLogRematEvents(counter_name(), 0);
-      if(record_op_recs)
+      if(record_remat_recs)
         DTRLogAddress("remat need "+counter_name(), pool->addr, pool->memory);
 #endif
       remat->remat();
@@ -169,6 +171,51 @@ int CheckpointTensorCell::precheck(){
 
   return dependency;
   // pool->set_dependency(dependency);
+}
+
+/**
+ * Remat output of cptc'remater
+ */
+void CheckpointTensorCell::remat_neghibors(int remat_depth) {
+  // if(remat && pool->external_count>0)
+  //   get();  // remat self
+  // if(remat_depth > 0) {
+  //   for(auto &wcptc: pool->neighbors) {
+  //     if(auto scptc = wcptc.lock()) {
+  //         // if(remat && pool->external_count>0)
+  //         //   scptc->get();
+  //         if(scptc->pool->is_evicted && scptc->pool->external_count>0) // 对被驱逐的需要的张量进行恢复
+  //           scptc->remat_neghibors(remat_depth-1);
+  //     }
+  //   }
+  // }
+  std::stack<std::pair<CheckpointTensorCell*, int>> stack;
+  std::unordered_map<CheckpointTensorCell*, int> marker;
+  stack.push({this, 0});  // Start with this cell
+  marker[this] = 1;
+
+  while (!stack.empty()) {
+      auto [current, depth] = stack.top();
+      stack.pop();
+
+      // Rematerialize current if needed
+      if (current->remat && current->pool->external_count > 0)
+          current->get();
+
+      // Push neighbors to stack if depth limit is not reached
+      if (depth < remat_depth) {
+          for (auto &wcptc : current->pool->neighbors) {
+              if (auto scptc = wcptc.lock()) {
+                  if (scptc->pool->is_evicted && scptc->pool->external_count > 0) {
+                      if(marker.find(scptc.get())==marker.end()){
+                        stack.push({scptc.get(), depth + 1});
+                        marker[scptc.get()] = 1;
+                      }
+                  }
+              }
+          }
+      }
+  }
 }
 
 }

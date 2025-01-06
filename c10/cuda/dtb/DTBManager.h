@@ -16,6 +16,7 @@
 #include <c10/core/dtb/External.h>
 #include <c10/core/dtb/CheckpointTensorCell.h>
 #include <c10/core/dtb/ResidualChain.h>
+#include <c10/core/dtb/DynamicClusterManager.h>
 
 namespace c10 {
 namespace dtb {
@@ -118,6 +119,14 @@ static const bool USE_DTR = ([]() -> bool {    /// init if use dtr by check env 
 
       void erase_ap(int device, uintptr_t addr);
 
+      void record_evicted_tensors(int device, const weak& wcptc);
+
+      void push_batch_evicted_tensors(int device);
+
+      void clear_recorded_batch(int device);
+
+      void proactive_remat(int device, float remat_depth, bool erase=true);
+
 #ifdef MEM_FIRST_EVICT
       void update_ap(intrusive_ptr<AliasPool>& ap, uintptr_t new_addr);
 
@@ -130,6 +139,12 @@ static const bool USE_DTR = ([]() -> bool {    /// init if use dtr by check env 
       bool check_ptr_in_aps(int device, uintptr_t addr);
 
       size_t get_aps_size(int device);
+#endif
+
+#ifdef DCR_MANAGE
+      void insert_dcm(int device, nid_t s, nid_t e, const weak& s_cell, const weak& e_cell, float w=1);
+
+      void add_dcm_into_queue(int device);
 #endif
 
       void toggle_sampling(bool if_sampling);
