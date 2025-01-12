@@ -911,10 +911,11 @@ CheckpointTensorImpl::CheckpointTensorImpl(Tensor& t, bool if_weight) : Checkpoi
   if(trace_register_and_release){
     printf("checkpoint new external, new ap:1, deivce:%d\n", device_id);
   }
-  // if(!if_weight){
-  //   pm->lock_temp_ext(c10::cuda::current_device(), weak(unsafeGetTensorCell()));
-  // }
+  if(!if_weight){
+    pm->lock_temp_ext(c10::cuda::current_device(), weak(unsafeGetTensorCell()));
+  }
   if(record_cpevict_recs) {
+    if(counter_name()=="x588") printf("!!!!!!!!!\n");
     DTRLogAddress("outer checkpoint "+counter_name()+ " " + std::string(unsafeGetTensorCell()->dtype().name()) + " device:" + std::to_string(device_id), 
       unsafeGetTensorCell()->pool->addr, unsafeGetTensorCell()->pool->memory);
   }

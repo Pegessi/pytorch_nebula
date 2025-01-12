@@ -139,7 +139,6 @@ void DCManager::flush_community_singleton() {
 
             }
         }
-<<<<<<< HEAD
 
         if(record_dcr_memory) {
             std::vector<void*> ptrs;
@@ -157,8 +156,6 @@ void DCManager::flush_community_singleton() {
             }
             c10::cuda::CUDACachingAllocator::logPtrInfo(c10::cuda::current_device(), ptrs);
         }
-=======
->>>>>>> main
 #endif
     }
 #ifdef DEBUG_MODE

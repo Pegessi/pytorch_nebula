@@ -259,6 +259,7 @@ extern const bool record_cpevict_recs;     // 记录驱逐记录
 extern const bool record_fragmentation;    // 记录碎片化和内存占用数据
 extern const bool record_lifecycle;        // 记录ap生命周期计数分布
 extern const bool record_ap_cost;          // 记录ap的cost分布
+extern const bool record_remat_recs;
 extern const bool record_dependcy;
 extern const bool record_key_chain;
 extern const bool trace_register_and_release;   // 追踪所有ext和ap的生命周期(适合demo debug)

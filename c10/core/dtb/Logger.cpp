@@ -4,6 +4,7 @@ namespace c10 {
 namespace dtb {
 
 DTRLogger::DTRLogger() : time_prefix(get_time_prefix()), out(get_filename("default")) {}
+DTRLogger::DTRLogger(const std::string& name) : time_prefix(get_time_prefix()), out(get_filename(name)) {}
 
 std::string DTRLogger::get_time_prefix() {
     std::time_t t = std::time(nullptr);
@@ -28,6 +29,11 @@ void DTRLogger::log(const std::string& str) {
 
 DTRLogger& DTRLogger::logger() {
     static DTRLogger ret;
+    return ret;
+}
+
+DTRLogger& DTRLogger::logger(const std::string& name) {
+    static DTRLogger ret(name);
     return ret;
 }
 
@@ -172,7 +178,7 @@ void DTRLogOPRecords(const int64_t& rid, const std::string& name, const int64_t&
     j["inputs"] = inputs;
     j["outputs"] = outputs;
     j["device"] = device;
-    DTRLogger::logger().log(j.dump());
+    DTRLogger::logger("oprec").log(j.dump());
   } else {
     DTRLogger::logger().log(CONSTANT + " " + name);
   }

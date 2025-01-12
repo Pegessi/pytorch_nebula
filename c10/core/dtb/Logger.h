@@ -14,11 +14,14 @@ struct DTRLogger {
     std::ofstream out;
 
     DTRLogger();
+    DTRLogger(const std::string& name);
+
 
     static std::string get_time_prefix();
     std::string get_filename(const std::string& name);
     void log(const std::string& str);
     static DTRLogger& logger();
+    static DTRLogger& logger(const std::string& name);
 };
 
 using json = nlohmann::json;
