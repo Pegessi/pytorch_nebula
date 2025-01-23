@@ -62,7 +62,7 @@ struct CheckpointTensorCell : intrusive_ptr_target {
   intrusive_ptr<Rematerializer> remat;
   void evict(int mode=-1);
 
-  void fill(Tensor& t);
+  void fill(Tensor& t, bool force=true);
 
   explicit CheckpointTensorCell(Tensor& t, const intrusive_ptr<AliasPool>& pool);
 

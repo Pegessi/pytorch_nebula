@@ -366,6 +366,7 @@ void DTBCheckpointPool::update_ap(intrusive_ptr<AliasPool>& sap, uintptr_t new_a
 
 /**
  * Remove addr's p2ap record.
+ * called by evict()
 */
 void DTBCheckpointPool::remove_p2ap(uintptr_t addr){
   // printf("[CHECK REMOVE] ptr:%ld, total:%ld\n", addr, p2ap.size());

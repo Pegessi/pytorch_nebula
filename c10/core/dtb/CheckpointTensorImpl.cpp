@@ -233,12 +233,8 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
   #ifdef ARITHMETIC_TEST
   cur_op_counts++;
   #endif
-  // bool if_res_retain = false;
   for (const strong& s : inputs) {                  // lock for unevictable
     s->pool->lock();
-    // if(!s->pool->head_remat.defined()) {
-    //   if_res_retain = true;
-    // }
   }
 
 #ifdef DEBUG_MODE
@@ -259,7 +255,8 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
 #else
   Tensors raw_inputs = uncheckpoint(inputs);        // cancel the monitor and get tensors
 #endif
-  auto device_id = static_cast<int>(raw_inputs[0].device().index());  /// do not influence device
+  // auto device_id = static_cast<int>(raw_inputs[0].device().index());  /// do not influence device
+  auto device_id = c10::cuda::current_device();  /// do not influence device
 
   time_t pre = std::chrono::system_clock::now();
   auto raw_outputs = remat_f(raw_inputs);
@@ -290,18 +287,21 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
   weaks weak_outputs;
   auto remat = intrusive_ptr<Rematerializer>::make(Unsafe(), remat_f, inputs, cur_compute_cost);
 
+  int t_count = 0;
   for (Tensor& t : raw_outputs) {             // prepare checkpoint for raw_outputs
     intrusive_ptr<AliasPool> alias_pool;
     int alias = get_alias(raw_inputs, t);           // check if t is an alias of tensor in inputs
     auto m = memory(t);
-    auto addr = get_addr(t);
+    uintptr_t addr = get_addr(t);
+
+
 #ifdef DEBUG_MODE
     bool new_ap = true;
 #endif
-    if (alias == -1) {
-      // alias_pool = intrusive_ptr<AliasPool>::make(Unsafe(), remat, m, device_id);
-      alias_pool = intrusive_ptr<AliasPool>::make(Unsafe(), remat, m, addr, device_id);     /// [TAG] AliasPool构造
 
+
+    if (alias == -1) {
+      alias_pool = intrusive_ptr<AliasPool>::make(Unsafe(), remat, m, addr, device_id);     /// [TAG] AliasPool构造
 #ifdef MULTI_MODE
       // pm->add_ap(device_id, alias_pool);
 #else
@@ -325,11 +325,21 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
         alias_pool->head_remat->compute_cost += cur_compute_cost;
       }
     }
-    if(during_backward) alias_pool->is_retain = true;
+
+    if(during_backward) alias_pool->is_retain = true;   /// for some special dependency!
     /// 这里最终会调用fill(t)
     auto e = intrusive_ptr<External>::make(t, alias_pool, remat); // bind external for t
 
+
 #ifdef DEBUG_MODE
+    if(record_p2ap_actions) {
+      if(pm->if_inp2ap(addr)) {
+        std::cout << "[INSERT AP MISS]" << reinterpret_cast<void*>(addr) << "\n";
+      } else {
+        std::cout << "[make_raw INSERT AP PTR] res(" << t_count++ << ") " << reinterpret_cast<void*>(addr) << ", " << alias_pool->memory << "\n";
+      }
+    }
+
     if(trace_register_and_release){
       printf("make_raw(%s) new external, new ap:%d, addr:%ld\n", name.c_str(), new_ap?1:0, e->value->pool->addr);
     }
@@ -340,14 +350,16 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
 #else
     pool.exts.push_back(weak_intrusive_ptr<External>(e));
 #endif
+
+
 #ifdef DEGREE_CHAIN
     if(!during_backward&&pm->if_train_mode[device_id]){ /// change degree for outputs
       e->value->add_degree(inputs.size());
-      // if_tensor_add_key_chain(weak(e->value), pm, device_id);  // output check cannot find residual
     }
 #endif
+
+
     alias_pool->tensors.push_back(weak(e->value));                // same storage in one alias_pool
-    // alias_pool->is_retain = if_res_retain;
     outputs.push_back(e);
     aliases.push_back(alias);
     weak_outputs.push_back(weak(outputs.back()->value));
@@ -530,7 +542,7 @@ MakeRawResult make_raw_rec(const rematerialize_function_t& remat_f,
       // alias_pool = intrusive_ptr<AliasPool>::make(Unsafe(), remat, m, device_id);
       alias_pool = intrusive_ptr<AliasPool>::make(Unsafe(), remat, m, addr, device_id);    /// [TAG] AliasPool构造
 #ifdef MULTI_MODE
-      pm->add_ap(device_id, alias_pool);
+      // pm->add_ap(device_id, alias_pool);
 #else
       pool.add(alias_pool);     /// TAG: alaispool新增的唯一入口
 #endif
@@ -913,7 +925,6 @@ CheckpointTensorImpl::CheckpointTensorImpl(Tensor& t, bool if_weight) : Checkpoi
     pm->lock_temp_ext(c10::cuda::current_device(), weak(unsafeGetTensorCell()));
   }
   if(record_cpevict_recs) {
-    if(counter_name()=="x588") printf("!!!!!!!!!\n");
     DTRLogAddress("outer checkpoint "+counter_name()+ " " + std::string(unsafeGetTensorCell()->dtype().name()) + " device:" + std::to_string(device_id), 
       unsafeGetTensorCell()->pool->addr, unsafeGetTensorCell()->pool->memory);
   }

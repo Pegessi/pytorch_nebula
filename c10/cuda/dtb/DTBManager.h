@@ -72,15 +72,23 @@ static const bool USE_DTR = ([]() -> bool {    /// init if use dtr by check env 
         // printf("[INSERT CHECK] %ld\n", reinterpret_cast<uintptr_t>(ptr));
         if(likely(ptr))   // some times with undefined tensor which memory=0
         {
+#ifdef DEBUG_MODE
+          if(record_p2ap_actions)
+            std::cout << "[insert_ptr2ap] ptr: " << ptr << "\n";
+#endif
           auto it = p2ap.find(ptr);
           // TORCH_INTERNAL_ASSERT(it==p2ap.end());
           if(likely(it!=p2ap.end()))  // 是否是同一个pool？
+          {
+#ifdef DEBUG_MODE
+            if(record_p2ap_actions) std::cout << "insert_ptr2ap erase ";
+#endif
             erase_ptr2ap(ptr);
+          }
           p2ap.insert({ptr, ap});
           
         }else{
-          // printf("[ABNORMAL AP] ptr:%ld defined:%d", reinterpret_cast<uintptr_t>(ptr), ap->is_evicted ? 0 : 1);
-          // printf("[ABNORMAL AP] ptr:%ld defined:%d", reinterpret_cast<uintptr_t>(ptr), ap.defined());
+          /// NO this case!
         }
           // p2ap.insert({ptr, ap});
       }
@@ -88,8 +96,16 @@ static const bool USE_DTR = ([]() -> bool {    /// init if use dtr by check env 
       void erase_ptr2ap(void* ptr) {
         TORCH_INTERNAL_ASSERT(ptr);
         auto it = p2ap.find(ptr);
-        if(likely(it!=p2ap.end()))
+        if(likely(it!=p2ap.end())) {
+#ifdef DEBUG_MODE
+          if(record_p2ap_actions) std::cout << "[ERASE AP] ptr: " << ptr <<"\n";
+#endif
           p2ap.erase(it);
+        }else {
+#ifdef DEBUG_MODE
+          if(record_p2ap_actions) std::cout << "[ERASE ERROR] ptr: " << ptr << "\n";
+#endif
+        }
       }
 #endif      
 
@@ -117,7 +133,7 @@ static const bool USE_DTR = ([]() -> bool {    /// init if use dtr by check env 
 
       void lock_temp_ext(int device, const weak& w_cptc);
 
-      void erase_ap(int device, uintptr_t addr);
+      void erase_ap(int device, uintptr_t addr);  // [deprecated]
 
       void record_evicted_tensors(int device, const weak& wcptc);
 
@@ -129,6 +145,8 @@ static const bool USE_DTR = ([]() -> bool {    /// init if use dtr by check env 
 
 #ifdef MEM_FIRST_EVICT
       void update_ap(intrusive_ptr<AliasPool>& ap, uintptr_t new_addr);
+
+      bool if_inp2ap(uintptr_t addr) { return p2ap.find(reinterpret_cast<void*>(addr)) == p2ap.end(); }
 
       void remove_p2ap(uintptr_t addr);
 

@@ -18,7 +18,7 @@ void ChainNode::lock_value(){
       {
         auto t_ = cell->t->clone(); 
         cell->pool->evict(0);
-        cell->fill(t_);
+        cell->fill(t_, true);
       }else{
         cell->get();
       }

@@ -50,7 +50,7 @@ void Rematerializer::remat() {
   // if(remat_counts>1e5)
   //   throw std::runtime_error("Remat progress has been trapped in dead loop");
 #endif
-  // NOTE: author thinks that refactor using RAII for exception safety. however, RAII is not suitable for remat
+  // NOTE: DTR author thinks that refactor codes using RAII for exception safety. however, RAII is not suitable for remat
   for (const strong& s : inputs) {
     s->pool->lock();
   }
@@ -77,6 +77,10 @@ void Rematerializer::remat() {
       #endif
     #endif
   }
+#endif
+
+#ifdef MULTI_MODE
+  auto *pm = getDTBPoolManager();
 #endif
 
   auto ret = func(ts);
@@ -106,13 +110,11 @@ void Rematerializer::remat() {
   TORCH_CHECK(ret.size() == outputs.size());
   for (size_t i = 0; i < outputs.size(); ++i) {
     if (auto output_cell = outputs[i].lock()) {
-      // if(outputs.size()==2&&output_cell->pool->memory==268435456){
-      //   printf("check cell defined:%d ret[%ld] defined:%d before\n", output_cell->defined ? 1 : 0, i, ret[i].defined());
-      // }
       output_cell->fill(ret[i]);
-      // if(outputs.size()==2&&output_cell->pool->memory==268435456){
-      //   printf("check cell defined:%d ret[%ld] defined:%d after\n", output_cell->defined ? 1 : 0, i, ret[i].defined());
-      // }
+#ifdef MEM_FIRST_EVICT && defined(DEBUG_MODE) 
+      if(record_p2ap_actions) std::cout << "[remat UPDATE AP PTR]" << reinterpret_cast<void*>(output_cell->pool->addr) << "\n";
+#endif
+
 #ifndef ORIGINAL_DTR
       output_cell->pool->lock_remated();
 #endif

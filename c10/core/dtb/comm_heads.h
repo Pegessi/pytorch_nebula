@@ -250,6 +250,7 @@ extern COMMON_API bool store_in_special_pool[8];
 extern COMMON_API bool defrag_flag[8];
 extern COMMON_API bool move_defrag_flag[8];
 extern COMMON_API size_t move_defrag_max_size[8];
+extern COMMON_API std::vector<void*> move_defrag_seg_ptr;
 extern COMMON_API std::unordered_map<cudaStream_t, int>* stream_to_label;
 
 #ifdef DEBUG_MODE
@@ -267,6 +268,7 @@ extern COMMON_API const bool trace_evicted_tensor;  // 追踪驱逐算法选择�
 extern const bool record_dcr_process;     // 记录dcr过程
 extern const bool record_dcr_memory;      // 记录dcr过程中对应mem的情况
 extern const bool record_move_defrag;     // 记录move_defrag相关信息
+extern const bool record_p2ap_actions;    // 记录p2ap的操作
 
 extern size_t dcr_lock_counts;
 

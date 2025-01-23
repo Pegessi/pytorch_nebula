@@ -52,19 +52,25 @@ CheckpointInfo merge_cpi(CheckpointInfo l, CheckpointInfo r) {
   return CheckpointInfo(l.compute_cost + r.compute_cost);
 }
 
-void AliasPool::clone_and_reset(size_t max_size) {
-  c10::dtb::move_defrag_flag[device_id] = true;
-  c10::dtb::move_defrag_max_size[device_id] = max_size;
+void AliasPool::clone_and_reset() {
+  // c10::dtb::move_defrag_flag[device_id] = true;
+  // c10::dtb::move_defrag_max_size[device_id] = max_size;
   for (const weak& w : tensors) {
-    if (auto cell = w.lock()) {
-      auto t_ = cell->t->clone(); 
-      cell->evict();
-      cell->fill(t_);
-      break;
+    if (auto cell = w.lock()) {   // 存在cell对象，但其中的张量不在
+      if(cell->defined) {
+        if(cell->t->defined()) {  
+          auto t_ = cell->t->clone();
+          std::cout << "[clone_and_reset] evict and fill, org ptr:" << cell->t->data_ptr() << " new ptr:" << t_.data_ptr() 
+                    << ", size: " << memory << "\n";
+          cell->evict(0);
+          cell->fill(t_, true);
+        }
+        // break;
+      }
     }
   }
-  c10::dtb::move_defrag_flag[device_id] = false;
-  c10::dtb::move_defrag_max_size[device_id] = 0;
+  // c10::dtb::move_defrag_flag[device_id] = false;
+  // c10::dtb::move_defrag_max_size[device_id] = 0;
 }
 
 void AliasPool::evict(int mode) { // 0 - evict | 1 - deconstruct | 2 - Irreversible deconstruction
@@ -297,6 +303,7 @@ std::set<ecn_ptr> AliasPool::neighbor_ecn() {
 
 void AliasPool::set_not_evicted() {
   if (likely(is_evicted)) {
+  // if (1) {
     STATS.track("AliasPool::set_not_evicted(inside)");
     is_evicted = false;
 #if defined(MINIMAL_EVICT) || defined(MINIMAL_EVICT_COST)

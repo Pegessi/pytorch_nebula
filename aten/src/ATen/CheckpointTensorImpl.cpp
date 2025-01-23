@@ -83,11 +83,11 @@ namespace native {
 */
 Tensor checkpoint(Tensor& t, bool if_weight) {
   // STATS.track("checkpoint");
-  // if(!t.defined())
-  //   return Tensor(nullptr);
-  // auto cpti = intrusive_ptr<CheckpointTensorImpl>::make(t);   // 调用了Ref<intrusive_ptr<External>> External CheckpointTensorCell的相关构造函数
   auto cpti = c10::make_intrusive<CheckpointTensorImpl>(t, if_weight);      // cpti->ref->value->value->t 是包裹的unique_ptr<Tensor> unsafeGetTensorCell()
+
 #ifdef DEBUG_MODE
+  if(c10::dtb::record_p2ap_actions) 
+    std::cout << "[checkpoint INSERT AP PTR]" << reinterpret_cast<void*>(cpti->unsafeGetTensorCell()->pool->addr) << "\n";
   if (use_log_) {
     c10::dtb::DTRLogConstant(cpti->counter_name());
     c10::dtb::DTRLogMemory(std::to_string(cpti->unsafeGetTensorCell()->pool->if_weight)+"-"+std::to_string(if_weight), cpti->unsafeGetTensorCell()->memory());

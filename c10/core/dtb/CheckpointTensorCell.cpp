@@ -19,12 +19,12 @@ namespace dtb {
  * But when using the `Tensor& t` as the argument type, which really `move` the t,
  * and manage t uniquely(almost manually), which may cause potential wild tensor and memory leak.
 */
-void CheckpointTensorCell::fill(Tensor& t) {
+void CheckpointTensorCell::fill(Tensor& t, bool force) {
   STATS.track("CheckpointTensorCell::fill");
   // if (!(this->t)) {
     pool->set_addr(get_addr(t));
     this->t = std::make_unique<Tensor>(std::move(t));
-    pool->set_not_evicted();                          /// TAG: 改变标志位，更新cost, MEM_FIRST_EVICT在上面的函数中更新了p2ap(add_ap)
+    pool->set_not_evicted();                          /// TAG: 改变标志位，更新cost
 #ifdef MULTI_MODE
     auto *pm = getDTBPoolManager();
     pm->add_ap(pool->device_id, pool);
@@ -75,12 +75,26 @@ void CheckpointTensorCell::evict(int mode) {  // 0 - evict | 1 - deconstruct | 2
   defined = false;
 #ifdef MEM_FIRST_EVICT
   auto *pm = getDTBPoolManager();
+  // if(record_p2ap_actions) {
+    // std::cout << "[evict " << mode << "] - ";
+  // }
   pm->remove_p2ap(pool->addr);            // remove old ptr record
 #endif
 #ifdef DEBUG_MODE
   if(trace_register_and_release){
     printf("---|cptc evict, addr:%ld\n", reinterpret_cast<uintptr_t>(t->data_ptr()));
   }
+  // if(t)
+  //   std::cout << "[mode:" + std::to_string(mode) + "] release "+counter_name() + " if_tmp:"+std::to_string(pool->if_temp?1:0) + " if_weight:" + std::to_string(pool->if_weight?1:0)
+  //       + " if_retain:" + std::to_string(pool->is_retain?1:0)
+  //       + " external|lock:" + std::to_string(pool->external_count) + std::to_string(pool->lock_count) + "\n";
+  //       // << " addr: "
+  //       // + std::to_string(reinterpret_cast<uintptr_t>(t->data_ptr())) << ", mem: " << pool->memory << "\n";
+  // else
+  //   std::cout << "[mode:" + std::to_string(mode) + "] release "+counter_name() + " if_tmp:"+std::to_string(pool->if_temp?1:0) + " if_weight:" + std::to_string(pool->if_weight?1:0) 
+  //       + " if_retain:" + std::to_string(pool->is_retain?1:0) + " external|lock:"
+  //       + std::to_string(pool->external_count) + std::to_string(pool->lock_count) + "\n", 
+  //     pool->addr, pool->memory;
   if(record_cpevict_recs) {
     if(t)
       DTRLogAddress("[mode:" + std::to_string(mode) + "] release "+counter_name() + " if_tmp:"+std::to_string(pool->if_temp?1:0) + " if_weight:" + std::to_string(pool->if_weight?1:0)

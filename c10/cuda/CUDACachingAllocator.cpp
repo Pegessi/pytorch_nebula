@@ -953,7 +953,9 @@ struct SegmentTwin {
   std::set<Block*, CompareBlockInSegment> blocks;
   bool is_small = false;
   bool evictable = true;        // change when flush_cost
+  bool all_can_mv = true;       // change when flush_cost
   size_t total_size;
+  size_t allocated_size = 0;
   time_t last_change_time;
   double max_evict_cost=0;      // represent cost of evicting this segment
   size_t can_free_size=0;
@@ -966,6 +968,7 @@ struct SegmentTwin {
   void insert(Block* block);
   void erase(Block* block);
   bool empty();
+  inline void flush_frag_ratio();
   inline Block* flush_cost(time_t cur, size_t need_size, cudaStream_t stream);
 };
 
@@ -987,6 +990,7 @@ SegmentTwin::SegmentTwin(Block* head) {
 void SegmentTwin::insert(Block* block) {
   // blocks.emplace_back(block);
   blocks.insert(block);
+  // allocated_size += block->allocated ? block->size : 0;
   evictable = true;
   // last_change_time = std::chrono::system_clock::now();   // updated in Manager
 }
@@ -1002,7 +1006,16 @@ void SegmentTwin::erase(Block* block) {
   // }
   // if(find_flag) blocks.erase(blocks.begin() + index);
   blocks.erase(block);
+  // allocated_size -= block->allocated ? block->size : 0;
   evictable = true;
+}
+
+inline void SegmentTwin::flush_frag_ratio() {
+  allocated_size = 0;
+  for(auto& bit: blocks) {
+    allocated_size += bit->allocated ? bit->size : 0;
+  }
+  frag_ratio = 1 - (static_cast<float>(allocated_size) / static_cast<float>(total_size));
 }
 
 /**
@@ -1014,9 +1027,10 @@ inline Block* SegmentTwin::flush_cost(time_t cur, size_t need_size, cudaStream_t
     max_evict_cost = 0;
     size_t unallocated_size = 0;
     bool can_evict = false;
+    // all_can_mv = true;
     Block* evict_start = nullptr;
     for(const auto& bit: blocks){
-      // if(bit->stream != stream) continue;      // 似乎没有必要，其他流的张量释放后该空间也能被复用
+      // 似乎没有必要，其他流的张量释放后该空间也能被复用
       auto ptr = bit->ptr;
       auto res = pm->get_ap_by_ptr(ptr);
       if(res.second){
@@ -1026,36 +1040,39 @@ inline Block* SegmentTwin::flush_cost(time_t cur, size_t need_size, cudaStream_t
             max_evict_cost += sap->cost(cur);
             can_free_size += sap->memory;
             can_evict = true;
-            if(need_size != 0 && can_free_size >= need_size) break;
           }else{
-            if(total_size==need_size){    // avoid fragmentation
-              can_evict = false;
-              break;
-            }
-            if(need_size != 0) {
+            // all_can_mv = false;
+            if(need_size != 0) {  // cannot evict, reset stats
               evict_start = nullptr;
               max_evict_cost = 0;
               can_free_size = 0;
             }
+            if(total_size==need_size){    // avoid fragmentation
+              can_evict = false;
+              break;
+            }
           }
         }
       } else {
+        // all_can_mv = false;
         if(need_size != 0) {
-          if(bit->allocated) {
+          if(bit->allocated) {  // no record memory block, reset stats
             evict_start = nullptr;
             max_evict_cost = 0;
             can_free_size = 0;
-          } else {
-            evict_start = nullptr;
-            max_evict_cost = 0;
-            can_free_size = bit->size;
+          } else {  // unallocated memory block
+            // evict_start = nullptr;
+            // max_evict_cost = 0;
+            can_free_size += bit->size;
             unallocated_size += bit->size;
           }
         }
       }
+      if(need_size != 0 && can_free_size >= need_size) break;
     }
     frag_ratio = static_cast<float>(unallocated_size) / static_cast<float>(total_size);
-    if(can_free_size < need_size) can_evict = false;
+    if(can_free_size < need_size || frag_ratio == 1.f) 
+      can_evict = false;
     evictable = can_evict;
     return evict_start;
 }
@@ -1083,9 +1100,6 @@ struct CompareCostSegment {
 
 class SegmentManager {
 private:
-  // std::set<SegmentTwin*, CompareSegment> segments;
-  // ska::flat_hash_map<size_t, std::set<SegmentTwin*, CompareSegment>> size_map;
-  // std::map<size_t, std::set<SegmentTwin*, CompareSegment>> size_map;
   std::map<size_t, std::vector<SegmentTwin*>> size_map;
   ska::flat_hash_map<void*, SegmentTwin*> blocks2segment;
   std::vector<Block*> free_block_buffer;
@@ -1126,12 +1140,6 @@ public:
     }else{
       size_map[new_segment->total_size].emplace_back(new_segment);
     }
-  }
-
-  void update(SegmentTwin* segment) {
-    // size_map[segment->total_size].erase(segment);
-    // segment->last_change_time = std::chrono::system_clock::now();
-    // size_map[segment->total_size].insert(segment);
   }
 
   void erase(SegmentTwin* segment) {
@@ -1289,7 +1297,7 @@ public:
   }
 
   bool auto_evict(size_t need_size, int device, cudaStream_t stream, bool if_gap=false) {
-    if((c10::dtb::current_memory(device)+need_size) < c10::dtb::memory_budget) return false;
+    if((c10::dtb::current_memory(device)+need_size) < c10::dtb::memory_budget) return true;
 
     long search_time_ = 0, search_size = 0;
     size_t before_allocated = c10::dtb::current_memory(device);
@@ -1304,15 +1312,11 @@ public:
     size_t released_size = 0;
 
     std::vector<SegmentTwin*> to_evict_segments;
+    std::vector<SegmentTwin*> to_defrag_segments;
     
     constexpr const size_t check_scale = 5;
     constexpr const double stop_threshold = 1e-10;
 
-    // a new huge need_size, regard it as gap_size
-    // if(need_size > size_map.rbegin()->first){
-    //   need_size = 1;
-    //   gap_size = need_size;
-    // }
     /**
      * Traverse each segment to find the lowest cost is unnecessay and heavy overhead.
      * In fact, a suitable threshold of cost for early stop is beneficial to recude searching time
@@ -1323,27 +1327,29 @@ public:
      * 
     */
     double cur_min_cost = 1e5;
-    // if(gap_size > need_size*check_scale) {  // avoid from evict tiny tensors && for over budget scenario
     if(gap_flag) {  // avoid from evict tiny tensors && for over budget scenario
-      // gap_flag = true;
+      int size_flag = 0;
       for(auto size_it=size_map.rbegin(); size_it!=size_map.rend(); ++size_it){
-        bool all_cannot_evict = true;
         for(auto &seg: size_it->second){
           search_size++;
           seg->flush_cost(pre, 0, stream);    // reverse order, so need size is zero 
+          seg->all_can_mv = all_can_move(seg);
           if(seg->evictable) {
             to_evict_segments.emplace_back(seg);
             cur_min_cost = std::min(cur_min_cost, seg->max_evict_cost);
             if(seg->max_evict_cost < stop_threshold) low_cost_size += seg->can_free_size;
           }
+          float mv_trigger_threshold = size_flag > 1 ? 0.8 : 0.4;
+          if(seg->all_can_mv && seg->frag_ratio >= mv_trigger_threshold && seg->frag_ratio < 1) {
+            to_defrag_segments.emplace_back(seg);
+          }
           if(low_cost_size > gap_size) 
             break;
         }
+        size_flag++;
       }
     } else {
       for(auto size_it=size_map.lower_bound(need_size); size_it!=size_map.end(); size_it++){
-        // if(size_it->first <= 2097152) continue;
-        bool all_cannot_evict = true;
         for(auto &seg: size_it->second){
           search_size++;
           auto *es = seg->flush_cost(pre, need_size, stream);
@@ -1392,6 +1398,8 @@ public:
         }
         to_evict = to_evict->next;
       }
+    }else {
+      printf("[No suitable segment] gap_flag:%d, gap_size:%ld, low_cost_size:%ld, need_size:%ld\n", gap_flag, gap_size, low_cost_size, need_size);
     }
 
 
@@ -1437,6 +1445,10 @@ public:
       
     }
 
+    for(auto& seg: to_defrag_segments) {
+      move_segment_to_others(seg);
+    }
+
     bool if_satisfy = (c10::dtb::current_memory(device)+need_size) < c10::dtb::memory_budget;
 
   #ifdef DEBUG_MODE
@@ -1460,46 +1472,182 @@ public:
 
   }
 
-  bool move_for_defrag(size_t need_size, int device) {
-    std::vector<SegmentTwin*> candidates_segments;
-    auto it = size_map.lower_bound(need_size);
-    if(it==size_map.end()) return false;
-
-    candidates_segments = it->second;
-    std::sort(candidates_segments.begin(), candidates_segments.end(), [](SegmentTwin* lhs, SegmentTwin* rhs) {
-      if(lhs->frag_ratio != rhs->frag_ratio) return lhs->frag_ratio > rhs->frag_ratio;
-      if(lhs->last_change_time != rhs->last_change_time) return lhs->last_change_time < rhs->last_change_time;
-      return lhs->blocks.size() < rhs->blocks.size();
-    });
-
-    auto target_seg = candidates_segments.front();
-    if(target_seg->frag_ratio < 0.6 || target_seg->frag_ratio == 1.f) return false;    /// TODO: if cancel the move when the frag ratio is at a low level 
-
-#ifdef DEBUG_MODE
-    size_t before_mv = c10::dtb::current_memory(device);
-    size_t allocted_size_in = 0;
-#endif
+  bool all_can_move(SegmentTwin* seg) {
     auto *pm = c10::dtb::getDTBPoolManager();
+    bool all_in_rec = true;
+    for(auto& bit: seg->blocks) {
+      if(bit->allocated){
+        auto *ptr = bit->ptr;
+        auto res = pm->get_ap_by_ptr(ptr);
+        if(!res.second) {
+          all_in_rec = false;
+        }else {
+          if(auto sap = res.first.lock()) {
+            if(sap->lock_count > 0) {
+              all_in_rec = false;
+            }
+          }else{
+            all_in_rec = false;
+          }
+        }
+        if(!all_in_rec) break;
+      }
+    }
+    return all_in_rec;
+  }
+
+  size_t move_segment_to_others(SegmentTwin* target_seg){
+    auto *pm = c10::dtb::getDTBPoolManager();
+    c10::dtb::move_defrag_flag[current_device()] = true;
+    c10::dtb::move_defrag_seg_ptr[current_device()] = (void*)target_seg;
+    size_t moved_size = 0;
     for(auto& bit: target_seg->blocks) {
       if(bit->allocated){
         auto *ptr = bit->ptr;
         auto res = pm->get_ap_by_ptr(ptr);
         if(res.second) {
           if(auto sap = res.first.lock()) {
-            sap->clone_and_reset(need_size);
-            allocted_size_in += sap->memory;
+            sap->clone_and_reset();
+            moved_size += sap->memory;
           } 
         }
+        /// 应当在调用该函数前保证target_seg不存在这种情况
+        // else {
+        //   std::cout << "[NOT IN]move_for_defrag meets tensor in block but not in p2ap: " << bit->ptr << ", " << bit->size << "\n";
+        // }
       }
     }
+    c10::dtb::move_defrag_flag[current_device()] = false;
+    c10::dtb::move_defrag_seg_ptr[current_device()] = nullptr;
+    return moved_size;
+  }
 
-#ifdef DEBUG_MODE
-      if(c10::dtb::record_move_defrag){
-        std::cout << "seg size: " << target_seg->total_size << ", frag ratio: " << target_seg->frag_ratio << ", before mv: "
-                  << before_mv/1024/1024 << "MB, after mv: " << c10::dtb::current_memory(device)/1024/1024 << "MB, record inner size: "
-                  << allocted_size_in/1024/1024 << "MB\n";
+  void display_all_not_in_ap(int device) {
+    for(auto it = size_map.rbegin(); it != size_map.rend(); it++) {
+      auto *pm = c10::dtb::getDTBPoolManager();
+      for(auto& target_seg: it->second) {
+
+        for(auto& bit: target_seg->blocks) {
+          if(bit->allocated){
+            auto *ptr = bit->ptr;
+            auto res = pm->get_ap_by_ptr(ptr);
+            if(res.second) {
+              if(auto sap = res.first.lock()) {
+                // sap->clone_and_reset(need_size);
+                // pm->update_ap(sap, sap->addr);
+                // allocted_size_in += sap->memory;
+              } 
+            }else {
+              std::cout << "[NOT IN]display_all_not_in_ap meets tensor in block but not in p2ap: " << bit->ptr << ", " << bit->size << "\n";
+            }
+          }
+        }
+
       }
+    }
+  }
+
+  bool move_for_defrag(size_t need_size, int device) {
+    std::vector<SegmentTwin*> candidates_segments;
+    auto it = size_map.lower_bound(need_size);
+    if(it==size_map.end()) return false;
+
+    auto *pm = c10::dtb::getDTBPoolManager();
+
+    candidates_segments = it->second;
+
+    for(auto& seg: candidates_segments) {
+      seg->flush_frag_ratio();
+    }
+
+    // std::sort(candidates_segments.begin(), candidates_segments.end(), [](SegmentTwin* lhs, SegmentTwin* rhs) {
+    //   if(lhs->frag_ratio != rhs->frag_ratio) return lhs->frag_ratio > rhs->frag_ratio;
+    //   if(lhs->last_change_time != rhs->last_change_time) return lhs->last_change_time < rhs->last_change_time;
+    //   return lhs->blocks.size() < rhs->blocks.size();
+    // });
+    std::sort(candidates_segments.begin(), candidates_segments.end(), [](SegmentTwin* lhs, SegmentTwin* rhs) {
+      // 先处理frag_ratio不等于1的情况，按照原来的降序逻辑比较
+      if (lhs->frag_ratio < 1 && rhs->frag_ratio < 1) {
+          if (lhs->frag_ratio!= rhs->frag_ratio) return lhs->frag_ratio > rhs->frag_ratio;
+          if (lhs->last_change_time!= rhs->last_change_time) return lhs->last_change_time < rhs->last_change_time;
+          return lhs->blocks.size() < rhs->blocks.size();
+      }
+      // 如果lhs的frag_ratio等于1，而rhs的小于1，把rhs排在前面（也就是让等于1的往后排）
+      if (lhs->frag_ratio == 1 && rhs->frag_ratio < 1) return false;
+      // 如果rhs的frag_ratio等于1，而lhs的小于1，把lhs排在前面
+      if (lhs->frag_ratio < 1 && rhs->frag_ratio == 1) return true;
+      // 剩下就是两者的frag_ratio都等于1的情况，按照原来后续的逻辑继续比较（这里其实可以保持和之前一样的比较逻辑，不过为了完整清晰展示思路写出来）
+      if (lhs->last_change_time!= rhs->last_change_time) return lhs->last_change_time < rhs->last_change_time;
+      return lhs->blocks.size() < rhs->blocks.size();
+    });
+
+    std::cout << "[CHECK SORTED size:" << need_size << "] sorted frag_ratio:";
+    SegmentTwin* target_seg = nullptr;
+    for(auto& seg: candidates_segments) {
+      std::cout << "(" << seg->frag_ratio << ", " << seg->blocks.size() 
+        << ", " << seg->allocated_size << ", " << (*seg->blocks.begin())->ptr << ") ";
+
+      // bool all_in_rec = true;
+      // for(auto& bit: seg->blocks) {
+      //   if(bit->allocated){
+      //     auto *ptr = bit->ptr;
+      //     auto res = pm->get_ap_by_ptr(ptr);
+      //     if(!res.second) {
+      //       all_in_rec = false;
+      //     }else {
+      //       if(auto sap = res.first.lock()) {
+      //         if(!sap->evictable()) {
+      //           all_in_rec = false;
+      //         }
+      //       }else{
+      //         all_in_rec = false;
+      //       }
+      //     }
+      //     if(!all_in_rec) break;
+      //   }
+      // }
+
+      if(all_can_move(seg) && seg->frag_ratio != 1 && seg->frag_ratio != 0) {
+        target_seg = seg;
+        break;
+      }
+
+    }
+#ifdef DEBUG_MODE
+    std::cout << "\n";
+    size_t before_mv = c10::dtb::current_memory(device);
+    size_t allocted_size_in = 0;
 #endif
+    // if(target_seg->frag_ratio < 0.6 || target_seg->frag_ratio == 1.f) return false;
+    if(!target_seg) return false;    /// TODO: if cancel the move when the frag ratio is at a low level 
+    
+    if(c10::dtb::record_move_defrag) {
+      std::string seg_stat = "";
+      for(auto& bit: target_seg->blocks) {  // 把是否分配的情况转换为字符串
+        if(bit->allocated) seg_stat += "1";
+        else seg_stat += "0";
+      }
+      std::cout << "move_for_defrag choosed frag: total-" << target_seg->total_size 
+        << ", alloc-" << target_seg->allocated_size << ", frag_ratio: " << target_seg->frag_ratio 
+        << ", stat: " << seg_stat << ", addr: " << (*target_seg->blocks.begin())->ptr << std::endl;
+    }
+    allocted_size_in = move_segment_to_others(target_seg);
+#ifdef DEBUG_MODE
+    if(c10::dtb::record_move_defrag){
+      std::string seg_stat = "";
+      for(auto& bit: target_seg->blocks) {  // 把是否分配的情况转换为字符串
+        if(bit->allocated) seg_stat += "1";
+        else seg_stat += "0";
+      }
+      std::cout << "[after clone_and_reset] seg ptr: " << (*target_seg->blocks.begin())->ptr <<  ", size: " << target_seg->total_size
+                << ", frag ratio: " 
+                << target_seg->frag_ratio << "(" << target_seg->allocated_size
+                << "), before mv: "
+                << before_mv/1024/1024 << "MB, after mv: " << c10::dtb::current_memory(device)/1024/1024 << "MB, record inner size: "
+                << allocted_size_in/1024/1024 << "MB, stat: " << seg_stat << std::endl;
+    }
+#endif
+
 
   return true;
 
@@ -2435,23 +2583,6 @@ class DeviceCachingAllocator {
     // to have...
 // #ifndef GMLAKE_ENABLE
     size_t size = round_size(orig_size);
-    if(c10::dtb::USE_DTR){
-      if(!c10::dtb::move_defrag_flag[device]) {
-        if(COST_FIRST_EVICT){
-          auto *pm = c10::dtb::getDTBPoolManager();
-          bool if_evict = pm->auto_evict(device, size);
-        }
-#ifdef MEM_TWIN_REC
-        else{  // UNIFIED_EVICT
-          auto if_evict = segManager.auto_evict(size, device, stream);
-          if(!if_evict) {
-            // auto if_mv = segManager.move_for_defrag(size, device);
-            segManager.auto_evict(size, device, stream, true); // gap size case
-          }
-        }
-#endif
-      }
-    }
     auto context = maybeGatherContext(RecordContext::STATE);
 // #else
 //     CreateContextFn context_recorder = context_recorder_.load();
@@ -2482,29 +2613,62 @@ class DeviceCachingAllocator {
 
     bool block_found = false, move_defrag = false;
 
+    if(c10::dtb::USE_DTR){
+      if(!c10::dtb::move_defrag_flag[device]) {
+        if(COST_FIRST_EVICT){
+          auto *pm = c10::dtb::getDTBPoolManager();
+          bool if_evict = pm->auto_evict(device, size);
+        }
+#ifdef MEM_TWIN_REC
+        else{  // UNIFIED_EVICT
+          trigger_free_memory_callbacks(params);
+          auto if_evict = segManager.auto_evict(size, device, stream);
+          if(!if_evict) {
+            segManager.auto_evict(size, device, stream, true); // gap size case
+            // #ifdef DEBUG_MODE
+            //   if(c10::dtb::record_move_defrag) {
+            //     size_t before_mv = c10::dtb::current_memory(device);
+            //     std::cout << "[evict fail] need:" << size 
+            //               << ", curr-" << before_mv << std::endl;
+            //   }
+            // #endif
+            // segManager.display_all_not_in_ap(device);
+            /// BUG: 移动后会在auto_evict遍历segment报 segment fault
+            auto if_mv = segManager.move_for_defrag(size, device);
+          }
+        }
+#endif
+      } 
+#ifdef MEM_TWIN_REC
+      else {
+        if(c10::dtb::move_defrag_flag[device]) {
+          block_found = get_smaller_free_block(params, c10::dtb::move_defrag_max_size[device]) 
+                        || (trigger_free_memory_callbacks(params) && get_smaller_free_block(params, c10::dtb::move_defrag_max_size[device]));
+          move_defrag = true;
+          std::cout << "get_smaller_free_block: " << block_found << "/" << c10::dtb::move_defrag_max_size[device] << std::endl;
+        }
+      } 
+#endif
+    }
+
+
 #ifdef MEM_TWIN_REC
     if(c10::dtb::USE_DTR){
 
-      /// WIP: onsite defrag, not finished yet
-      if(c10::dtb::defrag_flag[device]) {
-        // here just for defragmentation on-site, because that this segment is surely to satisfy the memory needs
-        Block* p = nullptr;
-        for(auto& bit: segManager.get_defrag_seg()->blocks) {
-          if(!bit->allocated) {
-            p = bit;
-            break;
-          }
-        }
-        params.block = p;
-        block_found = true;
-      }
+    //   /// WIP: onsite defrag, not finished yet
+    //   if(c10::dtb::defrag_flag[device]) {
+    //     // here just for defragmentation on-site, because that this segment is surely to satisfy the memory needs
+    //     Block* p = nullptr;
+    //     for(auto& bit: segManager.get_defrag_seg()->blocks) {
+    //       if(!bit->allocated) {
+    //         p = bit;
+    //         break;
+    //       }
+    //     }
+    //     params.block = p;
+    //     block_found = true;
+    //   }
 
-      /// WIP: move defrag
-      if(c10::dtb::move_defrag_flag[device]) {
-        block_found = get_smaller_free_block(params, c10::dtb::move_defrag_max_size[device]) 
-                      || (trigger_free_memory_callbacks(params) && get_smaller_free_block(params, c10::dtb::move_defrag_max_size[device]));
-        move_defrag = true;
-      }
     }
 #endif
 
@@ -4415,12 +4579,12 @@ class DeviceCachingAllocator {
     }
 #endif
     // TODO: change get_block logic, choosed by if lock this value
-    if(UNIFIED_EVICT){
-      if(c10::dtb::store_in_special_pool[current_device()])
-      {
-        return ex1_blocks;
-      }
-    }
+    // if(UNIFIED_EVICT){
+    //   if(c10::dtb::store_in_special_pool[current_device()])
+    //   {
+    //     return ex1_blocks;
+    //   }
+    // }
     if (size <= kSmallSize) {
       return small_blocks;
     } else {
@@ -4817,6 +4981,14 @@ class DeviceCachingAllocator {
     update_stat_array(stats.inactive_split_bytes, net_change_inactive_split_size, p.stat_types);
     return true;
 #else
+    if(it == pool.blocks.end() && p.size() == 2147483648)
+    {
+      std::cout << "[mis by no block]";
+      for(auto tit = pool.blocks.rbegin(); tit!=pool.blocks.rend(); tit++) {
+        std::cout << (*tit)->size << " ";
+      }
+      std::cout << std::endl;
+    }
     if (it == pool.blocks.end() || (*it)->stream != p.stream())
       return false;
 
@@ -4879,15 +5051,6 @@ class DeviceCachingAllocator {
         ++b->gc_count;
       }
     }
-    // if(!pool.blocks.empty()) {
-    //   auto it = pool.blocks.begin();
-    //   if(p.stream()!=(*it)->stream) {
-    //     printf("which stream is default? %d %d\n", p.stream()==cudaStreamDefault ? 1 : 0, (*it)->stream==cudaStreamDefault ? 1 : 0);
-    //     p.search_key.stream = (*it)->stream;
-    //   }
-    // }
-    // if(c10::dtb::getStreamLabel(p.stream())!=-1)
-    //   p.search_key.stream = cudaStreamDefault;
 
     auto it = pool.blocks.lower_bound(&p.search_key);     // return first ge search_key container
 
@@ -4906,9 +5069,15 @@ class DeviceCachingAllocator {
     if ((p.size() >= CachingAllocatorConfig::max_split_size()) &&
         ((*it)->size >= p.size() + kLargeBuffer))
       return false;
-    // do not use block bigger than max_size for lower fragmentation
-    if ((*it)->size >= max_size)
-      return false;
+    /// BUG: 这里限制的是被标记的segment
+    auto seg = segManager.get_segment_of_block((*it)->ptr);
+    while((void*)seg==c10::dtb::move_defrag_seg_ptr[current_device()]) {
+      it++;
+      if(it==pool.blocks.end()) {
+        return false;
+      }
+      seg = segManager.get_segment_of_block((*it)->ptr);
+    }
 
     p.block = *it;
     (*it)->gc_count = 0; // Denote this block has been used
