@@ -130,12 +130,21 @@ struct DTRLogger {
 };
 
 
+// 获取本地时间并精确到毫秒
+std::string getCurrentTimeWithMs() {
+    // 获取当前时间点
+    auto now = std::chrono::high_resolution_clock::now();
+    // 获取自纪元以来的毫秒数
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
+    return std::to_string(ms);
+}
+
 void DTRLogMemEvents(const std::string& name, size_t size, int64_t addr) {
   std::string log_msg = "{";
   log_msg += "\"TYPE\":\"" + name + "\", ";
   log_msg += "\"SIZE\":" + std::to_string(size) + ", ";
   log_msg += "\"ADDR\":" + std::to_string(addr);
-  log_msg += "\"TIME\":" + std::to_string(std::time(nullptr));
+  log_msg += "\"TIME\":" + getCurrentTimeWithMs();
   log_msg += "}";
   DTRLogger::logger().log(log_msg);
 }
