@@ -143,7 +143,7 @@ void DTRLogMemEvents(const std::string& name, size_t size, int64_t addr) {
   std::string log_msg = "{";
   log_msg += "\"TYPE\":\"" + name + "\", ";
   log_msg += "\"SIZE\":" + std::to_string(size) + ", ";
-  log_msg += "\"ADDR\":" + std::to_string(addr);
+  log_msg += "\"ADDR\":" + std::to_string(addr) + ", ";
   log_msg += "\"TIME\":" + getCurrentTimeWithMs();
   log_msg += "}";
   DTRLogger::logger().log(log_msg);
