@@ -2462,6 +2462,15 @@ class DeviceCachingAllocator {
               realloc_block(params, true))
           || get_fused_fragmented_blocks(params, 2);
 
+      /// gmlake修改了alloc_block的逻辑，对应的trace并没有维护，仅在这里成功realloc后来进行记录
+      /// TODO: 这里的size应该不太正确，可能需要排除掉fuse得到的部分
+      // if(log_mem_events && block_found) {
+      //   record_mem_events(
+      //       TraceEntry::SEGMENT_ALLOC,
+      //       int64_t(params.block->ptr),
+      //       params.block->size);
+      // }
+
       if (record_history && block_found) {
         record_trace(
             TraceEntry::SEGMENT_ALLOC,
@@ -4030,7 +4039,7 @@ class DeviceCachingAllocator {
       record_mem_events(
           TraceEntry::FREE_COMPLETED,
           int64_t(block->ptr),
-          block->requested_size);
+          block->size);
     }
     if (record_history) {
       record_trace(
@@ -5409,6 +5418,12 @@ class DeviceCachingAllocator {
     Block* new_block = new Block(p.device(), p.stream(), size, p.pool, (char*)ptr);
     new_block->vmm_segment = std::move(vmm_segment);
     
+    if(log_mem_events) {
+      record_mem_events(
+        TraceEntry::SEGMENT_ALLOC,
+        int64_t(new_block->ptr),
+        new_block->size);
+    }
     for_each_selected_stat_type(p.stat_types, [&](size_t stat_type) {
       update_stat(stats.segment[stat_type], 1);
       update_stat(stats.reserved_bytes[stat_type], size);
@@ -5750,6 +5765,12 @@ static const int vmmDefragment = ([]()->int{
     });
     if (block->size >= CachingAllocatorConfig::max_split_size())
       update_stat(stats.oversize_segments, -1);
+    if(log_mem_events) {
+      record_mem_events(
+          TraceEntry::SEGMENT_FREE,
+          int64_t(block->ptr),
+          block->size);
+    }
     if (block->history) {
       record_trace(
           TraceEntry::SEGMENT_FREE,
