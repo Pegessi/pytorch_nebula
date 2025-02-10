@@ -301,12 +301,9 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
     if (alias == -1) {
       // alias_pool = intrusive_ptr<AliasPool>::make(Unsafe(), remat, m, device_id);
       alias_pool = intrusive_ptr<AliasPool>::make(Unsafe(), remat, m, addr, device_id);     /// [TAG] AliasPool构造
-      // if(reserved_range){     /// TAG: 保留区间内的aps保存
-      //   alias_pool->is_retain = true;
-      //   alias_pool->lock();    /// 一直保存了，需要主动释放
-      // }
+
 #ifdef MULTI_MODE
-      pm->add_ap(device_id, alias_pool);
+      // pm->add_ap(device_id, alias_pool);
 #else
       pool.add(alias_pool);     /// TAG: alaispool新增的唯一入口
 #endif
@@ -319,8 +316,8 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
       }
 #endif
 #ifdef MEM_FIRST_EVICT
-      pm->update_ap(alias_pool, addr);
-      // alias_pool->set_addr(addr);    // TODO[√]: why org addr become a strange addr? because original ptr becomes an undefined ptr
+      // pm->update_ap(alias_pool, addr);
+      alias_pool->set_addr(addr);    // TODO[√]: why org addr become a strange addr? because original ptr becomes an undefined ptr
 #else
       alias_pool->set_addr(addr);    // TODO[√]: why org addr become a strange addr? because original ptr becomes an undefined ptr
 #endif
@@ -329,6 +326,7 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
       }
     }
     if(during_backward) alias_pool->is_retain = true;
+    /// 这里最终会调用fill(t)
     auto e = intrusive_ptr<External>::make(t, alias_pool, remat); // bind external for t
 
 #ifdef DEBUG_MODE

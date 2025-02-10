@@ -295,7 +295,7 @@ std::set<ecn_ptr> AliasPool::neighbor_ecn() {
   return ptr_set;
 }
 
-void AliasPool::set_not_evicted(intrusive_ptr<AliasPool>& self) {
+void AliasPool::set_not_evicted() {
   if (likely(is_evicted)) {
     STATS.track("AliasPool::set_not_evicted(inside)");
     is_evicted = false;
@@ -308,12 +308,6 @@ void AliasPool::set_not_evicted(intrusive_ptr<AliasPool>& self) {
     }
 #endif
 
-#ifdef MULTI_MODE
-    auto *pm = getDTBPoolManager();
-    pm->add_ap(device_id, self);
-#else
-    pool.add(self);
-#endif
   }
 }
 

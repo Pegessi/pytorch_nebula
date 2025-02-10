@@ -352,14 +352,15 @@ void DTBCheckpointPool::clear_recorded_batch(int device) {
 void DTBCheckpointPool::update_ap(intrusive_ptr<AliasPool>& sap, uintptr_t new_addr){
   TORCH_INTERNAL_ASSERT(sap.defined());
   auto old_addr = sap->addr;
-  if(old_addr!=0){
-    // sap maybe not in record.
-    // auto sap = get_ap_by_ptr(reinterpret_cast<void*>(old_addr));
-    // TORCH_INTERNAL_ASSERT(sap.defined(), "ptr-" + std::to_string(old_addr) + " meet a released ap occured when updating aliaspool.");
-    erase_ptr2ap(reinterpret_cast<void*>(old_addr));
-  }
+  // if(old_addr!=0){ /// TODO: 这里是否要移除old_addr的记录？移除似乎会导致一些ap漏掉
+  //   // sap maybe not in record.
+  //   // auto sap = get_ap_by_ptr(reinterpret_cast<void*>(old_addr));
+  //   // TORCH_INTERNAL_ASSERT(sap.defined(), "ptr-" + std::to_string(old_addr) + " meet a released ap occured when updating aliaspool.");
+  //   erase_ptr2ap(reinterpret_cast<void*>(old_addr));
+  // }
   sap->set_addr(new_addr);
-  insert_ptr2ap(reinterpret_cast<void*>(new_addr), weak_intrusive_ptr(sap));
+  /// 所有插入收敛到fill(Tensor)中
+  // insert_ptr2ap(reinterpret_cast<void*>(new_addr), weak_intrusive_ptr(sap));
 
 }
 

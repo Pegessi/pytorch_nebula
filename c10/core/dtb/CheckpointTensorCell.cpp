@@ -21,10 +21,14 @@ namespace dtb {
 */
 void CheckpointTensorCell::fill(Tensor& t) {
   STATS.track("CheckpointTensorCell::fill");
-  if (!(this->t)) {
+  // if (!(this->t)) {
     pool->set_addr(get_addr(t));
     this->t = std::make_unique<Tensor>(std::move(t));
-    pool->set_not_evicted(pool);                          /// TAG: 改变标志位，更新cost, MEM_FIRST_EVICT在上面的函数中更新了p2ap(add_ap)
+    pool->set_not_evicted();                          /// TAG: 改变标志位，更新cost, MEM_FIRST_EVICT在上面的函数中更新了p2ap(add_ap)
+#ifdef MULTI_MODE
+    auto *pm = getDTBPoolManager();
+    pm->add_ap(pool->device_id, pool);
+#endif
     if (!defined) {                                       /// 这里是将所有的属性拷贝一遍，满足兼容性
       defined = true;
       is_undefined_tensor = !this->t->defined();
@@ -36,7 +40,9 @@ void CheckpointTensorCell::fill(Tensor& t) {
       if(this->t->defined())
         optional_device_ = this->t->device();
     }
-  }
+  // } else {
+  //   printf("[WARN] CheckpointTensorCell::fill: t already filled\n");
+  // }
 }
 
 void CheckpointTensorCell::pin() {

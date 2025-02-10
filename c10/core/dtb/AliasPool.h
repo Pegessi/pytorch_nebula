@@ -132,7 +132,7 @@ struct AliasPool : intrusive_ptr_target {
   // if it was evicted, refresh it. otherwise do nothing.
   // have to check so, because when we rematerialize a single tensor in an aliaspool,
   // we will set it to non-evicted, and when we rematerialize it's tensor they will also reset this.
-  void set_not_evicted(intrusive_ptr<AliasPool>& self);
+  void set_not_evicted();
   void release_resources() final;
 };
 
