@@ -47,6 +47,7 @@
 // #define ORIG_EVICT                       /// DTR original Evction
 // 集群上的cost_evict也使用了single_pool + pre_eviction的优化
 #define PROACTIVE_REMAT                 /// 主动恢复相关接口
+// #define DEFRAGMENT                      /// 碎片整理策略   
 
 // #define ARITHMETIC_TEST                 /// 等差释放测试
 
@@ -247,6 +248,7 @@ extern std::unordered_map<int64_t, duration_t> compute_cost_records;
 extern std::unordered_map<int64_t, size_t> memory_cost_records;
 extern COMMON_API size_t memory_budget;
 extern COMMON_API bool store_in_special_pool[8];
+extern COMMON_API bool in_runtime_record[8];
 extern COMMON_API bool defrag_flag[8];
 extern COMMON_API bool move_defrag_flag[8];
 extern COMMON_API size_t move_defrag_max_size[8];

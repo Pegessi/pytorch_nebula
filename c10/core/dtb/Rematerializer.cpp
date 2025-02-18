@@ -83,7 +83,9 @@ void Rematerializer::remat() {
   auto *pm = getDTBPoolManager();
 #endif
 
+  c10::dtb::in_runtime_record[c10::cuda::current_device()] = true;
   auto ret = func(ts);
+  c10::dtb::in_runtime_record[c10::cuda::current_device()] = false;
 
 #ifdef ORIG_EVICT
   if(COST_FIRST_EVICT){

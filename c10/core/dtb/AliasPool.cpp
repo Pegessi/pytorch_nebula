@@ -60,9 +60,12 @@ void AliasPool::clone_and_reset() {
       if(cell->defined) {
         if(cell->t->defined()) {  
           auto t_ = cell->t->clone();
-          std::cout << "[clone_and_reset] evict and fill, org ptr:" << cell->t->data_ptr() << " new ptr:" << t_.data_ptr() 
-                    << ", size: " << memory << "\n";
-          cell->evict(0);
+#ifdef DEBUG_MODE
+          if(c10::dtb::record_move_defrag)
+            std::cout << "[clone_and_reset] evict and fill, org ptr:" << cell->t->data_ptr() << " new ptr:" << t_.data_ptr() 
+                      << ", size: " << memory << "\n";
+#endif
+          cell->pool->evict(0);
           cell->fill(t_, true);
         }
         // break;

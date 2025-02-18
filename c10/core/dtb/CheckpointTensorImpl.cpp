@@ -259,7 +259,9 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
   auto device_id = c10::cuda::current_device();  /// do not influence device
 
   time_t pre = std::chrono::system_clock::now();
+  c10::dtb::in_runtime_record[device_id] = true;
   auto raw_outputs = remat_f(raw_inputs);
+  c10::dtb::in_runtime_record[device_id] = false;
   time_t post = std::chrono::system_clock::now();
   auto cur_compute_cost = post - pre;
   // auto cur_compute_cost = test_time_post - test_time_cur;

@@ -1333,16 +1333,16 @@ public:
         for(auto &seg: size_it->second){
           search_size++;
           seg->flush_cost(pre, 0, stream);    // reverse order, so need size is zero 
-          seg->all_can_mv = all_can_move(seg);
+          // seg->all_can_mv = all_can_move(seg); /// TODO: 这里是否有必要进行整理？
           if(seg->evictable) {
             to_evict_segments.emplace_back(seg);
             cur_min_cost = std::min(cur_min_cost, seg->max_evict_cost);
             if(seg->max_evict_cost < stop_threshold) low_cost_size += seg->can_free_size;
           }
           float mv_trigger_threshold = size_flag > 1 ? 0.8 : 0.4;
-          if(seg->all_can_mv && seg->frag_ratio >= mv_trigger_threshold && seg->frag_ratio < 1) {
-            to_defrag_segments.emplace_back(seg);
-          }
+          // if(seg->all_can_mv && seg->frag_ratio >= mv_trigger_threshold && seg->frag_ratio < 1) {
+          //   to_defrag_segments.emplace_back(seg);
+          // }
           if(low_cost_size > gap_size) 
             break;
         }
@@ -1399,7 +1399,7 @@ public:
         to_evict = to_evict->next;
       }
     }else {
-      printf("[No suitable segment] gap_flag:%d, gap_size:%ld, low_cost_size:%ld, need_size:%ld\n", gap_flag, gap_size, low_cost_size, need_size);
+      // printf("[No suitable segment] gap_flag:%d, gap_size:%ld, low_cost_size:%ld, need_size:%ld\n", gap_flag, gap_size, low_cost_size, need_size);
     }
 
 
@@ -1445,9 +1445,9 @@ public:
       
     }
 
-    for(auto& seg: to_defrag_segments) {
-      move_segment_to_others(seg);
-    }
+    // for(auto& seg: to_defrag_segments) {
+    //   move_segment_to_others(seg);
+    // }
 
     bool if_satisfy = (c10::dtb::current_memory(device)+need_size) < c10::dtb::memory_budget;
 
@@ -1483,9 +1483,9 @@ public:
           all_in_rec = false;
         }else {
           if(auto sap = res.first.lock()) {
-            if(sap->lock_count > 0) {
-              all_in_rec = false;
-            }
+            // if(sap->lock_count > 0) {
+            //   all_in_rec = false;
+            // }
           }else{
             all_in_rec = false;
           }
@@ -1581,40 +1581,28 @@ public:
       return lhs->blocks.size() < rhs->blocks.size();
     });
 
-    std::cout << "[CHECK SORTED size:" << need_size << "] sorted frag_ratio:";
+    if(c10::dtb::record_move_defrag)
+      std::cout << "[CHECK SORTED size:" << need_size << "] sorted frag_ratio:";
     SegmentTwin* target_seg = nullptr;
     for(auto& seg: candidates_segments) {
-      std::cout << "(" << seg->frag_ratio << ", " << seg->blocks.size() 
-        << ", " << seg->allocated_size << ", " << (*seg->blocks.begin())->ptr << ") ";
+      if(c10::dtb::record_move_defrag)
+        std::cout << "(" << seg->frag_ratio << ", " << seg->blocks.size() 
+          << ", " << seg->allocated_size << ", " << (*seg->blocks.begin())->ptr << ") ";
 
-      // bool all_in_rec = true;
-      // for(auto& bit: seg->blocks) {
-      //   if(bit->allocated){
-      //     auto *ptr = bit->ptr;
-      //     auto res = pm->get_ap_by_ptr(ptr);
-      //     if(!res.second) {
-      //       all_in_rec = false;
-      //     }else {
-      //       if(auto sap = res.first.lock()) {
-      //         if(!sap->evictable()) {
-      //           all_in_rec = false;
-      //         }
-      //       }else{
-      //         all_in_rec = false;
-      //       }
-      //     }
-      //     if(!all_in_rec) break;
-      //   }
-      // }
+      if(seg->frag_ratio == 1) {
+        target_seg = nullptr;
+        break;
+      }
 
-      if(all_can_move(seg) && seg->frag_ratio != 1 && seg->frag_ratio != 0) {
+      if(all_can_move(seg) && seg->frag_ratio != 0) {
         target_seg = seg;
         break;
       }
 
     }
 #ifdef DEBUG_MODE
-    std::cout << "\n";
+    if(c10::dtb::record_move_defrag)
+      std::cout << "\n";
     size_t before_mv = c10::dtb::current_memory(device);
     size_t allocted_size_in = 0;
 #endif
@@ -1639,6 +1627,7 @@ public:
         if(bit->allocated) seg_stat += "1";
         else seg_stat += "0";
       }
+      target_seg->flush_frag_ratio();
       std::cout << "[after clone_and_reset] seg ptr: " << (*target_seg->blocks.begin())->ptr <<  ", size: " << target_seg->total_size
                 << ", frag ratio: " 
                 << target_seg->frag_ratio << "(" << target_seg->allocated_size
@@ -2624,7 +2613,21 @@ class DeviceCachingAllocator {
           trigger_free_memory_callbacks(params);
           auto if_evict = segManager.auto_evict(size, device, stream);
           if(!if_evict) {
+            /// BUG[√]: 移动后会在auto_evict遍历segment报 segment fault（小心修改）
             segManager.auto_evict(size, device, stream, true); // gap size case
+#ifdef DEFRAGMENT
+  #ifdef DEBUG_MODE
+            if(c10::dtb::record_move_defrag)
+              std::cout << "[before move_for_defrag] " << c10::dtb::current_memory() / 1024 / 1024 << ", " << c10::dtb::reserved_memory() / 1024 / 1024 << "\n";
+  #endif
+            // bool if_mv = false;
+            auto if_mv = segManager.move_for_defrag(size, device);
+
+  #ifdef DEBUG_MODE
+            if(c10::dtb::record_move_defrag)
+              std::cout << "[after move_for_defrag] " << if_mv << " " << c10::dtb::current_memory() / 1024 / 1024 << ", " << c10::dtb::reserved_memory() / 1024 / 1024 << "\n";
+  #endif
+#endif
             // #ifdef DEBUG_MODE
             //   if(c10::dtb::record_move_defrag) {
             //     size_t before_mv = c10::dtb::current_memory(device);
@@ -2633,8 +2636,6 @@ class DeviceCachingAllocator {
             //   }
             // #endif
             // segManager.display_all_not_in_ap(device);
-            /// BUG: 移动后会在auto_evict遍历segment报 segment fault
-            auto if_mv = segManager.move_for_defrag(size, device);
           }
         }
 #endif
@@ -2645,7 +2646,6 @@ class DeviceCachingAllocator {
           block_found = get_smaller_free_block(params, c10::dtb::move_defrag_max_size[device]) 
                         || (trigger_free_memory_callbacks(params) && get_smaller_free_block(params, c10::dtb::move_defrag_max_size[device]));
           move_defrag = true;
-          std::cout << "get_smaller_free_block: " << block_found << "/" << c10::dtb::move_defrag_max_size[device] << std::endl;
         }
       } 
 #endif
@@ -5033,6 +5033,39 @@ class DeviceCachingAllocator {
     if ((p.size() >= CachingAllocatorConfig::max_split_size()) &&
         ((*it)->size >= p.size() + kLargeBuffer))
       return false;
+
+#ifdef DEFRAGMENT
+    // outers mem request
+    if(!c10::dtb::in_runtime_record[c10::cuda::current_device()]) {
+      auto first_fit_size = (*it)->size;
+      auto best_it = it;
+      size_t best_total_size = std::numeric_limits<size_t>::max();
+      float best_frag_ratio = std::numeric_limits<float>::max();
+
+      while(it!=pool.blocks.end() && (*it)->size == first_fit_size) {
+        auto seg = segManager.get_segment_of_block((*it)->ptr);
+        seg->flush_frag_ratio();
+        float frag_ratio = seg->frag_ratio;
+        size_t total_size = seg->total_size; // 假设segment有total_size成员
+
+        if (total_size < best_total_size || (total_size == best_total_size && frag_ratio < best_frag_ratio)) {
+          best_total_size = total_size;
+          best_frag_ratio = frag_ratio;
+          best_it = it;
+        }
+        it++;
+      }
+
+      if (best_it != pool.blocks.end()) {
+        p.block = *best_it;
+        (*best_it)->gc_count = 0; // Denote this block has been used
+        pool.blocks.erase(best_it);
+        return true;
+      }
+    }
+#endif
+
+
     p.block = *it;
     (*it)->gc_count = 0; // Denote this block has been used
     pool.blocks.erase(it);
@@ -5069,7 +5102,7 @@ class DeviceCachingAllocator {
     if ((p.size() >= CachingAllocatorConfig::max_split_size()) &&
         ((*it)->size >= p.size() + kLargeBuffer))
       return false;
-    /// BUG: 这里限制的是被标记的segment
+    /// FIXME[√]: 这里限制的是被标记的segment，而不应该只是单纯用size做限制
     auto seg = segManager.get_segment_of_block((*it)->ptr);
     while((void*)seg==c10::dtb::move_defrag_seg_ptr[current_device()]) {
       it++;
