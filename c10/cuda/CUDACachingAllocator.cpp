@@ -1573,9 +1573,9 @@ public:
           return lhs->blocks.size() < rhs->blocks.size();
       }
       // 如果lhs的frag_ratio等于1，而rhs的小于1，把rhs排在前面（也就是让等于1的往后排）
-      if (lhs->frag_ratio == 1 && rhs->frag_ratio < 1) return false;
-      // 如果rhs的frag_ratio等于1，而lhs的小于1，把lhs排在前面
-      if (lhs->frag_ratio < 1 && rhs->frag_ratio == 1) return true;
+      // if (lhs->frag_ratio == 1 && rhs->frag_ratio < 1) return false;
+      // // 如果rhs的frag_ratio等于1，而lhs的小于1，把lhs排在前面
+      // if (lhs->frag_ratio < 1 && rhs->frag_ratio == 1) return true;
       // 剩下就是两者的frag_ratio都等于1的情况，按照原来后续的逻辑继续比较（这里其实可以保持和之前一样的比较逻辑，不过为了完整清晰展示思路写出来）
       if (lhs->last_change_time!= rhs->last_change_time) return lhs->last_change_time < rhs->last_change_time;
       return lhs->blocks.size() < rhs->blocks.size();
@@ -2684,6 +2684,15 @@ class DeviceCachingAllocator {
           || (trigger_free_memory_callbacks(params) && get_free_block(params))
           || get_fused_fragmented_blocks(params, 0);
   #endif
+    }
+
+    if (!block_found) {
+      if(!c10::dtb::move_defrag_flag[device] && (c10::dtb::reserved_memory(device)+size)>c10::dtb::memory_budget) {
+        auto if_mv = segManager.move_for_defrag(size, device);
+        if(if_mv) {
+          block_found = get_free_block(params);
+        }
+      }
     }
 
     // Can't reuse an existing block; try to get a new one.
@@ -4585,6 +4594,12 @@ class DeviceCachingAllocator {
     //     return ex1_blocks;
     //   }
     // }
+    // if(UNIFIED_EVICT) {
+    //   if(!c10::dtb::in_runtime_record[c10::cuda::current_device()]) {
+    //     std::cout << "[get_ex pool] in runtime record with: " << size /1024/1024 << "MB.\n";
+    //     return ex1_blocks;
+    //   }
+    // }
     if (size <= kSmallSize) {
       return small_blocks;
     } else {
@@ -5037,12 +5052,12 @@ class DeviceCachingAllocator {
 #ifdef DEFRAGMENT
     // outers mem request
     if(!c10::dtb::in_runtime_record[c10::cuda::current_device()]) {
-      auto first_fit_size = (*it)->size;
+      auto first_fit_size = ((*it)->size);
       auto best_it = it;
       size_t best_total_size = std::numeric_limits<size_t>::max();
       float best_frag_ratio = std::numeric_limits<float>::max();
 
-      while(it!=pool.blocks.end() && (*it)->size == first_fit_size) {
+      while(it!=pool.blocks.end() && (*it)->size >= first_fit_size && (*it)->size <= (1.1)*first_fit_size) {
         auto seg = segManager.get_segment_of_block((*it)->ptr);
         seg->flush_frag_ratio();
         float frag_ratio = seg->frag_ratio;

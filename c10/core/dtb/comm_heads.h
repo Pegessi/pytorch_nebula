@@ -47,7 +47,7 @@
 // #define ORIG_EVICT                       /// DTR original Evction
 // 集群上的cost_evict也使用了single_pool + pre_eviction的优化
 #define PROACTIVE_REMAT                 /// 主动恢复相关接口
-// #define DEFRAGMENT                      /// 碎片整理策略   
+#define DEFRAGMENT                      /// 碎片整理策略   
 
 // #define ARITHMETIC_TEST                 /// 等差释放测试
 
