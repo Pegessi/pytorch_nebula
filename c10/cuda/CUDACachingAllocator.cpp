@@ -1388,6 +1388,9 @@ public:
                     printf("Use Ptr to Evict, need size:%ld single search time:%ld us, segs:%ld, before alloc:%ld, release:%ld, after release: %ld\n", need_size, search_time_, search_size,
                       before_allocated, released_size, c10::dtb::current_memory(device));
                   }
+                  if(c10::dtb::record_dependcy) {
+                    sap->update_dependency();
+                  }
                 #endif
                   return true;
               }
@@ -4996,14 +4999,6 @@ class DeviceCachingAllocator {
     update_stat_array(stats.inactive_split_bytes, net_change_inactive_split_size, p.stat_types);
     return true;
 #else
-    if(it == pool.blocks.end() && p.size() == 2147483648)
-    {
-      std::cout << "[mis by no block]";
-      for(auto tit = pool.blocks.rbegin(); tit!=pool.blocks.rend(); tit++) {
-        std::cout << (*tit)->size << " ";
-      }
-      std::cout << std::endl;
-    }
     if (it == pool.blocks.end() || (*it)->stream != p.stream())
       return false;
 

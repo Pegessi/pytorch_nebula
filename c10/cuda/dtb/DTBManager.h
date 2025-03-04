@@ -36,6 +36,7 @@ static const bool USE_DTR = ([]() -> bool {    /// init if use dtr by check env 
       std::vector<std::unique_ptr<CheckpointPool>> device_dtbpool;
       std::vector<size_t> peak_allocated_memory;
       std::vector<size_t> peak_reserved_memory;
+      std::unordered_set<long> locked_tids;
 #ifdef MEM_FIRST_EVICT
       ska::flat_hash_map<void*, weak_intrusive_ptr<AliasPool>> p2ap;
       // std::unordered_map<void*, weak_intrusive_ptr<AliasPool>> p2ap;
@@ -164,6 +165,14 @@ static const bool USE_DTR = ([]() -> bool {    /// init if use dtr by check env 
 
       void add_dcm_into_queue(int device);
 #endif
+
+      void load_fix_tids(std::string file_path);
+
+      bool if_in_fix_tids(long tid);
+
+      void insert_locked(int device, const strong& cell);
+
+      void release_locked(int device);
 
       void toggle_sampling(bool if_sampling);
 

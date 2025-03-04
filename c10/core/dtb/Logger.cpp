@@ -251,7 +251,7 @@ void DTRLogAlias(const std::string& name, int index) {
     j[INSTRUCTION] = ALIAS;
     j[NAME] = name;
     j[ALIAS] = std::to_string(index);
-    DTRLogger::logger().log(j.dump());
+    DTRLogger::logger("oprec").log(j.dump());
   } else {
     DTRLogger::logger().log(name + " " + ALIAS + ": " + std::to_string(index));
   }

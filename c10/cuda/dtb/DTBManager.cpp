@@ -475,7 +475,7 @@ void DTBCheckpointPool::add_into_keychain(int device, const weak& new_key, const
         auto name = first_weak->counter_name();
       for(const auto& wc: pool->candidates){
         if(auto cell = wc.lock()){
-          // DTRLogTensorInfo(cell->counter_name(), cell->pool->addr, cell->pool->memory, cell->get_degree(), 0, 0);
+          DTRLogTensorInfo(cell->counter_name(), cell->pool->addr, cell->pool->memory, cell->get_degree(), 0, 0);
         }
       }
     }
@@ -554,6 +554,63 @@ void DTBCheckpointPool::set_during_backward(bool flag){
   }
 }
 
+void DTBCheckpointPool::load_fix_tids(std::string file_path) {
+  std::ifstream file(file_path);
+  if (!file.is_open()) {
+      throw std::runtime_error("Failed to open file: " + file_path);
+  }
+
+  std::string line;
+  std::getline(file, line);
+  file.close();
+
+  // 移除首尾的方括号
+  if (!line.empty() && line.front() == '[' && line.back() == ']') {
+      line = line.substr(1, line.length() - 2);
+  }
+
+  std::stringstream ss(line);
+  std::string token;
+
+  while (std::getline(ss, token, ',')) {
+      try {
+          // 去除可能的空格
+          size_t start = token.find_first_not_of(" \t");
+          size_t end = token.find_last_not_of(" \t");
+          if (start != std::string::npos && end != std::string::npos) {
+              token = token.substr(start, end - start + 1);
+          }
+          locked_tids.insert(long(std::stoi(token)));
+      } catch (const std::invalid_argument& e) {
+          throw std::runtime_error("Invalid integer format in file: " + token);
+      }
+  }
+
+}
+
+bool DTBCheckpointPool::if_in_fix_tids(long tid) {
+  return locked_tids.find(tid) != locked_tids.end();
+}
+
+void DTBCheckpointPool::insert_locked(int device, const strong& cell) {
+  if(device_dtbpool.empty()) return;
+  auto pool = device_dtbpool[device].get();
+  pool->locked_cells.push_back(weak(cell));
+  cell->pool->lock();
+  cell->pool->is_retain = true;
+}
+
+void DTBCheckpointPool::release_locked(int device) {
+  if(device_dtbpool.empty()) return;
+  auto pool = device_dtbpool[device].get();
+  for(auto & wcell: pool->locked_cells) {
+    if(auto scell = wcell.lock()) {
+      scell->pool->is_retain = false;
+      scell->pool->unlock();
+    }
+  }
+}
+
 void DTBCheckpointPool::clear_checkpointpool(int device, bool last_iter){
   if(device_dtbpool.empty()) return;          // exec without dtbpool  
   auto pool = device_dtbpool[device].get();
@@ -580,7 +637,7 @@ void DTBCheckpointPool::clear_checkpointpool(int device, bool last_iter){
     // }
   #endif
     pool->clear_exts(last_iter);
-    
+    release_locked(device);
   }
 }
 

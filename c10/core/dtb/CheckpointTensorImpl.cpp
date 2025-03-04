@@ -266,6 +266,12 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
   auto cur_compute_cost = post - pre;
   // auto cur_compute_cost = test_time_post - test_time_cur;
 
+#ifdef DEPTH_ENABLE
+  if(cumulative_num>0){
+    DTRLogCalculativeRematsRecords(0, name, cumulative_num);
+  }
+#endif
+
   auto* pm = getDTBPoolManager();
 #ifdef ORIG_EVICT
   if(COST_FIRST_EVICT){
@@ -331,6 +337,11 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
     if(during_backward) alias_pool->is_retain = true;   /// for some special dependency!
     /// 这里最终会调用fill(t)
     auto e = intrusive_ptr<External>::make(t, alias_pool, remat); // bind external for t
+
+    if(pm->if_in_fix_tids(e->value->id)) { // TODO: 宏定义控制
+      // std::cout << "[in fix] " << e->value->id << "\n";
+      pm->insert_locked(device_id, e->value);
+    }
 
 
 #ifdef DEBUG_MODE

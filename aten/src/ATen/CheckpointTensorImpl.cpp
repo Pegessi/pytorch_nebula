@@ -285,6 +285,12 @@ void set_backward_flag(){
   // printf("SET_BACKWARD_FALG TRIGGER\n");
 }
 
+void load_fix_tids(c10::string_view str_) {
+  auto str = std::string(str_);
+  auto *pm = getDTBPoolManager();
+  pm->load_fix_tids(str);
+}
+
 void unset_backward_flag(){
 // #ifdef MULTI_MODE
 //   auto *pm = getDTBPoolManager();

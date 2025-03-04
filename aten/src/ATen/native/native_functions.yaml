@@ -34,6 +34,8 @@
   variants: function
 - func: unset_backward_flag() -> ()
   variants: function
+- func: load_fix_tids(str file_path) -> ()
+  variants: function
 - func: mark_train(bool mode) -> ()
   variants: function
 - func: force_evict(int mode) -> ()
@@ -2277,6 +2279,8 @@
 - func: exp(Tensor self) -> Tensor
   device_check: NoCheck
   structured_delegate: exp.out
+  dispatch:
+    Checkpoint: checkpoint_exp
   variants: function, method
   tags:
   - core
@@ -2649,6 +2653,7 @@
     C, SymInt HxW, int group, float eps) -> (Tensor, Tensor, Tensor)
   dispatch:
     CPU, CUDA: native_group_norm
+    Checkpoint: checkpoint_native_group_norm
     CompositeExplicitAutograd: math_group_norm
   autogen: native_group_norm.out
   tags: core
@@ -2657,6 +2662,7 @@
     -> (Tensor, Tensor, Tensor)
   dispatch:
     CPU, CUDA: native_group_norm_backward
+    Checkpoint: checkpoint_native_group_norm_backward
   autogen: native_group_norm_backward.out
   tags: core
 - func: _fft_r2c(Tensor self, int[] dim, int normalization, bool onesided) -> Tensor
@@ -10092,6 +10098,8 @@
   device_check: NoCheck
   structured_delegate: mse_loss.out
   python_module: nn
+  dispatch:
+    Checkpoint: checkpoint_mse_loss
 - func: mse_loss_backward.grad_input(Tensor grad_output, Tensor self, Tensor target,
     int reduction, *, Tensor(a!) grad_input) -> Tensor(a!)
   python_module: nn
@@ -10104,6 +10112,7 @@
   dispatch:
     CPU, CUDA: mse_loss_backward
     MPS: mse_loss_backward_mps
+    Checkpoint: checkpoint_mse_loss_backward
 - func: l1_loss(Tensor self, Tensor target, int reduction=Mean) -> Tensor
   python_module: nn
 - func: multi_margin_loss.out(Tensor self, Tensor target, Scalar p=1, Scalar margin=1,
@@ -11362,6 +11371,7 @@
     CPU: upsample_nearest2d_out_cpu
     CUDA: upsample_nearest2d_out_cuda
     MPS: upsample_nearest2d_out_mps
+    Checkpoint: checkpoint_upsample_nearest2d_out
 - func: _upsample_nearest_exact2d.out(Tensor self, SymInt[2] output_size, float? scales_h=None,
     float? scales_w=None, *, Tensor(a!) out) -> Tensor(a!)
   python_module: nn
@@ -11391,6 +11401,7 @@
     CPU: upsample_nearest2d_backward_out_cpu
     CUDA: upsample_nearest2d_backward_out_cuda
     MPS: upsample_nearest2d_backward_out_mps
+    Checkpoint: checkpoint_upsample_nearest2d_backward_out
 - func: _upsample_nearest_exact2d_backward.grad_input(Tensor grad_output, SymInt[2]
     output_size, SymInt[4] input_size, float? scales_h=None, float? scales_w=None,
     *, Tensor(a!) grad_input) -> Tensor(a!)

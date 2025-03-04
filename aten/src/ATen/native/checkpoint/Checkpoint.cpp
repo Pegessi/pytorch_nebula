@@ -3380,6 +3380,85 @@ at::Tensor & checkpoint_normal_outf(const at::Tensor & self, double mean, double
   return CheckpointTensorImpl::make("aten::normal.out", rt, {self, out})[0];
 }
 
+
+/// ['aten::exp', 'at::Tensor', 'exp', '(const at::Tensor & self)']
+at::Tensor checkpoint_exp(at::Tensor const& self) {
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      return {at::exp(vec.at(0))};
+    };
+  return CheckpointTensorImpl::make("aten::exp", rt, {self})[0];
+}
+
+/// ['aten::native_group_norm', 'std::tuple<at::Tensor,at::Tensor,at::Tensor>', 'native_group_norm', '(const at::Tensor & input, const c10::optional<at::Tensor> & weight, const c10::optional<at::Tensor> & bias, int64_t N, int64_t C, int64_t HxW, int64_t group, double eps)']
+std::tuple<at::Tensor,at::Tensor,at::Tensor> checkpoint_native_group_norm(const at::Tensor & input, const c10::optional<at::Tensor> & weight, const c10::optional<at::Tensor> & bias, int64_t N, int64_t C, int64_t HxW, int64_t group, double eps) {
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      auto ret = at::native_group_norm(vec.at(0), vec.at(1), vec.at(2), N, C, HxW, group, eps);
+      return {std::get<0>(ret), std::get<1>(ret), std::get<2>(ret)};
+    };
+  c10::MaybeOwned<Tensor> weight_maybe_owned = at::borrow_from_optional_tensor(weight);
+  const Tensor& weight_ = *weight_maybe_owned;
+  c10::MaybeOwned<Tensor> bias_maybe_owned = at::borrow_from_optional_tensor(bias);
+  const Tensor& bias_ = *bias_maybe_owned;
+  auto ret = CheckpointTensorImpl::make("aten::native_group_norm", rt, {input, weight_, bias_});
+  return {ret[0], ret[1], ret[2]};
+}
+
+/// ['aten::native_group_norm_backward', 'std::tuple<at::Tensor,at::Tensor,at::Tensor>', 'native_group_norm_backward', '(const at::Tensor & grad_out, const at::Tensor & input, const at::Tensor & mean, const at::Tensor & rstd, const c10::optional<at::Tensor> & weight, int64_t N, int64_t C, int64_t HxW, int64_t group, ::std::array<bool,3> output_mask)']
+std::tuple<at::Tensor,at::Tensor,at::Tensor> checkpoint_native_group_norm_backward(const at::Tensor & grad_out, const at::Tensor & input, const at::Tensor & mean, const at::Tensor & rstd, const c10::optional<at::Tensor> & weight, int64_t N, int64_t C, int64_t HxW, int64_t group, ::std::array<bool,3> output_mask) {
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      auto ret = at::native_group_norm_backward(vec.at(0), vec.at(1), vec.at(2), vec.at(3), vec.at(4), N, C, HxW, group, output_mask);
+      return {std::get<0>(ret), std::get<1>(ret), std::get<2>(ret)};
+    };
+  c10::MaybeOwned<Tensor> weight_maybe_owned = at::borrow_from_optional_tensor(weight);
+  const Tensor& weight_ = *weight_maybe_owned;
+  auto ret = CheckpointTensorImpl::make("aten::native_group_norm_backward", rt, {grad_out, input, mean, rstd, weight_});
+  return {ret[0], ret[1], ret[2]};
+}
+
+/// ['aten::upsample_nearest2d_outf', 'at::Tensor &', 'upsample_nearest2d_outf', '(const at::Tensor & self, at::IntArrayRef output_size, c10::optional<double> scales_h, c10::optional<double> scales_w, at::Tensor & out)']
+at::Tensor & checkpoint_upsample_nearest2d_out(const at::Tensor & self, at::IntArrayRef output_size, c10::optional<double> scales_h, c10::optional<double> scales_w, at::Tensor & out) {
+  auto output_size_ = output_size.vec();
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      Tensor out = vec.at(1);
+      return {at::upsample_nearest2d_out(out, vec.at(0), output_size_, scales_h, scales_w)};
+    };
+  return CheckpointTensorImpl::make("aten::upsample_nearest2d_outf", rt, {self, out})[0];
+}
+
+/// ['aten::mse_loss', 'at::Tensor', 'mse_loss', '(const at::Tensor & self, const at::Tensor & target, int64_t reduction=at::Reduction::Mean)']
+at::Tensor checkpoint_mse_loss(const at::Tensor & self, const at::Tensor & target, int64_t reduction) {
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      return {at::mse_loss(vec.at(0), vec.at(1), reduction)};
+    };
+  return CheckpointTensorImpl::make("aten::mse_loss", rt, {self, target})[0];
+}
+
+/// ['aten::mse_loss_backward', 'at::Tensor', 'mse_loss_backward', '(const at::Tensor & grad_output, const at::Tensor & self, const at::Tensor & target, int64_t reduction)']
+at::Tensor checkpoint_mse_loss_backward(const at::Tensor & grad_output, const at::Tensor & self, const at::Tensor & target, int64_t reduction) {
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      return {at::mse_loss_backward(vec.at(0), vec.at(1), vec.at(2), reduction)};
+    };
+  return CheckpointTensorImpl::make("aten::mse_loss_backward", rt, {grad_output, self, target})[0];
+}
+
+/// ['aten::upsample_nearest2d_backward_outf', 'at::Tensor &', 'upsample_nearest2d_backward_outf', '(const at::Tensor & grad_output, at::IntArrayRef output_size, at::IntArrayRef input_size, c10::optional<double> scales_h, c10::optional<double> scales_w, at::Tensor & grad_input)']
+at::Tensor & checkpoint_upsample_nearest2d_backward_out(const at::Tensor & grad_output, at::IntArrayRef output_size, at::IntArrayRef input_size, c10::optional<double> scales_h, c10::optional<double> scales_w, at::Tensor & grad_input) {
+  auto output_size_ = output_size.vec();
+  auto input_size_ = input_size.vec();
+  rematerialize_function_t rt =
+    [=](const Tensors& vec) -> Tensors {
+      Tensor grad_input = vec.at(1);
+      return {at::upsample_nearest2d_backward_out(grad_input, vec.at(0), output_size_, input_size_, scales_h, scales_w)};
+    };
+  return CheckpointTensorImpl::make("aten::upsample_nearest2d_backward_outf", rt, {grad_output, grad_input})[0];
+}
+
 /// ['aten::index.Tensor', 'at::Tensor', 'index', '(const at::Tensor & self, const c10::List<c10::optional<at::Tensor>> & indices)']
 /*
 bool tensorlist_has_dispatch(const c10::List<c10::optional<at::Tensor>>& li) {
