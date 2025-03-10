@@ -34,6 +34,8 @@ long search_time_ = 0;
 long cost_time_ = 0;
 bool use_log_ = false;
 bool use_profile_ = false;
+long tid_counter = 0;
+long tid_before_infer = -1;
 std::unordered_map<int64_t, duration_t> compute_cost_records;
 std::unordered_map<int64_t, size_t> memory_cost_records;
 size_t memory_budget = 85899345920;  
@@ -47,7 +49,7 @@ std::vector<void*> move_defrag_seg_ptr = std::vector<void*>(8, nullptr);
 
 #ifdef DEBUG_MODE
 constexpr const bool record_er_counts = false;        // 驱逐&重物化次数
-constexpr const bool record_op_recs = false;          // 是否记录op历史
+constexpr const bool record_op_recs = true;          // 是否记录op历史
 constexpr const bool record_cpevict_recs = false;
 constexpr const bool record_remat_recs = false;
 constexpr const bool record_fragmentation = false;    // 记录碎片化和内存占用数据

@@ -257,6 +257,19 @@ void DTRLogAlias(const std::string& name, int index) {
   }
 }
 
+void DTRLogTag(const std::string& name, const std::string& tag, int index) {
+  if (log_json) {
+    json j;
+    j[INSTRUCTION] = ANNOTATION;
+    j[NAME] = name;
+    j["TAG"] = name;
+    j[ALIAS] = std::to_string(index);
+    DTRLogger::logger("oprec").log(j.dump());
+  } else {
+    DTRLogger::logger().log(name + " " + ALIAS + ": " + std::to_string(index));
+  }
+}
+
 void DTRLogCopyFrom(const std::string& to, const std::string& from) {
   if (log_json) {
     json j;

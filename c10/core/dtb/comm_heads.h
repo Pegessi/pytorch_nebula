@@ -113,6 +113,14 @@ constexpr const int DCR_NB_PASS = -1;                  // for com
 constexpr const double MIN_MODULARITY = 0.000001;      // for com
 constexpr const int DCR_TYPE = UNWEIGHTED;
 
+/// [WARNING]不可用状态，对于llama每次更新梯度后都会更新一遍权重，换个场景可能又不一样了
+static const int RENUMBER_COUNTER  = ([]() -> int {
+    const char* env = getenv("RENUMBER_COUNTER");
+    if(env) return atoi(env);
+    else return 0;
+})();
+
+
 
 #ifdef TIME_REC
 auto start_time = std::chrono::high_resolution_clock::now();
@@ -246,6 +254,8 @@ extern bool use_log_;
 extern bool use_profile_;
 extern std::unordered_map<int64_t, duration_t> compute_cost_records;
 extern std::unordered_map<int64_t, size_t> memory_cost_records;
+extern COMMON_API long tid_counter;
+extern COMMON_API long tid_before_infer;
 extern COMMON_API size_t memory_budget;
 extern COMMON_API bool store_in_special_pool[8];
 extern COMMON_API bool in_runtime_record[8];
@@ -277,12 +287,12 @@ extern size_t dcr_lock_counts;
 extern bool record_mem_addr;         // 是否记录内存地址
 extern bool current_if_any_evicted;
 
-extern std::atomic<size_t> evict_counts;
-extern std::atomic<size_t> tensor_evict_counts;
-extern std::atomic<size_t> remat_counts;
-extern std::atomic<size_t> cannot_evict_counts;
-extern std::atomic<size_t> destruct_counts;
-extern std::atomic<size_t> tensor_destruct_counts;
+extern COMMON_API std::atomic<size_t> evict_counts;
+extern COMMON_API std::atomic<size_t> tensor_evict_counts;
+extern COMMON_API std::atomic<size_t> remat_counts;
+extern COMMON_API std::atomic<size_t> cannot_evict_counts;
+extern COMMON_API std::atomic<size_t> destruct_counts;
+extern COMMON_API std::atomic<size_t> tensor_destruct_counts;
 
 void signal_handler(int sig);
 

@@ -18,6 +18,8 @@
   variants: function
 - func: toggle_log(bool use_log) -> ()
   variants: function
+- func: mark_layer_action(int mode, str tag='none') -> ()
+  variants: function
 - func: clear_checkpointpool(int device, bool last_iter=True) -> ()
   variants: function
 - func: check_current_exts(int device) -> ()

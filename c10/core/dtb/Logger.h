@@ -45,6 +45,7 @@ void DTRLogConstant(const std::string& name);
 void DTRLogMemory(const std::string& name, size_t memory);
 void DTRLogApCost(const std::string& name, double cost);
 void DTRLogAlias(const std::string& name, int index);
+void DTRLogTag(const std::string& name, const std::string& tag, int index);
 void DTRLogCopyFrom(const std::string& to, const std::string& from);
 void DTRLogCopy(const std::string& new_name, const std::string& old_name);
 void DTRLogMutate(const std::string& name, const std::vector<std::string>& args, const std::vector<size_t>& mutate, const std::string& time);

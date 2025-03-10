@@ -82,9 +82,9 @@ void CheckpointTensorImpl::shallow_copy_from(const c10::intrusive_ptr<TensorImpl
 #endif
 }
 
-#ifdef DEBUG_MODE
-long CheckpointTensorCell::counter = 0;
-#endif
+// #ifdef DEBUG_MODE
+// long CheckpointTensorCell::counter = 0;
+// #endif
 
 #ifdef DCR_MANAGE
 size_t CheckpointTensorCell::pool_counter = 0;
@@ -230,9 +230,16 @@ static constexpr size_t evict_num = 2;
 MakeRawResult make_raw(const rematerialize_function_t& remat_f,
                        const strongs& inputs, const std::string& name) {
   STATS.track("make_raw");
-  #ifdef ARITHMETIC_TEST
+#ifdef ARITHMETIC_TEST
   cur_op_counts++;
-  #endif
+#endif
+#ifdef DEBUG_MODE
+  if(RENUMBER_COUNTER) {
+    if(name!="aten::detach" && tid_before_infer==-1) {
+      tid_before_infer = tid_counter;
+    }
+  }
+#endif
   for (const strong& s : inputs) {                  // lock for unevictable
     s->pool->lock();
   }

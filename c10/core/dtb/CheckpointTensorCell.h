@@ -18,9 +18,9 @@ using at::Tensor;
 struct CheckpointTensorCell : intrusive_ptr_target {
 #ifdef DEBUG_MODE
   long id = gen_counter();
-  static long counter;
+  // static long counter;
   static long gen_counter() {
-    return counter++;
+    return tid_counter++;
   }
   std::string counter_name(){
     return std::string("x") + std::to_string(id);

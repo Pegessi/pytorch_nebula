@@ -285,6 +285,27 @@ void set_backward_flag(){
   // printf("SET_BACKWARD_FALG TRIGGER\n");
 }
 
+void mark_layer_action(long mode, c10::string_view tag) {
+  switch (mode)
+  {
+  case 0:
+    c10::dtb::DTRLogTag("begin_layer", std::string(tag), 0);
+    break;
+  case 1:
+    c10::dtb::DTRLogTag("end_layer", std::string(tag), 1);
+    break;
+  default:
+    break;
+  }
+  /// add more action
+}
+
+void mark_tid_before_inference(){
+
+  
+}
+
+
 void load_fix_tids(c10::string_view str_) {
   auto str = std::string(str_);
   auto *pm = getDTBPoolManager();
@@ -303,8 +324,11 @@ void unset_backward_flag(){
 #ifdef DCR_MANAGE
   c10::dtb::CheckpointTensorCell::reset_pool_counter();
 #endif
-// #endif
-  // printf("UNSET_BACKWARD_FALG TRIGGER\n");
+#ifdef DEBUG_MODE
+  if(RENUMBER_COUNTER) {
+    c10::dtb::tid_counter = c10::dtb::tid_before_infer;
+  }
+#endif
 }
 
 void clear_batched_records(long device) {
