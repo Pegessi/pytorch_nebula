@@ -1,7 +1,8 @@
 #include <ATen/ATen.h>
 #include <ATen/CheckpointTensorImpl.h>
 
-namespace at { namespace native {
+namespace at { 
+namespace native {
 
 inline CheckpointTensorImpl* get_sparse_impl(const Tensor& self) {
   TORCH_INTERNAL_ASSERT(

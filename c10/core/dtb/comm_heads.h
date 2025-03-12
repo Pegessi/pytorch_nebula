@@ -48,6 +48,7 @@
 // 集群上的cost_evict也使用了single_pool + pre_eviction的优化
 #define PROACTIVE_REMAT                 /// 主动恢复相关接口
 #define DEFRAGMENT                      /// 碎片整理策略   
+#define DAG_MANAGE                      /// 动态图算法
 
 // #define ARITHMETIC_TEST                 /// 等差释放测试
 
@@ -112,6 +113,14 @@ static const int DCR_LOCK_TOPS  = ([]() -> int { // △nb_nodes > cluster_interv
 constexpr const int DCR_NB_PASS = -1;                  // for com
 constexpr const double MIN_MODULARITY = 0.000001;      // for com
 constexpr const int DCR_TYPE = UNWEIGHTED;
+
+
+static const bool DAG_LOCK_ENABLE = ([]() -> bool {
+    const char* env = getenv("DAG_LOCK_ENABLE");
+    if(env) return (atoi(env))==1;
+    else    return false;
+})();
+
 
 /// [WARNING]不可用状态，对于llama每次更新梯度后都会更新一遍权重，换个场景可能又不一样了
 static const int RENUMBER_COUNTER  = ([]() -> int {

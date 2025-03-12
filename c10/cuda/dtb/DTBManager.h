@@ -17,6 +17,7 @@
 #include <c10/core/dtb/CheckpointTensorCell.h>
 #include <c10/core/dtb/ResidualChain.h>
 #include <c10/core/dtb/DynamicClusterManager.h>
+#include <c10/core/dtb/DAGModule.h>
 
 namespace c10 {
 namespace dtb {
@@ -165,6 +166,11 @@ static const bool USE_DTR = ([]() -> bool {    /// init if use dtr by check env 
 
       void add_dcm_into_queue(int device);
 #endif
+
+/* BC dynamic load */
+      void insert_dynamic_dag(int device, nid_t s, nid_t e, const weak& s_cell, const weak& e_cell, int w=1);
+      void add_dynamic_dag_into_queue(int device);
+/* end */
 
       void load_fix_tids(std::string file_path);
 

@@ -394,6 +394,7 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
       if_tensor_add_key_chain(inputs[i], pm, device_id);
     }
 #endif
+
     for (size_t j = 0; j < outputs.size(); ++j) {
       if (!is_alias(raw_inputs[i], raw_outputs[j])) {
         add_neighbor(inputs[i], outputs[j]->value);
@@ -406,8 +407,17 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
         }
 #endif
 
+#ifdef DAG_MANAGE
+      if(DAG_LOCK_ENABLE)
+      if(!during_backward&&pm->if_train_mode[device_id]) {
+        pm->insert_dynamic_dag(device_id, inputs[i]->dg_id, outputs[j]->value->dg_id, weak(inputs[i]), weak(outputs[j]->value));
+      }
+#endif
+
     }
   }
+
+
 #ifdef DCR_MANAGE
   if(DCR_LOCK_ENABLE)
     if(during_backward&&pm->if_train_mode[device_id]) {
@@ -416,15 +426,16 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
     }
 #endif
 
+#ifdef DAG_MANAGE
+  if(DAG_LOCK_ENABLE)
+  if(during_backward&&pm->if_train_mode[device_id]) {
+    pm->add_dynamic_dag_into_queue(device_id);
+  }
+#endif
+
+
   for (const strong& s : inputs) {
     s->pool->unlock();
-    // release_external_of_nosource_tensor(s, name);
-    // #ifdef ARITHMETIC_TEST // stupid
-    // if(cur_op_counts % evict_num == 0){
-    //   if(s->pool->evictable())
-    //   s->pool->evict(0);
-    // }
-    // #endif
   }
 
 #ifdef DEBUG_MODE

@@ -6,6 +6,8 @@
 #include <c10/core/dtb/ResidualChain.h>
 #include <c10/core/dtb/DynamicGraph.h>
 #include <c10/core/dtb/DynamicClusterManager.h>
+#include <c10/core/dtb/DAGModule.h>
+#include <queue>
 
 
 namespace c10 {
@@ -23,6 +25,10 @@ struct CheckpointPool {
   std::vector<ResidualChainRef> chains; 
   StrongDCM tmp_dcm;
   std::vector<StrongDCM> dcms;            // for dcr
+
+  SMultiDAG cur_mdag;
+  std::queue<SMultiDAG> mdags;
+
   std::vector<weak> cur_batch_evicted_tensors;
   std::vector<std::vector<weak>> evicted_batch_tensors; // record private evicted tensors
 

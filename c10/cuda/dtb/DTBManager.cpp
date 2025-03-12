@@ -509,6 +509,34 @@ void DTBCheckpointPool::add_dcm_into_queue(int device) {
 
 #endif
 
+/* dynamic BC calculation */
+
+void DTBCheckpointPool::insert_dynamic_dag(int device, nid_t s, nid_t e, const weak& s_cell, const weak& e_cell, int w) {
+  init_check();
+  auto pool = device_dtbpool[device].get();
+  if(!pool->cur_mdag.defined()) {
+    auto new_mdag = SMultiDAG::make(0);
+    pool->cur_mdag = new_mdag;
+  }
+  pool->cur_mdag->add_edge(s, e, s_cell, e_cell, w);
+}
+
+void DTBCheckpointPool::add_dynamic_dag_into_queue(int device) {
+  init_check();
+  auto pool = device_dtbpool[device].get();
+  if(!pool->cur_mdag.defined()) return;
+  std::cout<< "check cur mdag size:" << pool->cur_mdag->node_to_subgraph.size() << ", " << pool->cur_mdag->subgraphs[0]->nodes.size() << std::endl;
+  auto snodes = pool->cur_mdag->subgraphs[0]->get_sorted_nodes();
+  std::cout << "attain nodes:";
+  for(auto& sn: snodes) {
+    std::cout << sn->nid << ", ";
+  }
+  std::cout << "\n";
+  pool->mdags.push(pool->cur_mdag);
+  pool->cur_mdag.reset();
+}
+
+/* end */
 
 void DTBCheckpointPool::toggle_sampling(bool if_sampling){
   for (const auto& pool : device_dtbpool) {

@@ -550,6 +550,7 @@ void CheckpointPool::mem_first_evict(bool &if_cleared) {
 
 /**
  * clear_checkpointpool finally call this
+ * release locked nodes ( for kinds of methods )
  */
 void CheckpointPool::clear_exts(bool last_iter){
   candidates.clear();
@@ -564,6 +565,12 @@ void CheckpointPool::clear_exts(bool last_iter){
       dcm->clear_comms();
     }
     dcms.clear();
+    
+    // clear dag records
+    while(!mdags.empty()) {
+      mdags.front()->clear_all_graphs();
+      mdags.pop();
+    }
   }else{
     auto it = chains.begin();         // 1F1B, release locked nodes like a stack order
     while(it!=chains.end()&&!(*it)->is_locked){
@@ -579,6 +586,9 @@ void CheckpointPool::clear_exts(bool last_iter){
       (*dit)->clear_comms();
       dcms.erase(dit);
     }
+
+    mdags.front()->clear_all_graphs();
+    mdags.pop();
   }
   
   if(last_iter){

@@ -1,7 +1,6 @@
 /*
   文件开头的宏定义是用于不同优化或者debug模式进行开关的
 */
-#pragma once
 
 #include <ATen/CheckpointTensorImpl.h>
 // #include <c10/core/CheckpointTensorImpl.h>
