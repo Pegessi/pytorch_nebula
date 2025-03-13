@@ -587,8 +587,10 @@ void CheckpointPool::clear_exts(bool last_iter){
       dcms.erase(dit);
     }
 
-    mdags.front()->clear_all_graphs();
-    mdags.pop();
+    if(!mdags.empty()) {
+      mdags.front()->clear_all_graphs();
+      mdags.pop();
+    }
   }
   
   if(last_iter){
