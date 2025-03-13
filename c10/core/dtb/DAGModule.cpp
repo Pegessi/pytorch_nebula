@@ -13,15 +13,16 @@ std::string DAGNode::to_string() const {
 void DAGNode::lock_node() {
     if(!is_lock){
         if(auto cell = cptc.lock()){
-        // store_in_special_pool[cell->pool->device_id] = true;
-        // if(cell->defined)  // remove cell firstly
-        // {
-        //     auto t_ = cell->t->clone(); 
-        //     cell->pool->evict(0);
-        //     cell->fill(t_, true);
-        // }else{
-        // }
-        // store_in_special_pool[cell->pool->device_id] = false;
+            // store_in_special_pool[cell->pool->device_id] = true;
+            // if(cell->defined)  // remove cell firstly
+            // {
+            //     auto t_ = cell->t->clone(); 
+            //     cell->pool->evict(0);
+            //     cell->fill(t_, true);
+            // }else{
+            //     cell->get();
+            // }
+            // store_in_special_pool[cell->pool->device_id] = false;
             cell->get();
             cell->pool->is_retain = true;
             cell->pool->lock();
@@ -61,6 +62,7 @@ DynamicDAGShortestPath::DynamicDAGShortestPath(dag_nid_t nid, const weak& cptc) 
     nodes[nid] = start_node;
     sorted_nodes.push_back(start_node);
     distance_to_max_level_node[0] = start_node;
+    distance_to_last_change_time[0] = get_current_time();
 }
 
 void DynamicDAGShortestPath::add_node(dag_nid_t nid, const weak& cptc) {
@@ -82,9 +84,66 @@ void DynamicDAGShortestPath::_insert_sorted(const SDAGNode& node) {
         }
         ++it;
     }
-    node->lock_node();
+    // node->lock_node();
     sorted_nodes.insert(it, node);
     distance_to_max_level_node[node->distance] = node;
+    distance_to_last_change_time[node->distance] = get_current_time();
+    operation_counter++;
+    if(operation_counter%50==0) _update_stable_window();
+}
+
+void DynamicDAGShortestPath::_update_stable_window(bool final) {
+    if(final) {
+        // 锁定前95%的node
+        int lock_count = 0;
+        int total_count = sorted_nodes.size(), lock_max_idx = total_count * 0.95;
+        for (int i = 0; i < total_count; ++i) {
+            if (i < lock_max_idx) {
+                sorted_nodes[i]->lock_node();
+                total_lock_counts++;
+            } else {
+                sorted_nodes[i]->unlock_node();
+            }
+        }
+        return;
+    }
+    // 获取按照distance_to_last_change_time的访问时间排序的keys，访问时间越早位置越靠前
+    std::vector<int> keys;
+    keys.reserve(distance_to_last_change_time.size());
+    for (const auto& pair : distance_to_last_change_time) {
+        keys.push_back(pair.first);
+    }
+    std::sort(keys.begin(), keys.end(), [&](int a, int b) {
+        return distance_to_last_change_time[a] < distance_to_last_change_time[b];
+    });
+    // 获取这些对应distance的node
+    std::vector<SDAGNode> time_order_nodes;
+    time_order_nodes.reserve(keys.size());
+    for (auto& key : keys) {
+        time_order_nodes.push_back(distance_to_max_level_node[key]);
+    }
+    if(!last_timer_order_nodes.empty()){
+        // 寻找第一个不同的node的index
+        int idx = 0;
+        for (; idx < time_order_nodes.size(); ++idx) {
+            if (last_timer_order_nodes[idx] != time_order_nodes[idx]) {
+                break;
+            }
+        }
+        if (idx > last_same_idx) {
+            for(int i=last_same_idx; i<idx; ++i){
+                time_order_nodes[i]->lock_node();
+                total_lock_counts++;
+            }
+        }else if (idx < last_same_idx) {
+            for(int i=idx; i<last_same_idx; ++i){
+                time_order_nodes[i]->unlock_node();
+                total_unlock_counts++;
+            }
+        }
+        last_same_idx = idx;
+    }
+    last_timer_order_nodes = time_order_nodes;
 }
 
 void DynamicDAGShortestPath::_update_sorted_nodes(const SDAGNode& node) {
@@ -93,6 +152,7 @@ void DynamicDAGShortestPath::_update_sorted_nodes(const SDAGNode& node) {
         if (old_node != node) {
             auto it = std::find(sorted_nodes.begin(), sorted_nodes.end(), old_node);
             old_node->unlock_node();
+            total_unlock_counts++;
             if (it != sorted_nodes.end()) {
                 sorted_nodes.erase(it);
             }
@@ -100,6 +160,7 @@ void DynamicDAGShortestPath::_update_sorted_nodes(const SDAGNode& node) {
     }
     _insert_sorted(node);
 }
+
 
 void DynamicDAGShortestPath::add_edge(dag_nid_t s_id, dag_nid_t t_id, const weak& s, const weak& t, int weight) {
     add_node(s_id, s);
@@ -189,6 +250,7 @@ void DynamicDAGShortestPath::release_resources() {
     nodes.clear();
     sorted_nodes.clear();
     distance_to_max_level_node.clear();
+    distance_to_last_change_time.clear();
 }
 
 #pragma endregion
@@ -216,6 +278,7 @@ void MultiDAGShortestPaths::add_edge(dag_nid_t s_id, dag_nid_t t_id, const weak&
         }
         for (const auto& [nid, node] : v_subgraph->nodes) {
             u_subgraph->add_node(nid, node->cptc);
+            node->unlock_node();    // unlock small graph nodes
             node_to_subgraph[nid] = u_subgraph;
             for (const auto& [neighbor, edge_weight] : node->out_nodes) {
                 u_subgraph->add_edge(nid, neighbor->nid, node->cptc, neighbor->cptc, edge_weight);
@@ -225,9 +288,9 @@ void MultiDAGShortestPaths::add_edge(dag_nid_t s_id, dag_nid_t t_id, const weak&
         if (it != subgraphs.end()) {
             subgraphs.erase(it);
         }
+        u_subgraph->process_queue();
     }
     u_subgraph->add_edge(s_id, t_id, s, t, weight);
-    u_subgraph->process_queue();
 }
 
 int MultiDAGShortestPaths::get_shortest_distance(dag_nid_t nid) {

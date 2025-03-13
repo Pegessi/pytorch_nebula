@@ -410,7 +410,7 @@ MakeRawResult make_raw(const rematerialize_function_t& remat_f,
 #ifdef DAG_MANAGE
       if(DAG_LOCK_ENABLE)
       if(!during_backward&&pm->if_train_mode[device_id]) {
-        pm->insert_dynamic_dag(device_id, inputs[i]->dg_id, outputs[j]->value->dg_id, weak(inputs[i]), weak(outputs[j]->value));
+        pm->insert_dynamic_dag(device_id, inputs[i]->id, outputs[j]->value->id, weak(inputs[i]), weak(outputs[j]->value));
       }
 #endif
 
