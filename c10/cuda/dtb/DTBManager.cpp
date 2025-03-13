@@ -526,16 +526,19 @@ void DTBCheckpointPool::add_dynamic_dag_into_queue(int device) {
   auto pool = device_dtbpool[device].get();
   if(!pool->cur_mdag.defined()) return;
   for(auto& subg: pool->cur_mdag->subgraphs) {
-    if (subg->nodes.size() < 100) continue;
+    if (subg->nodes.size() < DAG_GRAPH_CONSTRAINT_SIZE) continue;
     subg->_update_stable_window(true);
-    std::cout<< "check cur mdag size:" << pool->cur_mdag->node_to_subgraph.size() << ", " << pool->cur_mdag->subgraphs[0]->total_lock_counts
-      << ", " << pool->cur_mdag->subgraphs[0]->total_unlock_counts << std::endl;
-    auto snodes = pool->cur_mdag->subgraphs[0]->get_sorted_nodes();
-    std::cout << "attain nodes:";
-    for(auto& sn: snodes) {
-      std::cout << sn->nid << ", ";
+#ifdef DEBUG_MODE
+    if(debug_dag_outputs) {
+      std::cout<< "check cur mdag size:" << subg->nodes.size() << ", " << subg->total_lock_counts << ", " << subg->total_unlock_counts << std::endl;
+      auto snodes = subg->get_sorted_nodes();
+      std::cout << "attain nodes:";
+      for(auto& sn: snodes) {
+        std::cout << sn->nid << ", ";
+      }
+      std::cout << "\n";
     }
-    std::cout << "\n";
+#endif
   }
   
   pool->mdags.push(pool->cur_mdag);

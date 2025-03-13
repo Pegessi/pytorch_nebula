@@ -84,12 +84,11 @@ void DynamicDAGShortestPath::_insert_sorted(const SDAGNode& node) {
         }
         ++it;
     }
-    // node->lock_node();
     sorted_nodes.insert(it, node);
     distance_to_max_level_node[node->distance] = node;
     distance_to_last_change_time[node->distance] = get_current_time();
     operation_counter++;
-    if(operation_counter%50==0) _update_stable_window();
+    if (operation_counter%DAG_UPDATE_STABLE_STRIDE==0 && operation_counter > DAG_GRAPH_CONSTRAINT_SIZE) _update_stable_window();
 }
 
 void DynamicDAGShortestPath::_update_stable_window(bool final) {
@@ -232,11 +231,7 @@ int DynamicDAGShortestPath::get_shortest_distance(dag_nid_t nid) {
 }
 
 std::vector<SDAGNode> DynamicDAGShortestPath::get_sorted_nodes() {
-    std::vector<SDAGNode> result;
-    for (const auto& node : sorted_nodes) {
-        result.push_back(node); 
-    }
-    return result;
+    return sorted_nodes;
 }
 
 void DynamicDAGShortestPath::clear_all_nodes() {

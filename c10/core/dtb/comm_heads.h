@@ -120,6 +120,8 @@ static const bool DAG_LOCK_ENABLE = ([]() -> bool {
     if(env) return (atoi(env))==1;
     else    return false;
 })();
+constexpr const int DAG_GRAPH_CONSTRAINT_SIZE = 100;
+constexpr const int DAG_UPDATE_STABLE_STRIDE = 50;
 
 
 /// [WARNING]不可用状态，对于llama每次更新梯度后都会更新一遍权重，换个场景可能又不一样了
@@ -290,6 +292,7 @@ extern const bool record_dcr_process;     // 记录dcr过程
 extern const bool record_dcr_memory;      // 记录dcr过程中对应mem的情况
 extern const bool record_move_defrag;     // 记录move_defrag相关信息
 extern const bool record_p2ap_actions;    // 记录p2ap的操作
+extern COMMON_API const bool debug_dag_outputs;    // 记录dag的debug控制台输出
 
 extern size_t dcr_lock_counts;
 
