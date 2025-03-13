@@ -43,7 +43,7 @@
 // #define MINIMAL_EVICT_COST            /// 最小驱逐策略+cost cache（贪心+随机 DTR） op记录
 #define DEGREE_CHAIN                     /// 残差链发现策略
 #define MEM_FIRST_EVICT                  /// 以内存为中心的驱逐策略(unified_evict)
-#define DCR_MANAGE                      /// 动态社区算法
+// #define DCR_MANAGE                      /// 动态社区算法
 // #define ORIG_EVICT                       /// DTR original Evction
 // 集群上的cost_evict也使用了single_pool + pre_eviction的优化
 #define PROACTIVE_REMAT                 /// 主动恢复相关接口

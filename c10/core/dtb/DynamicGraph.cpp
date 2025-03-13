@@ -319,6 +319,7 @@ void DynamicGraph::add_from_edges(char *filename, int start_batch, int end_batch
 
 
 bool DynamicGraph::is_border_node(nid_t node) {
+#ifdef DCR_MANAGE
   size_t cur_c = n2c[node];
   auto dg_node = cptcs[node];
   if(auto scptc = dg_node->value.lock()) {
@@ -335,6 +336,7 @@ bool DynamicGraph::is_border_node(nid_t node) {
       }
     }
   }
+#endif
   return false;
 }
 
