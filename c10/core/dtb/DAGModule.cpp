@@ -74,17 +74,6 @@ void DynamicDAGShortestPath::add_node(dag_nid_t nid, const weak& cptc) {
 }
 
 void DynamicDAGShortestPath::_insert_sorted(const SDAGNode& node) {
-    auto it = sorted_nodes.begin();
-    while (it != sorted_nodes.end()) {
-        SDAGNode current = *it;
-        if (node->distance < current->distance) {
-            break;
-        } else if (node->distance == current->distance) {
-            return;
-        }
-        ++it;
-    }
-    sorted_nodes.insert(it, node);
     distance_to_max_level_node[node->distance] = node;
     distance_to_last_change_time[node->distance] = get_current_time();
     operation_counter++;
@@ -157,14 +146,11 @@ void DynamicDAGShortestPath::_update_stable_window(bool final) {
 void DynamicDAGShortestPath::_update_sorted_nodes(const SDAGNode& node) {
     if (distance_to_max_level_node.find(node->distance) != distance_to_max_level_node.end()) {
         SDAGNode old_node = distance_to_max_level_node[node->distance];
-        if (old_node != node) {
-            auto it = std::find(sorted_nodes.begin(), sorted_nodes.end(), old_node);
+        if (old_node->nid != node->nid) {
             old_node->unlock_node();
             total_unlock_counts++;
-            if (it != sorted_nodes.end()) {
-                sorted_nodes.erase(it);
-            }
-        }
+        } 
+        else return;
     }
     _insert_sorted(node);
 }
@@ -249,7 +235,7 @@ void MultiDAGShortestPaths::add_edge(dag_nid_t s_id, dag_nid_t t_id, const weak&
     SDAG v_subgraph = node_to_subgraph[t_id];
 
     if (u_subgraph != v_subgraph) { // merge graph
-        if (u_subgraph->get_sorted_nodes().size() < v_subgraph->get_sorted_nodes().size()) {
+        if (u_subgraph->nodes.size() < v_subgraph->nodes.size()) {
             std::swap(u_subgraph, v_subgraph);
         }
         for (const auto& [nid, node] : v_subgraph->nodes) {
@@ -266,7 +252,13 @@ void MultiDAGShortestPaths::add_edge(dag_nid_t s_id, dag_nid_t t_id, const weak&
         }
         u_subgraph->process_queue();
     }
+    time_t begin = std::chrono::system_clock::now();
     u_subgraph->add_edge(s_id, t_id, s, t, weight);
+    time_t end = std::chrono::system_clock::now();
+    auto time_cost = std::chrono::duration_cast<std::chrono::microseconds>(end - begin).count();
+    if(time_cost>100) {
+        std::cout << "[u_subgraph->add_edge " << s_id << "->" << t_id << "] time_cost: " << time_cost << "us" << std::endl;
+    }
 }
 
 int MultiDAGShortestPaths::get_shortest_distance(dag_nid_t nid) {

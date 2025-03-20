@@ -527,7 +527,7 @@ void DTBCheckpointPool::add_dynamic_dag_into_queue(int device) {
   if(!pool->cur_mdag.defined()) return;
   for(auto& subg: pool->cur_mdag->subgraphs) {
     if (subg->nodes.size() < DAG_GRAPH_CONSTRAINT_SIZE) continue;
-    subg->_update_stable_window(true);
+    // subg->_update_stable_window(true);
 #ifdef DEBUG_MODE
     if(debug_dag_outputs) {
       std::cout<< "check cur mdag size:" << subg->nodes.size() << ", " << subg->total_lock_counts << ", " << subg->total_unlock_counts << std::endl;
