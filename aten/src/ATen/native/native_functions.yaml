@@ -9043,6 +9043,7 @@
     Meta: normal_meta_
     SparseCsrCPU, SparseCsrCUDA: normal_sparse_csr_
     NestedTensorCPU, NestedTensorCUDA: normal_nested_
+    Checkpoint: checkpoint_normal_
   autogen: normal.out
 - func: normal_functional(Tensor self, float mean=0, float std=1, *, Generator? generator=None)
     -> Tensor
@@ -9739,6 +9740,7 @@
   dispatch:
     CPU: foreach_tensor_ternary_lerp_slow_
     CUDA: foreach_tensor_lerp_ternary_cuda_
+    Checkpoint: checkpoint__foreach_lerp_list_
   autogen: _foreach_lerp.List_out
 - func: _foreach_lerp.Scalar(Tensor[] self, Tensor[] tensors1, Scalar weight) -> Tensor[]
   device_check: NoCheck

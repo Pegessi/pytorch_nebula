@@ -2488,6 +2488,34 @@ at::Tensor & checkpoint__index_put_impl_(at::Tensor & self, const c10::List<c10:
   return self;
 }
 
+/// ['aten::normal_', 'at::Tensor &', 'normal_', '(double mean, double std, c10::optional<at::Generator> generator)']
+at::Tensor & checkpoint_normal_(Tensor& self, double mean, double std, c10::optional<Generator> gen) {
+  mutate_function_t mt =
+    [=](const Tensors& vec) {
+      Tensor self = vec.at(0);
+      self.normal_(mean, std, gen);
+    };
+  CheckpointTensorImpl::mutate("normal_", mt, {self}, {0});
+  return self;
+}
+
+/// ['aten::_foreach_lerp_', 'void', '_foreach_lerp_', '(at::TensorList self, at::TensorList tensors1, at::TensorList weights)']
+void checkpoint__foreach_lerp_list_(at::TensorList self, at::TensorList tensors1, at::TensorList weights) {
+  Tensors self_;
+  for (const auto i : c10::irange(self.size())) {
+    self_.push_back(self[i].decheckpoint());
+  }
+  Tensors tensors1_;
+  for (const auto i : c10::irange(tensors1.size())) {
+    tensors1_.push_back(tensors1[i].decheckpoint());
+  }
+  Tensors weights_;
+  for (const auto i : c10::irange(weights.size())) {
+    weights_.push_back(weights[i].decheckpoint());
+  }
+  at::_foreach_lerp_(at::TensorList(self_), at::TensorList(tensors1_), at::TensorList(weights_));
+}
+
 /// ['aten::_foreach_lerp_', 'void', '_foreach_lerp_', '(at::TensorList self, at::TensorList tensors1, const at::Scalar & weight)']
 void checkpoint__foreach_lerp_(at::TensorList self, at::TensorList tensors1, const at::Scalar & weight) {
   Tensors self_, tensors1_;

@@ -46,7 +46,7 @@
 // #define DCR_MANAGE                      /// 动态社区算法
 // #define ORIG_EVICT                       /// DTR original Evction
 // 集群上的cost_evict也使用了single_pool + pre_eviction的优化
-#define PROACTIVE_REMAT                 /// 主动恢复相关接口
+// #define PROACTIVE_REMAT                 /// 主动恢复相关接口
 #define DEFRAGMENT                      /// 碎片整理策略   
 #define DAG_MANAGE                      /// 动态图算法
 
@@ -120,8 +120,16 @@ static const bool DAG_LOCK_ENABLE = ([]() -> bool {
     if(env) return (atoi(env))==1;
     else    return false;
 })();
-constexpr const int DAG_GRAPH_CONSTRAINT_SIZE = 100;
-constexpr const int DAG_UPDATE_STABLE_STRIDE = 50;
+static const int DAG_GRAPH_CONSTRAINT_SIZE  = ([]() -> int { // △nb_nodes > cluster_interval, then dynamic change com
+    const char* env = getenv("DAG_UPDATE_STABLE_STRIDE");
+    if(env) return atoi(env);
+    else return 100;
+})();     
+static const int DAG_UPDATE_STABLE_STRIDE  = ([]() -> int { // △nb_nodes > cluster_interval, then dynamic change com
+    const char* env = getenv("DAG_UPDATE_STABLE_STRIDE");
+    if(env) return atoi(env);
+    else return 50;
+})();     
 
 
 /// [WARNING]不可用状态，对于llama每次更新梯度后都会更新一遍权重，换个场景可能又不一样了

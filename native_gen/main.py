@@ -439,6 +439,6 @@ def single_opsfile_func_gen(path):
 
 if __name__ == '__main__':
     # single_func_gen("""at::Tensor & normal_(double mean, double std, c10::optional<at::Generator> generator)""")
-    single_func_gen("""at::Tensor & upsample_nearest2d_backward_outf(const at::Tensor & grad_output, at::IntArrayRef output_size, at::IntArrayRef input_size, c10::optional<double> scales_h, c10::optional<double> scales_w, at::Tensor & grad_input)""")
+    single_func_gen("""at::Tensor & normal_sparse_csr_(Tensor& self, double mean, double std, c10::optional<Generator> gen)""")
     # single_opsfile_func_gen('/data/wangzehua/pytorch_dtb/torch/include/ATen/ops/pow.h')
     # all_func_sign_and_register()

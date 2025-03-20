@@ -183,7 +183,7 @@ void AliasPool::unlock() {
         evict(1);
       } 
 #endif
-      else if (memory > 0 && if_temp){
+      else if (memory > 0 && if_temp){ // release temp
         evict(2);
       }
     }
@@ -196,7 +196,7 @@ void AliasPool::unlock() {
 
 void AliasPool::release_external() {
   --external_count;
-  if (external_count == 0) {          /// TODO: 潜在bug，如果lock_count>0，此后这个aps会成为僵尸内存; 反向内存堆积的原因是否是因为这个？ 还是其他的引用计数
+  if (external_count == 0) {
     if(if_weight) return;
     if (lock_count > 0) {
       return;

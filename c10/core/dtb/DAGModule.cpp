@@ -140,6 +140,15 @@ void DynamicDAGShortestPath::_update_stable_window(bool final) {
                 total_unlock_counts++;
             }
         }
+#ifdef DEBUG_MODE
+        if(debug_dag_outputs && idx > last_same_idx) {
+            std::cout << "time_order_nodes: ";
+            for (int i=0; i<idx; ++i) {
+                std::cout << time_order_nodes[i]->nid << " ";
+            }
+            std::cout << std::endl;
+        }
+#endif
         last_same_idx = idx;
     }
     last_timer_order_nodes = time_order_nodes;
@@ -171,32 +180,19 @@ void DynamicDAGShortestPath::add_edge(dag_nid_t s_id, dag_nid_t t_id, const weak
     u->out_degree++;
     v->in_degree++;
 
-    v->level = -1;
+    if (u->distance != std::numeric_limits<int>::max())
+        relax(u, v, weight);
+}
+
+void DynamicDAGShortestPath::relax(const SDAGNode& u, const SDAGNode& v, int weight) {
     for (const auto& predecessor : v->in_nodes) {
         v->level = std::max(v->level, predecessor->level);
     }
     v->level++;
-    if (u->distance != std::numeric_limits<int>::max()) {
-        int prev_dist = v->distance;
-        relax(u, v, weight);
-        v->level = -1;
-        for (const auto& predecessor : v->in_nodes) {
-            v->level = std::max(v->level, predecessor->level);
-        }
-        v->level++;
-        if (v->distance != prev_dist || v->level != v->level) {
-            _update_sorted_nodes(v);
-        }
-    }
-}
-
-void DynamicDAGShortestPath::relax(const SDAGNode& u, const SDAGNode& v, int weight) {
     if (v->distance > u->distance + weight) {
-        int prev_dist = v->distance;
         v->distance = u->distance + weight;
-        if (prev_dist != v->distance) {
-            queue.push(v);
-        }
+        _update_sorted_nodes(v);
+        queue.push(v);
     }
 }
 
@@ -205,22 +201,7 @@ void DynamicDAGShortestPath::process_queue() {
         SDAGNode u = queue.front();
         queue.pop();
         for (const auto& [v, weight] : u->out_nodes) {
-            int prev_dist = v->distance;
-            int prev_level = v->level;
-            v->level = -1;
-            for (const auto& predecessor : v->in_nodes) {
-                v->level = std::max(v->level, predecessor->level);
-            }
-            v->level++;
             relax(u, v, weight);
-            v->level = -1;
-            for (const auto& predecessor : v->in_nodes) {
-                v->level = std::max(v->level, predecessor->level);
-            }
-            v->level++;
-            if (v->distance != prev_dist || v->level != prev_level) {
-                _update_sorted_nodes(v);
-            }
         }
     }
 }
